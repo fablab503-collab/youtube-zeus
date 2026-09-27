@@ -56,6 +56,7 @@ final class ChannelWatcher {
             _ = await check(channel)
         }
         engine.retryWaiting()
+        engine.resumePending()
         exporter.retryPending(in: context)
     }
 

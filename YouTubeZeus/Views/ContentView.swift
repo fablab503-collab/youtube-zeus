@@ -16,6 +16,8 @@ struct ContentView: View {
                 case .skills: SkillsListView()
                 case .channel(let id): ChannelView(channelID: id).id(id)
                 case .collection(let id): CollectionView(listID: id).id(id)
+                case .topic(let topic): TopicView(topic: topic).id(topic)
+                case .ask: AskSourcesList()
                 case .browser: AccountPanel()
                 case .library, nil: LibraryView()
                 }
@@ -25,6 +27,8 @@ struct ContentView: View {
         } detail: {
             if app.selection == .browser {
                 BrowserScreen()
+            } else if app.selection == .ask {
+                AskView()
             } else if app.selection == .skills {
                 if let id = app.selectedSkillID {
                     SkillReviewView(skillID: id).id(id)
@@ -65,6 +69,20 @@ struct SidebarView: View {
     @Query(filter: #Predicate<SkillDraft> { $0.statusRaw == "draft" }) private var drafts: [SkillDraft]
     @Query(filter: #Predicate<Video> { $0.statusRaw == "discovered" }) private var discovered: [Video]
     @Query(sort: \VideoList.updatedAt, order: .reverse) private var lists: [VideoList]
+    @Query private var allVideos: [Video]
+
+    private var topics: [(String, Int)] {
+        var counts: [String: (name: String, count: Int)] = [:]
+        for video in allVideos where video.status.hasText {
+            for topic in video.digest?.topics ?? [] {
+                let key = topic.lowercased()
+                counts[key] = (counts[key]?.name ?? topic.capitalized, (counts[key]?.count ?? 0) + 1)
+            }
+        }
+        return counts.values.filter { $0.count > 1 || counts.count < 12 }
+            .sorted { $0.count == $1.count ? $0.name < $1.name : $0.count > $1.count }
+            .prefix(15).map { ($0.name, $0.count) }
+    }
 
     var body: some View {
         @Bindable var app = app
@@ -117,6 +135,9 @@ struct SidebarView: View {
                     }
                 } icon: { Image(systemName: "globe") }
                 .tag(SidebarItem.browser)
+
+                Label("Ask your brain", systemImage: "brain.head.profile")
+                    .tag(SidebarItem.ask)
             }
 
             if !lists.isEmpty {
@@ -137,6 +158,22 @@ struct SidebarView: View {
                             Divider()
                             Button("Remove Collection", role: .destructive) { app.deleteList(list) }
                         }
+                    }
+                }
+            }
+
+            let topicList = topics
+            if !topicList.isEmpty {
+                Section("Topics") {
+                    ForEach(topicList, id: \.0) { topic in
+                        Label {
+                            HStack {
+                                Text(topic.0).lineLimit(1)
+                                Spacer()
+                                Text("\(topic.1)").foregroundStyle(.secondary).monospacedDigit()
+                            }
+                        } icon: { Image(systemName: "number") }
+                        .tag(SidebarItem.topic(topic.0))
                     }
                 }
             }

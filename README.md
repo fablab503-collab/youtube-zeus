@@ -11,6 +11,7 @@ Paste a YouTube link (video, playlist or channel). Zeus eats the video and keeps
 - **Collections**: a playlist, a whole channel, Watch Later or Liked videos is eaten as one collection, in order, with its own index note (`Collections/<name>.md`). Every channel folder gets `_Index - <Channel>.md`; `YouTube index.md` lists channels, collections, topics and recent videos. Notes also carry tags, views, likes, the description and the top comments.
 - **Local AI polishing**: Ollama + `qwen3:4b-instruct` (2.5 GB, fits in 8 GB of RAM) fixes punctuation, capitals and misheard words of auto-captions and Whisper text, paragraph by paragraph, never translating or shortening. Original / Polished toggle.
 - **AI hand-off**: "Copy for AI" knowledge packs (video or collection) for Claude, ChatGPT, Gemini, Grok, GLM…; the `zeus` command for terminals and agents; the `youtube-zeus` Agent Skill installed for Claude Code, Codex, Gemini CLI and ~/.agents (Settings › AI hand-off). A copy of the skill and universal instructions lives in the Second Brain (`Sources/YouTube/_For AI/`).
+- **Ask your brain**: ask a question in any language; Zeus ranks the eaten videos and paragraphs on the Mac, and Codex answers with numbered sources (video + timestamp + quote). **Topics** in the sidebar group videos by their summary tags; new summaries reuse existing tags so the library stays tidy.
 - **Codex skills** (the 0.1 feature): OpenAI (Responses API, strict JSON schema, `store=false`) proposes up to three evidence-backed skills. Every quote is checked against the transcript, the bundle is validated (structure, prohibited content, evidence), and nothing is published without "Approve and publish". Output: `SKILL.md`, `references/evidence.md`, `references/changes.md`, `evals/evals.json` in `~/.codex/skills/<name>/` (older versions go to `Skill History`). The API key lives in the Keychain.
 
 ## Build
@@ -43,7 +44,11 @@ Installed by Settings › AI hand-off as a tiny script in /opt/homebrew/bin (or 
 open -a "YouTube Zeus" --args -eat "https://youtu.be/…"        # eat a link at launch
 open -a "YouTube Zeus" --args -eatWhisper "https://youtu.be/…" # force Whisper
 open -a "YouTube Zeus" --args -selectVideo <videoID>
+open -a "YouTube Zeus" --args -ask "question"                 # also: -browse <url>, -showTopic <name>, -polish <id>
+open "youtubezeus://eat?url=<percent-encoded link>"           # hand a link to the running app
 ```
+
+The after-eating queue (polish → summary → note → indexes) is rebuilt at every launch and every channel check, so nothing is lost when the app quits.
 
 `~/Library/Application Support/YouTube Zeus/diagnostics.json` shows tools, Apple Intelligence and Second Brain status. The library is a SwiftData store in the same folder (`Library.store`).
 

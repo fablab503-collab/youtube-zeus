@@ -79,6 +79,7 @@ nonisolated enum AIPack {
     - `zeus eat "<playlist or channel link>" --limit 20 --save` — eat many videos in a row.
     - `zeus get <link or video id>` — print what was already eaten (instant, no network).
     - `zeus search "<words>"` — find eaten videos by title, channel or transcript text.
+    - `zeus ask "<question>"` — an answer from everything eaten, with video + timestamp sources.
     - `zeus list "<playlist or channel link>"` — list the videos (id, date, title).
     - `zeus eat "<link>" --whisper` — listen with Whisper instead of captions.
     - `zeus eat "<link>" --json` — structured output.

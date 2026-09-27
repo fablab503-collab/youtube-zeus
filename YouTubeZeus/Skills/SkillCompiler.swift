@@ -173,7 +173,7 @@ final class SkillCompiler {
     }
 
     /// Lowercased letters and digits only, one space between words: robust to caption punctuation.
-    static func words(_ text: String) -> String {
+    nonisolated static func words(_ text: String) -> String {
         let folded = text.lowercased().replacingOccurrences(of: "’", with: "'")
         return folded.components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }.joined(separator: " ")

@@ -24,6 +24,7 @@ enum HandOff {
     3. Need it cleaner or summarized right now: add `--polish` (local AI, Ollama) and/or `--summary`.
     4. Many videos: `zeus eat "<playlist or channel link>" --limit 20 --save` (one pack per video, `---` between).
     5. Find things: `zeus search "<words>"`; list a playlist or channel: `zeus list "<link>" --limit 50`.
+       Answer a question from everything eaten, with timestamped sources: `zeus ask "<question>"`.
     6. Machine-readable: `--json` (paragraphs with start/end seconds, chapters, tags, comments, summary).
     7. No captions or bad auto-captions: `--whisper` listens to the audio on the Mac.
 

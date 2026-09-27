@@ -31,6 +31,7 @@ final class EatEngine {
     private var forceWhisper: Set<String> = []
     private(set) var postQueue: [String] = []
     private var postRunning = false
+    private(set) var postCurrent: String?
     private(set) var polishing: Set<String> = []
     private var forcePolish: Set<String> = []
 
@@ -127,6 +128,27 @@ final class EatEngine {
         }
         try? context.save()
         pump()
+        resumePending()
+    }
+
+    /// The after-eating queue lives in memory: after a restart (or a crash), finish polishing and
+    /// summaries that were still waiting. Also called at each channel check.
+    func resumePending() {
+        let doneRaw = EatStatus.done.rawValue
+        let descriptor = FetchDescriptor<Video>(predicate: #Predicate { $0.statusRaw == doneRaw },
+                                                sortBy: [SortDescriptor(\.addedAt)])
+        for video in (try? context.fetch(descriptor)) ?? [] where needsPost(video) {
+            schedulePost(video.videoID)
+        }
+    }
+
+    func needsPost(_ video: Video) -> Bool {
+        guard video.status == .done, !postQueue.contains(video.videoID), postCurrent != video.videoID,
+              !polishing.contains(video.videoID),
+              !summarizing.contains(video.videoID) else { return false }
+        let wantsPolish = shouldPolish(video) && video.polishedData == nil && video.polishError == nil
+        let wantsSummary = settings.autoSummarize && canSummarize && video.digestData == nil && video.digestError == nil
+        return wantsPolish || wantsSummary
     }
 
     /// Live streams, premieres and too-fresh uploads are retried on each channel check.
@@ -266,7 +288,9 @@ final class EatEngine {
         Task {
             while !postQueue.isEmpty {
                 let next = postQueue.removeFirst()
+                postCurrent = next
                 if let video = video(next) { await afterEating(video) }
+                postCurrent = nil
             }
             postRunning = false
         }
@@ -274,7 +298,7 @@ final class EatEngine {
 
     private func afterEating(_ video: Video) async {
         let forced = forcePolish.remove(video.videoID) != nil
-        if forced || (shouldPolish(video) && video.polishedData == nil) { await polish(video) }
+        if forced || (shouldPolish(video) && video.polishedData == nil && video.polishError == nil) { await polish(video) }
         if settings.autoSummarize, canSummarize, video.digestData == nil { await summarize(video) }
         exporter.export(video)
         exporter.scheduleIndexes(in: context)
@@ -367,6 +391,18 @@ final class EatEngine {
 
     func isSummarizing(_ id: String) -> Bool { summarizing.contains(id) }
 
+    /// The library's topic tags, most used first.
+    func knownTopics() -> [String] {
+        let doneRaw = EatStatus.done.rawValue
+        let videos = (try? context.fetch(FetchDescriptor<Video>(predicate: #Predicate { $0.statusRaw == doneRaw }))) ?? []
+        var counts: [String: (name: String, count: Int)] = [:]
+        for topic in videos.flatMap({ $0.digest?.topics ?? [] }) {
+            let key = topic.lowercased()
+            counts[key] = (counts[key]?.name ?? topic, (counts[key]?.count ?? 0) + 1)
+        }
+        return counts.values.sorted { $0.count > $1.count }.prefix(40).map(\.name)
+    }
+
     /// Apple Intelligence on this Mac, or Codex when allowed (Settings › AI).
     var useAppleIntelligence: Bool { settings.summaryEngine != "codex" && summarizer.isAvailable }
 
@@ -400,7 +436,8 @@ final class EatEngine {
                     paragraphs: video.displayParagraphs,
                     videoLanguage: video.language,
                     youtubeChapters: video.chapters,
-                    outputLanguage: settings.summaryLanguage) { step in
+                    outputLanguage: settings.summaryLanguage,
+                    knownTopics: knownTopics()) { step in
                         self.jobs[id] = JobState(step: step)
                         video.statusDetail = step
                     }
@@ -410,7 +447,8 @@ final class EatEngine {
                 let language = settings.summaryLanguage == "auto" ? video.language : settings.summaryLanguage
                 digest = try await CodexSummarizer(executable: codex, model: settings.codexModel).summarize(
                     title: video.displayTitle, channel: video.channelTitle, paragraphs: video.displayParagraphs,
-                    language: language.isEmpty ? "en" : language, youtubeChapters: video.chapters)
+                    language: language.isEmpty ? "en" : language, youtubeChapters: video.chapters,
+                    knownTopics: knownTopics())
             } else {
                 throw SummaryError.unavailable(summaryUnavailableMessage)
             }

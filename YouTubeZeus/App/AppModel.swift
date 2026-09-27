@@ -9,8 +9,10 @@ enum SidebarItem: Hashable {
     case library
     case skills
     case browser
+    case ask
     case channel(String)
     case collection(String)
+    case topic(String)
 }
 
 struct Toast: Identifiable, Equatable {
@@ -128,6 +130,17 @@ final class AppModel {
         }
         if (domain["showBrowser"] as? String) != nil {
             selection = .browser
+        }
+        if let link = domain["browse"] as? String, let url = URL(string: link) {
+            selection = .browser
+            browser.open(url)
+        }
+        if let question = domain["ask"] as? String {
+            selection = .ask
+            Task { await ask(question) }
+        }
+        if let topic = domain["showTopic"] as? String {
+            selection = .topic(topic)
         }
         if let id = domain["showCollection"] as? String {
             selection = .collection(id)
@@ -303,6 +316,42 @@ final class AppModel {
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         if url.host == "eat", let link = items.first(where: { $0.name == "url" })?.value {
             Task { await eat(link) }
+        }
+    }
+
+    // MARK: Ask your YouTube brain
+
+    var askAnswer: BrainAnswer?
+    var askPassages: [BrainPassage] = []
+    var askQuestion = ""
+    var isAsking = false
+    var askError: String?
+
+    func ask(_ question: String) async {
+        let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty else { return }
+        askQuestion = question
+        askAnswer = nil
+        askError = nil
+        guard settings.openAIConsent, let codex = CodexLocator.path else {
+            askError = "Ask uses Codex: allow sending transcripts to OpenAI in Settings › Codex skills."
+            return
+        }
+        isAsking = true
+        defer { isAsking = false }
+        let done = [EatStatus.done, .summarizing, .polishing].map(\.rawValue)
+        let videos = ((try? context.fetch(FetchDescriptor<Video>(predicate: #Predicate { done.contains($0.statusRaw) })))) ?? []
+        let passages = AskBrain.retrieve(question: question, videos: videos.map(\.snapshot))
+        askPassages = passages
+        guard !passages.isEmpty else {
+            askError = "Nothing in your library talks about that yet. Eat a few videos about it first."
+            return
+        }
+        do {
+            askAnswer = try await AskBrain.ask(question: question, passages: passages, codex: codex, model: settings.codexModel)
+            AppLog.write("ASK ok: \(question)")
+        } catch {
+            askError = error.localizedDescription
         }
     }
 

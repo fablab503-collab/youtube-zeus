@@ -209,6 +209,14 @@ struct QueueView: View {
                     }
                 }
             }
+            let afterEating = app.engine.postQueue.compactMap { id in videos.first { $0.videoID == id } }
+            if !afterEating.isEmpty {
+                Section("Next: polish and summarize (\(afterEating.count))") {
+                    ForEach(afterEating) { video in
+                        VideoRow(video: video).tag(video.videoID).contextMenu { VideoMenu(video: video) }
+                    }
+                }
+            }
             if !waiting.isEmpty {
                 Section("Waiting — retried at each channel check") {
                     ForEach(waiting) { video in

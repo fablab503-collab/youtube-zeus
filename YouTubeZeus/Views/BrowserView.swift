@@ -78,20 +78,24 @@ struct BrowserScreen: View {
             }
             .animation(.spring(duration: 0.3), value: link)
             .toolbar {
-                ToolbarItemGroup(placement: .navigation) {
-                    Button { browser.webView.goBack() } label: { Image(systemName: "chevron.left") }
-                        .disabled(!browser.canGoBack)
-                    Button { browser.webView.goForward() } label: { Image(systemName: "chevron.right") }
-                        .disabled(!browser.canGoForward)
-                    Button { browser.webView.reload() } label: {
-                        Image(systemName: browser.isLoading ? "xmark" : "arrow.clockwise")
-                    }
-                }
                 ToolbarItem(placement: .principal) {
-                    TextField("youtube.com", text: $address)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(minWidth: 260, idealWidth: 420)
-                        .onSubmit(go)
+                    HStack(spacing: 6) {
+                        Button { browser.webView.goBack() } label: { Image(systemName: "chevron.left") }
+                            .disabled(!browser.canGoBack)
+                            .help("Back")
+                        Button { browser.webView.goForward() } label: { Image(systemName: "chevron.right") }
+                            .disabled(!browser.canGoForward)
+                            .help("Forward")
+                        Button { if browser.isLoading { browser.webView.stopLoading() } else { _ = browser.webView.reload() } } label: {
+                            Image(systemName: browser.isLoading ? "xmark" : "arrow.clockwise")
+                        }
+                        .help(browser.isLoading ? "Stop" : "Reload")
+                        TextField("Search YouTube or type a link", text: $address)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(minWidth: 240, idealWidth: 420)
+                            .onSubmit(go)
+                    }
+                    .buttonStyle(.borderless)
                 }
                 ToolbarItem {
                     Button { browser.open(URL(string: "https://www.youtube.com/")!) } label: { Image(systemName: "house") }

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftData
 
 /// Starts the command line (`zeus …`) or the app.
 @main
@@ -34,6 +35,7 @@ enum ZeusCLI {
       zeus get <link|id>        print the saved note of an eaten video (no network)
       zeus search <words…>      find eaten videos (title, channel, transcript)
       zeus list <link> [--limit N]  list the videos of a playlist or channel
+      zeus ask <question>       answer from everything eaten, with sources (uses Codex)
       zeus where                show where notes are saved
       zeus install-skills       install the youtube-zeus skill for Claude Code, Codex, Gemini CLI, ~/.agents
       zeus instructions         print instructions to paste into any AI
@@ -110,6 +112,9 @@ enum ZeusCLI {
             case "instructions":
                 print(AIPack.universalInstructions)
                 return 0
+            case "ask":
+                guard !rest.isEmpty else { return fail("zeus ask \"<question>\"") }
+                return try await ask(rest.joined(separator: " "), settings: settings, json: flags.contains("--json"))
             case "help", "--help", "-h":
                 print(help)
                 return 0
@@ -255,6 +260,37 @@ enum ZeusCLI {
         }
         let data = (try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])) ?? Data()
         return String(decoding: data, as: UTF8.self)
+    }
+
+    // MARK: Ask
+
+    static func ask(_ question: String, settings: AppSettings, json: Bool) async throws -> Int32 {
+        guard let codex = CodexLocator.path else { return fail("Codex was not found.") }
+        guard settings.openAIConsent else { return fail("Allow sending transcripts to OpenAI in YouTube Zeus › Settings › Codex skills first.") }
+        // Read the app's library without changing it.
+        let url = AppFolders.support.appendingPathComponent("Library.store")
+        let configuration = ModelConfiguration(url: url, allowsSave: false)
+        let container = try ModelContainer(for: Video.self, Channel.self, SkillDraft.self, VideoList.self, configurations: configuration)
+        let context = ModelContext(container)
+        let done = [EatStatus.done, .summarizing, .polishing].map(\.rawValue)
+        let videos = try context.fetch(FetchDescriptor<Video>(predicate: #Predicate { done.contains($0.statusRaw) }))
+        let passages = AskBrain.retrieve(question: question, videos: videos.map(\.snapshot))
+        guard !passages.isEmpty else { return fail("Nothing in the library talks about that yet.") }
+        log("Reading \(Set(passages.map(\.videoID)).count) videos…")
+        let answer = try await AskBrain.ask(question: question, passages: passages, codex: codex, model: settings.codexModel)
+        if json {
+            let data = try JSONEncoder().encode(answer)
+            print(String(decoding: data, as: UTF8.self))
+            return 0
+        }
+        print(answer.answer)
+        print("\nSources:")
+        for (index, source) in answer.sources.enumerated() {
+            let title = passages.first { $0.videoID == source.video_id }?.title ?? source.video_id
+            print("[\(index + 1)] \(title) [\(source.seconds.timestamp)] https://www.youtube.com/watch?v=\(source.video_id)&t=\(Int(source.seconds))s")
+            print("    “\(source.quote)”")
+        }
+        return 0
     }
 
     // MARK: Library lookups (Second Brain notes)

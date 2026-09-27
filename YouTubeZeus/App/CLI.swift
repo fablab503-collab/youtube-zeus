@@ -37,6 +37,10 @@ enum ZeusCLI {
       zeus list <link> [--limit N]  list the videos of a playlist or channel
       zeus ask <question>       answer from everything eaten, with sources (uses Codex)
       zeus repos [--json]       every GitHub repository linked in the eaten videos, with its check
+      zeus playlists <channel> [--import]   list a channel's playlists; --import makes each one a collection in the app
+      zeus pack <playlist|collection> [--no-install]
+          Claude pack of a collection: a skill in ~/.claude/skills (index + one file per video), a zip for
+          claude.ai, a one-message digest and the full transcripts in parts (Second Brain › Claude packs)
       zeus open <link|id|youtubezeus://…>   show a video (or any Zeus page) in the app
       zeus link <link|id>       print the youtubezeus:// link and the Obsidian link of a video's note
       zeus guide                print the full guide for AI agents (how Zeus works and how to connect)
@@ -119,6 +123,22 @@ enum ZeusCLI {
                 return 0
             case "instructions":
                 print(AIPack.universalInstructions)
+                return 0
+            case "pack":
+                guard let target = rest.first else { return fail("zeus pack <playlist link or collection id>") }
+                return try pack(target, install: !flags.contains("--no-install"))
+            case "playlists":
+                guard let link = rest.first, case .channel(let url) = YouTubeLink.parse(link) else {
+                    return fail("zeus playlists <channel link, e.g. https://www.youtube.com/@nateherk>")
+                }
+                guard let ytdlp = settings.makeYTDLP() else { return fail(EatError.missing("yt-dlp").localizedDescription) }
+                let found = try await ytdlp.playlists(ofChannel: url.absoluteString)
+                print("\(found.channel): \(found.lists.count) playlists")
+                for list in found.lists { print("\(list.id)\t\(list.title)") }
+                if flags.contains("--import") {
+                    openInApp(URL(string: "youtubezeus://playlists?channel=\(BrainLinks.encode(url.absoluteString))")!, raw: true)
+                    log("Importing them in YouTube Zeus as collections…")
+                }
                 return 0
             case "repos":
                 return try repos(json: flags.contains("--json"))
@@ -273,6 +293,40 @@ enum ZeusCLI {
         return snapshot
     }
 
+    // MARK: Claude pack
+
+    /// Builds the Claude pack of a collection (skill + digest + transcript parts) from the library.
+    static func pack(_ target: String, install: Bool) throws -> Int32 {
+        var listID = target
+        if case .playlist(let id) = YouTubeLink.parse(target) { listID = id }
+        let url = AppFolders.support.appendingPathComponent("Library.store")
+        let configuration = ModelConfiguration(url: url, allowsSave: false)
+        let container = try ModelContainer(for: Video.self, Channel.self, SkillDraft.self, VideoList.self, configurations: configuration)
+        let context = ModelContext(container)
+        let lists = try context.fetch(FetchDescriptor<VideoList>())
+        guard let list = lists.first(where: { $0.listID == listID || $0.title.caseInsensitiveCompare(target) == .orderedSame }) else {
+            return fail("No collection \(target). Eat the playlist first: zeus eat \"<playlist link>\" --save (or open it in the app).")
+        }
+        let videos = Dictionary(try context.fetch(FetchDescriptor<Video>()).map { ($0.videoID, $0) }, uniquingKeysWith: { first, _ in first })
+        let settings = AppSettings()
+        let input = ClaudePackPaths.input(for: list, settings: settings, install: install) { videos[$0] }
+        guard !input.videos.isEmpty else { return fail("Nothing eaten yet in \(list.title).") }
+        log("Packing \(input.videos.count) videos of \(list.title)…")
+        let result = try ClaudePack.build(input)
+        var registry = UserDefaults.standard.dictionary(forKey: "claudePacks") as? [String: String] ?? [:]
+        registry[list.listID] = ClaudePackPaths.fingerprint(input) + (result.vaultWritten ? "" : "|vault-pending")
+        UserDefaults.standard.set(registry, forKey: "claudePacks")
+        print("Claude pack: \(result.name)")
+        print("  skill       \(result.installedSkill?.path ?? "(not installed)")  (name: \(result.skillName))")
+        print("  claude.ai   \(result.zip?.path ?? "—")  (Settings › Capabilities › Skills › upload)")
+        let folder = result.vaultWritten ? result.vaultFolder : result.localFolder
+        print("  digest      \(folder.appendingPathComponent("digest.md").path)  (≈ \(result.digestTokens) tokens)")
+        print("  transcripts \(result.parts) part(s) in \(folder.path)  (≈ \(result.totalTokens) tokens)")
+        if !result.vaultWritten { print("  (the Second Brain did not answer: copies stay in \(result.localFolder.path) until the next refresh)") }
+        print("  \(result.videos) videos, \(result.summarized) summarized, \(result.missing) not eaten yet")
+        return 0
+    }
+
     // MARK: GitHub
 
     /// Every repository linked in the library (read-only).
@@ -385,6 +439,12 @@ enum ZeusCLI {
     }
 
     /// Lets the app add the video to its library (it keeps the indexes, polishing and summaries up to date).
+    static func openInApp(_ url: URL, raw: Bool) {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        NSWorkspace.shared.open(url, configuration: configuration) { _, _ in }
+    }
+
     static func openInApp(_ videoURL: URL) {
         var components = URLComponents()
         components.scheme = "youtubezeus"

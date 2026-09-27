@@ -34,6 +34,14 @@ struct CollectionView: View {
                         }
                         ProgressView(value: Double(eaten), total: Double(max(1, list.videoIDs.count)))
                             .tint(.zeus)
+                        if let pack = app.packResults[list.listID] {
+                            Label("Claude pack: skill “\(pack.skillName)” · \(pack.videos) videos, \(pack.summarized) summarized · digest ≈ \(pack.digestTokens / 1000)k tokens · \(pack.parts) transcript part\(pack.parts == 1 ? "" : "s")",
+                                  systemImage: "shippingbox.fill")
+                                .font(.caption).foregroundStyle(.secondary)
+                        } else if app.hasClaudePack(list) {
+                            Label("Claude pack installed — it follows this collection as videos are eaten and summarized.", systemImage: "shippingbox.fill")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                         GlassEffectContainer(spacing: 8) {
                             FlowLayout(spacing: 8) {
                                 Menu {
@@ -67,6 +75,29 @@ struct CollectionView: View {
                                 }
                                 .buttonStyle(.glass)
                                 .disabled(refreshing)
+                                Menu {
+                                    Button(app.hasClaudePack(list) ? "Update the Claude Pack" : "Make a Claude Pack") {
+                                        Task { await app.makeClaudePack(list) }
+                                    }
+                                    if app.hasClaudePack(list) {
+                                        Button("Copy the Digest Prompt") { app.copyDigest(list) }
+                                        Button("Open the Pack in the Second Brain") {
+                                            app.openInBrain(app.packVaultFolder(list).appendingPathComponent("README.md"))
+                                        }
+                                        Button("Show the Prompt Files") {
+                                            NSWorkspace.shared.activateFileViewerSelecting([app.packLocalPrompts(list).appendingPathComponent("digest.md")])
+                                        }
+                                        Button("Show the Skill Zip for claude.ai") {
+                                            NSWorkspace.shared.activateFileViewerSelecting([app.packZipURL(list)])
+                                        }
+                                    }
+                                } label: {
+                                    Label(app.buildingPacks.contains(list.listID) ? "Packing…" : "Claude pack", systemImage: "shippingbox")
+                                }
+                                .menuStyle(.button)
+                                .buttonStyle(.glass)
+                                .fixedSize()
+                                .help("A Claude skill (index + one file per video), a one-message digest and the full transcripts in parts")
                                 if let path = list.indexPath {
                                     Button { app.openInBrain(URL(fileURLWithPath: path)) } label: {
                                         Label("Index note", systemImage: "list.bullet.rectangle")

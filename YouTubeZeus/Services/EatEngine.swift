@@ -29,9 +29,23 @@ final class EatEngine {
     private var whisperBusy = false
     private var summarizing: Set<String> = []
     private var forceWhisper: Set<String> = []
-    private(set) var postQueue: [String] = []
-    private var postRunning = false
-    private(set) var postCurrent: String?
+    /// After eating, two lanes run side by side: the local AI polishes, Codex/Apple Intelligence summarizes.
+    private(set) var polishQueue: [String] = []
+    private(set) var summaryQueue: [String] = []
+    private var polishRunning = false
+    private var summaryRunning = false
+    private(set) var polishCurrent: String?
+    private(set) var summaryCurrent: String?
+
+    /// Videos waiting for polishing or a summary, in order (for the queue view).
+    var postQueue: [String] {
+        var seen = Set<String>()
+        return (polishQueue + summaryQueue).filter { seen.insert($0).inserted }
+    }
+
+    private func inPost(_ id: String) -> Bool {
+        polishQueue.contains(id) || summaryQueue.contains(id) || polishCurrent == id || summaryCurrent == id
+    }
     private(set) var polishing: Set<String> = []
     private var forcePolish: Set<String> = []
     private(set) var githubQueue: [String] = []
@@ -147,7 +161,7 @@ final class EatEngine {
     }
 
     func needsPost(_ video: Video) -> Bool {
-        guard video.status == .done, !postQueue.contains(video.videoID), postCurrent != video.videoID,
+        guard video.status == .done, !inPost(video.videoID),
               !polishing.contains(video.videoID),
               !summarizing.contains(video.videoID) else { return false }
         let wantsPolish = shouldPolish(video) && video.polishedData == nil && video.polishError == nil
@@ -284,34 +298,78 @@ final class EatEngine {
         if let thumbnail = info.thumbnail { video.thumbnailURLString = thumbnail }
     }
 
-    // MARK: After eating: polish, summarize, save (one video at a time)
+    // MARK: After eating: polish and summarize in two lanes, then save
 
     private func schedulePost(_ id: String) {
-        if !postQueue.contains(id) { postQueue.append(id) }
-        guard !postRunning else { return }
-        postRunning = true
+        guard let video = video(id) else { return }
+        let forced = forcePolish.contains(id)
+        let wantsPolish = forced || (shouldPolish(video) && video.polishedData == nil && video.polishError == nil)
+        let wantsSummary = settings.autoSummarize && canSummarize && video.digestData == nil
+        if wantsPolish, !polishQueue.contains(id), polishCurrent != id { polishQueue.append(id) }
+        if wantsSummary, !summaryQueue.contains(id), summaryCurrent != id { summaryQueue.append(id) }
+        if !wantsPolish, !wantsSummary { finish(video) }
+        runPolishLane()
+        runSummaryLane()
+    }
+
+    /// Takes the next video that the other lane is not working on (falls back to the first one).
+    private static func take(from queue: inout [String], avoiding other: String?) -> String? {
+        guard !queue.isEmpty else { return nil }
+        let index = queue.firstIndex { $0 != other } ?? 0
+        return queue.remove(at: index)
+    }
+
+    private func runPolishLane() {
+        guard !polishRunning, !polishQueue.isEmpty else { return }
+        polishRunning = true
         Task {
-            while !postQueue.isEmpty {
-                let next = postQueue.removeFirst()
-                postCurrent = next
-                if let video = video(next) { await afterEating(video) }
-                postCurrent = nil
+            while let id = Self.take(from: &polishQueue, avoiding: summaryCurrent) {
+                polishCurrent = id
+                if let video = video(id) {
+                    forcePolish.remove(id)
+                    await polish(video)
+                    finishIfIdle(video, fromPolish: true)
+                }
+                polishCurrent = nil
             }
-            postRunning = false
+            polishRunning = false
         }
     }
 
-    private func afterEating(_ video: Video) async {
-        let forced = forcePolish.remove(video.videoID) != nil
-        if forced || (shouldPolish(video) && video.polishedData == nil && video.polishError == nil) { await polish(video) }
-        if settings.autoSummarize, canSummarize, video.digestData == nil { await summarize(video) }
+    private func runSummaryLane() {
+        guard !summaryRunning, !summaryQueue.isEmpty else { return }
+        summaryRunning = true
+        Task {
+            while let id = Self.take(from: &summaryQueue, avoiding: polishCurrent) {
+                summaryCurrent = id
+                if let video = video(id), video.digestData == nil { await summarize(video) }
+                if let video = video(id) { finishIfIdle(video, fromPolish: false) }
+                summaryCurrent = nil
+            }
+            summaryRunning = false
+        }
+    }
+
+    /// The last lane to finish with a video saves its note and notifies.
+    private func finishIfIdle(_ video: Video, fromPolish: Bool) {
+        let id = video.videoID
+        let otherCurrent = fromPolish ? summaryCurrent : polishCurrent
+        guard !polishQueue.contains(id), !summaryQueue.contains(id), otherCurrent != id else { return }
+        finish(video)
+    }
+
+    private func finish(_ video: Video) {
         exporter.export(video)
         exporter.scheduleIndexes(in: context)
         try? context.save()
+        onProcessed?(video.videoID)
         if video.fromChannelWatch, settings.notifyWhenEaten {
             Notifier.post(title: "Eaten: \(video.displayTitle)", body: video.channelTitle)
         }
     }
+
+    /// Called when a video has finished all its after-eating work (used to refresh Claude packs).
+    @ObservationIgnored var onProcessed: ((String) -> Void)?
 
     // MARK: GitHub links (fast, beside polishing and summaries)
 

@@ -120,6 +120,8 @@ enum AgentGuide {
         | `zeus list "<playlist or channel>"` | list videos (id, title) |
         | `zeus github "<link>" [--save] [--json]` | GitHub repositories linked in a video, checked through the API |
         | `zeus repos [--json]` | every repository linked in the library, with the videos that link it |
+        | `zeus playlists "<channel>" [--import]` | a channel's playlists; `--import` makes each one a collection in the app |
+        | `zeus pack "<playlist link or collection id>"` | the Claude pack of a collection (see Claude packs) |
         | `zeus open "<link, id or youtubezeus:// link>"` | show that page in the app |
         | `zeus link "<link or id>"` | print the `youtubezeus://` link and the Obsidian link of a video's note |
         | `zeus where` | the notes folder |
@@ -141,6 +143,8 @@ enum AgentGuide {
         | `youtubezeus://open?topic=<topic>` | videos of a topic |
         | `youtubezeus://open?view=library\\|github\\|ask\\|skills\\|eating\\|youtube` | a section of the app |
         | `youtubezeus://ask?q=<question>` | Ask your brain, with the question already asked |
+        | `youtubezeus://playlists?channel=<channel link>` | imports every playlist of a channel as a collection |
+        | `youtubezeus://pack?collection=<list id>` | builds or refreshes the Claude pack of a collection |
 
         Example: `open "youtubezeus://open?video=7RVf25Rg0Mc&tab=Info"`.
 
@@ -159,6 +163,24 @@ enum AgentGuide {
 
         The `youtube-zeus` skill (how to use `zeus`) is installed in `~/.claude/skills`, `~/.codex/skills`,
         `~/.gemini/skills` and `~/.agents/skills`; a copy is in `_For AI/SKILL.md`.
+
+        ## Whole channels, playlists and Claude packs
+
+        - A channel link followed by `/playlists` (or "Import playlists" on a channel, or `zeus playlists <channel> --import`)
+          turns every playlist of the channel into a collection with its own index note, grouped under the channel in the
+          sidebar; "Eat the missing" eats one. A video link that carries `&list=PL…` offers to eat the whole playlist.
+        - After eating, two lanes run side by side: the local AI polishes, Codex (or Apple Intelligence) summarizes.
+        - **Claude pack** of a collection ("Claude pack" on the collection, `zeus pack`, `youtubezeus://pack?…`):
+          - a Claude **skill** in `~/.claude/skills/<name>/`: `SKILL.md` (index of every video with date and one-line
+            summary, topics) + `videos/NNN-date-title.md` (summary, key points, chapters, full [mm:ss] transcript). Claude
+            Code and other local agents load it when the topic comes up and open only the videos they need;
+          - the same skill zipped in `~/Library/Application Support/YouTube Zeus/Claude packs/<name>/<name>.zip` for
+            claude.ai and the Claude apps (Settings › Capabilities › Skills › upload; "Show the Skill Zip" in the app);
+          - in the Second Brain, `Sources/YouTube/Claude packs/<collection — channel>/`: `README.md`, `digest.md` (every
+            summary, key point and chapter: one message) and `transcripts-part-NN.md` (full transcripts, under ~95k
+            tokens each, for a Claude Project or one message each).
+          Packs rebuild themselves (at most every 4 minutes) while their videos are eaten, polished and summarized.
+          Skill names never contain "claude" or "anthropic" (a rule of Claude skills).
 
         ## From the app to the brain
 

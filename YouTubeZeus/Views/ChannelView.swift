@@ -106,6 +106,14 @@ struct ChannelView: View {
                     .help("Every video of the channel, organised as a collection with its own index note")
                     Button { NSWorkspace.shared.open(channel.url) } label: { Label("YouTube", systemImage: "play.rectangle") }
                         .buttonStyle(.glass)
+                    Button {
+                        Task { await app.importPlaylists(from: channel.url) }
+                    } label: {
+                        Label("Import playlists", systemImage: "rectangle.stack.badge.plus")
+                    }
+                    .buttonStyle(.glass)
+                    .disabled(app.isResolvingLink)
+                    .help("Every playlist of the channel becomes a collection with its own index note, ready to eat")
                     Button { app.openInBrain(app.channelIndexURL(channel.title)) } label: {
                         Label("Index note", systemImage: "list.bullet.rectangle")
                     }

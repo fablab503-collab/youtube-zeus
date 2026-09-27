@@ -1,4 +1,4 @@
-# YouTube Zeus 2.3 — the YouTube eater, native on macOS 27
+# YouTube Zeus 2.4 — the YouTube eater, native on macOS 27
 
 Paste a YouTube link (video, playlist or channel). Zeus eats the video and keeps its text.
 
@@ -15,6 +15,7 @@ Paste a YouTube link (video, playlist or channel). Zeus eats the video and keeps
 - **GitHub links**: every github.com/<owner>/<repo> link in a video's description (or in the channel's own comment, or spelled out in the transcript) is checked through the GitHub API: exists, renamed, archived, fork, last push, stars, license, latest release, published security advisories, owner account age, and whether the repository links back to the video or its site. The video note gets a "## GitHub" section; each repository gets a note in `Sources/GitHub/<owner>-<repo>.md` (README excerpt, "Seen in" every video; Zeus only rewrites the block between `%% zeus:github:facts start/end %%`, your notes are kept) and `_Index - GitHub from YouTube.md` lists them all. Sidebar › GitHub. Results are cached 3 days; add a GitHub token (Settings › Eating, or `gh auth login`) for more than ~15 repositories an hour.
 - **Two-way Second Brain link**: "Open in Obsidian" on every page opens the exact note (video, channel, collection, repository, indexes; menu Brain ⇧⌘B); every note links back with `youtubezeus://open?…`, so a click in the vault brings the same page up in Zeus.
 - **Guide for AI agents**: `Sources/YouTube/_For AI/YOUTUBE-ZEUS-GUIDE.md` (rewritten at launch), `zeus guide`, and [`docs/AGENT-GUIDE.md`](docs/AGENT-GUIDE.md) — how Zeus works and every way to connect. Developers: [`AGENTS.md`](AGENTS.md).
+- **Whole channels and Claude packs**: import every playlist of a channel as collections (`@channel/playlists`, "Import playlists", `zeus playlists --import`), then turn any collection into a **Claude pack**: a skill installed in `~/.claude/skills` (index + one file per video), a zip for claude.ai, a one-message digest and the full transcripts in parts in `Sources/YouTube/Claude packs/` (`zeus pack <playlist>`). Polishing and summaries run in two parallel lanes.
 - **Codex skills** (the 0.1 feature): OpenAI (Responses API, strict JSON schema, `store=false`) proposes up to three evidence-backed skills. Every quote is checked against the transcript, the bundle is validated (structure, prohibited content, evidence), and nothing is published without "Approve and publish". Output: `SKILL.md`, `references/evidence.md`, `references/changes.md`, `evals/evals.json` in `~/.codex/skills/<name>/` (older versions go to `Skill History`). The API key lives in the Keychain.
 
 ## Build
@@ -41,6 +42,8 @@ zeus github "<link>" [--save] [--json]   # GitHub repos linked in a video, check
 zeus repos [--json]                 # every repo linked in the library
 zeus open "<link|id|youtubezeus://…>"    # show it in the app
 zeus guide                          # the full guide for AI agents
+zeus playlists "<channel>" --import # every playlist of a channel as collections
+zeus pack "<playlist>"              # Claude pack: skill + digest + transcript parts
 ```
 
 ## Links (`youtubezeus://`)

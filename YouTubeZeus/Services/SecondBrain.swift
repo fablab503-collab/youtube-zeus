@@ -299,11 +299,15 @@ final class SecondBrainExporter {
         // One index per collection (playlist, whole channel, Watch Later, Liked).
         let collectionFolder = root.appendingPathComponent("Collections", isDirectory: true)
         for list in lists {
-            let name = Self.sanitize(list.title, limit: 100)
+            let name = Self.collectionNoteName(list)
             var lines = header("\(list.title) — \(list.kind.label)",
                                "Collection eaten by YouTube Zeus, in the original order. \(list.urlString). Back to [[YouTube index]].")
             let eaten = list.videoIDs.filter { byID[$0] != nil }.count
-            lines += ["[Open in YouTube Zeus](\(BrainLinks.zeus(collection: list.listID)))", "",
+            let packFolder = "Claude packs/" + Self.sanitize(ClaudePack.packName(title: list.title, channel: list.channelTitle), limit: 100)
+            let hasPack = FileManager.default.fileExists(atPath: root.appendingPathComponent(packFolder).appendingPathComponent("README.md").path)
+            lines += ["[Open in YouTube Zeus](\(BrainLinks.zeus(collection: list.listID)))"
+                      + (hasPack ? " · Claude pack: [[\(packFolder)/README|skill, digest and transcripts for Claude]]"
+                                 : " · [Make a Claude pack](\(BrainLinks.zeusPack(collection: list.listID)))"), "",
                       "\(eaten) of \(list.videoIDs.count) videos eaten", "", "## Videos", ""]
             for (index, id) in list.videoIDs.enumerated() {
                 if let video = byID[id] {
@@ -315,6 +319,11 @@ final class SecondBrainExporter {
             lines += Self.githubSection(Self.repoMentions(list.videoIDs.compactMap { byID[$0] }))
             let file = collectionFolder.appendingPathComponent("\(name).md")
             write(lines, to: file)
+            // The note was renamed (e.g. the channel name was added): remove the old generated copy.
+            if let old = list.indexPath, old != file.path,
+               let text = try? String(contentsOfFile: old, encoding: .utf8), text.contains("generated: YouTube Zeus") {
+                try? FileManager.default.removeItem(atPath: old)
+            }
             list.indexPath = file.path
         }
 
@@ -351,7 +360,7 @@ final class SecondBrainExporter {
         }
         if !lists.isEmpty {
             master += ["", "## Collections", ""]
-            master += lists.map { "- [[\(Self.sanitize($0.title, limit: 100))|\($0.title)]] · \($0.kind.label) (\($0.videoIDs.count))" }
+            master += lists.map { "- [[\(Self.collectionNoteName($0))|\($0.title.replacingOccurrences(of: "|", with: "-"))]] · \($0.kind.label)\($0.channelTitle.isEmpty ? "" : " · \(ClaudePack.channelShort($0.channelTitle))") (\($0.videoIDs.count))" }
         }
         var topics: [String: [Video]] = [:]
         for video in videos {
@@ -373,6 +382,13 @@ final class SecondBrainExporter {
         master += videos.sorted { ($0.eatenAt ?? .distantPast) > ($1.eatenAt ?? .distantPast) }.prefix(30).map(line)
         write(master, to: root.appendingPathComponent("YouTube index.md"))
         try? context.save()
+    }
+
+    /// Collection index note name: playlists carry their channel ("Claude Code — Nate Herk") so that
+    /// playlists with the same title from different channels never collide.
+    static func collectionNoteName(_ list: VideoList) -> String {
+        let title = list.kind == .playlist ? ClaudePack.packName(title: list.title, channel: list.channelTitle) : list.title
+        return sanitize(title, limit: 100)
     }
 
     /// "## GitHub" section for a channel or collection index (empty when no video links a repository).

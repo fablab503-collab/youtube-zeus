@@ -166,6 +166,27 @@ nonisolated struct YTDLP: Sendable {
                               listID: json["id"] as? String ?? "", listTitle: json["title"] as? String ?? "")
     }
 
+    /// The playlists a channel shows on its Playlists tab (id, title), plus the channel's name and id.
+    func playlists(ofChannel url: String) async throws -> (channel: String, channelID: String, lists: [(id: String, title: String)]) {
+        var base = url.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        for tab in ["/videos", "/playlists", "/featured", "/shorts", "/streams", "/about"] where base.hasSuffix(tab) {
+            base = String(base.dropLast(tab.count))
+        }
+        let output = try await ProcessRunner.check(executable, ["-J", "--flat-playlist", "--no-warnings"] + cookieArguments
+                                                   + ["--", base + "/playlists"])
+        guard let json = try? JSONSerialization.jsonObject(with: output.stdout) as? [String: Any] else {
+            throw YTDLPError.badOutput("playlists")
+        }
+        let channel = json["channel"] as? String ?? json["uploader"] as? String ?? ""
+        let channelID = json["channel_id"] as? String ?? ""
+        var seen = Set<String>()
+        let lists: [(id: String, title: String)] = (json["entries"] as? [[String: Any]] ?? []).compactMap { entry in
+            guard let id = entry["id"] as? String, !YouTubeLink.isVideoID(id), id.count > 12, seen.insert(id).inserted else { return nil }
+            return (id, entry["title"] as? String ?? id)
+        }
+        return (channel, channelID, lists)
+    }
+
     /// The channels of the signed-in account (https://www.youtube.com/feed/channels).
     func subscribedChannels() async throws -> [ChannelEntry] {
         let output = try await ProcessRunner.check(executable, ["-J", "--flat-playlist", "--no-warnings"] + cookieArguments

@@ -22,6 +22,12 @@ struct Toast: Identifiable, Equatable {
     let isError: Bool
 }
 
+struct PlaylistOffer: Identifiable {
+    var id: String { listID }
+    let videoID: String
+    let listID: String
+}
+
 struct ChannelOffer: Identifiable {
     let id = UUID()
     let channelID: String
@@ -55,6 +61,10 @@ final class AppModel {
     var selectedSkillID: UUID?
     var toast: Toast?
     var channelOffer: ChannelOffer?
+    var playlistOffer: PlaylistOffer?
+    var importingPlaylists: String?
+    var packResults: [String: PackResult] = [:]
+    var buildingPacks: Set<String> = []
     var isResolvingLink = false
     var focusEatBar = 0
     var initialTab: String?
@@ -92,6 +102,7 @@ final class AppModel {
     func start() {
         guard !started else { return }
         started = true
+        engine.onProcessed = { [weak self] id in self?.videoProcessed(id) }
         engine.resumeInterrupted()
         watcher.start()
         Task {
@@ -100,6 +111,7 @@ final class AppModel {
             AgentGuide.writeToBrain(settings: settings)
             rewriteNotesIfFormatChanged()
             exporter.scheduleIndexes(in: context)
+            await refreshClaudePacks()
         }
         if settings.notifyWhenEaten { Notifier.requestPermission() }
         // Launch arguments for scripting and tests: -eat <link>, -selectVideo <id>
@@ -219,6 +231,17 @@ final class AppModel {
             show("That doesn't look like a YouTube link.", error: true)
             return
         }
+        // A channel's Playlists tab: import every playlist as a collection.
+        if case .channel(let url) = link, raw.lowercased().contains("/playlists") {
+            await importPlaylists(from: url)
+            return
+        }
+        // A video opened from a playlist: eat the video, and offer the whole playlist.
+        if case .video(let id) = link,
+           let list = URLComponents(string: raw.hasPrefix("http") ? raw : "https://" + raw)?.queryItems?.first(where: { $0.name == "list" })?.value,
+           list.hasPrefix("PL") || list.hasPrefix("OL") {
+            playlistOffer = PlaylistOffer(videoID: id, listID: list)
+        }
         switch link {
         case .video(let id):
             let videos = engine.enqueue([(id: id, title: "", channel: "", channelID: "")])
@@ -273,6 +296,47 @@ final class AppModel {
         await eatList(url: base.hasSuffix("/videos") ? base : base + "/videos", kind: .channel, title: channel.title)
     }
 
+    /// Imports every playlist of a channel as a collection (nothing is eaten until you ask).
+    func importPlaylists(from channelURL: URL, eatAll: Bool = false) async {
+        guard let ytdlp = settings.makeYTDLP() else {
+            show(EatError.missing("yt-dlp").localizedDescription, error: true)
+            return
+        }
+        isResolvingLink = true
+        defer {
+            isResolvingLink = false
+            importingPlaylists = nil
+        }
+        do {
+            importingPlaylists = "Reading the playlists…"
+            let found = try await ytdlp.playlists(ofChannel: channelURL.absoluteString)
+            guard !found.lists.isEmpty else {
+                show("This channel shows no playlists.", error: true)
+                return
+            }
+            var imported = 0
+            var videos = 0
+            for (index, playlist) in found.lists.enumerated() {
+                importingPlaylists = "Playlist \(index + 1) of \(found.lists.count): \(playlist.title)"
+                let url = "https://www.youtube.com/playlist?list=\(playlist.id)"
+                guard let listing = try? await ytdlp.flatList(url: url), !listing.entries.isEmpty else { continue }
+                upsertList(listID: playlist.id, title: playlist.title, kind: .playlist, url: url,
+                           channel: found.channel.isEmpty ? listing.title : found.channel, videoIDs: listing.entries.map(\.id))
+                if eatAll {
+                    engine.enqueue(listing.entries.map { (id: $0.id, title: $0.title, channel: $0.channel, channelID: $0.channelID) })
+                }
+                imported += 1
+                videos += listing.entries.count
+            }
+            exporter.scheduleIndexes(in: context)
+            AppLog.write("PLAYLISTS imported \(imported) of \(found.channel) (\(videos) videos)")
+            show("Imported \(imported) playlists of \(found.channel) (\(videos) videos) as collections."
+                 + (eatAll ? " Eating them all." : " Open one and press “Eat the missing” to eat it."))
+        } catch {
+            show(error.localizedDescription, error: true)
+        }
+    }
+
     @discardableResult
     func upsertList(listID: String, title: String, kind: VideoListKind, url: String, channel: String, videoIDs: [String]) -> VideoList {
         var descriptor = FetchDescriptor<VideoList>(predicate: #Predicate { $0.listID == listID })
@@ -280,6 +344,7 @@ final class AppModel {
         if let existing = try? context.fetch(descriptor).first {
             existing.title = title
             existing.videoIDs = videoIDs
+            if existing.channelTitle.isEmpty { existing.channelTitle = channel }
             existing.updatedAt = .now
             try? context.save()
             return existing
@@ -375,6 +440,16 @@ final class AppModel {
         case .ask(let question):
             selection = .ask
             Task { await ask(question) }
+        case .pack(let id):
+            if let list = list(id) {
+                selection = .collection(id)
+                Task { await makeClaudePack(list) }
+            }
+        case .playlists(let channel):
+            if let url = URL(string: channel.hasPrefix("http") ? channel : "https://www.youtube.com/" + channel) {
+                Task { await importPlaylists(from: url) }
+            }
+            return
         }
         NSApp.activate()
     }
@@ -449,6 +524,92 @@ final class AppModel {
         } catch {
             askError = error.localizedDescription
         }
+    }
+
+    // MARK: Claude packs (skill + digest + transcript parts)
+
+    private static let packRegistryKey = "claudePacks"
+    private var packRefreshTask: Task<Void, Never>?
+
+    var packRegistry: [String: String] {
+        get { UserDefaults.standard.dictionary(forKey: Self.packRegistryKey) as? [String: String] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: Self.packRegistryKey) }
+    }
+
+    func hasClaudePack(_ list: VideoList) -> Bool { packRegistry[list.listID] != nil }
+
+    func packVaultFolder(_ list: VideoList) -> URL {
+        settings.secondBrainURL.appendingPathComponent("Claude packs", isDirectory: true)
+            .appendingPathComponent(SecondBrainExporter.sanitize(ClaudePack.packName(title: list.title, channel: list.channelTitle), limit: 100))
+    }
+
+    func packZipURL(_ list: VideoList) -> URL {
+        let skill = ClaudePack.skillName(title: list.title, channel: list.channelTitle)
+        return ClaudePackPaths.masterFolder.appendingPathComponent(skill).appendingPathComponent(skill + ".zip")
+    }
+
+    func packLocalPrompts(_ list: VideoList) -> URL {
+        let skill = ClaudePack.skillName(title: list.title, channel: list.channelTitle)
+        return ClaudePackPaths.masterFolder.appendingPathComponent(skill).appendingPathComponent("prompts")
+    }
+
+    /// Builds (or refreshes) the Claude pack of a collection off the main thread.
+    func makeClaudePack(_ list: VideoList, quiet: Bool = false) async {
+        guard !buildingPacks.contains(list.listID) else { return }
+        let input = ClaudePackPaths.input(for: list, settings: settings) { self.engine.video($0) }
+        guard !input.videos.isEmpty else {
+            if !quiet { show("Nothing eaten yet in this collection.", error: true) }
+            return
+        }
+        buildingPacks.insert(list.listID)
+        defer { buildingPacks.remove(list.listID) }
+        do {
+            let result = try await Task.detached { try ClaudePack.build(input) }.value
+            packResults[list.listID] = result
+            var registry = packRegistry
+            // Without the Second Brain copy, the fingerprint stays "dirty" so the next refresh copies it.
+            registry[list.listID] = ClaudePackPaths.fingerprint(input) + (result.vaultWritten ? "" : "|vault-pending")
+            packRegistry = registry
+            AppLog.write("PACK \(result.skillName): \(result.videos) videos, \(result.summarized) summarized, \(result.parts) parts, \(result.changedFiles) files changed")
+            if !quiet {
+                show("Claude pack ready: skill “\(result.skillName)” installed for Claude, \(result.videos) videos (digest ≈ \(result.digestTokens / 1000)k tokens)."
+                     + (result.vaultWritten ? "" : " The Second Brain copy will follow when the NAS answers."))
+            }
+        } catch {
+            show("Claude pack: \(error.localizedDescription)", error: true)
+        }
+    }
+
+    /// Packs follow their collection: rebuilt (at most every 4 minutes) when videos are eaten, polished or summarized.
+    func videoProcessed(_ id: String) {
+        let registry = packRegistry
+        guard !registry.isEmpty, packRefreshTask == nil else { return }
+        let lists = registry.keys.compactMap { list($0) }
+        guard lists.contains(where: { $0.videoIDs.contains(id) }) else { return }
+        packRefreshTask = Task {
+            try? await Task.sleep(for: .seconds(240))
+            packRefreshTask = nil
+            await refreshClaudePacks()
+        }
+    }
+
+    func refreshClaudePacks() async {
+        for (listID, old) in packRegistry {
+            guard let list = list(listID) else { continue }
+            let input = ClaudePackPaths.input(for: list, settings: settings) { self.engine.video($0) }
+            if ClaudePackPaths.fingerprint(input) != old { await makeClaudePack(list, quiet: true) }
+        }
+    }
+
+    func copyDigest(_ list: VideoList) {
+        let file = packLocalPrompts(list).appendingPathComponent("digest.md")
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else {
+            show("Make the Claude pack first.", error: true)
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        show("Digest copied (≈ \(text.count / 4000)k tokens) — paste it into Claude.")
     }
 
     // MARK: AI packs

@@ -30,8 +30,11 @@ enum HandOff {
        repository in `Sources/GitHub/`. Eaten videos get this automatically ("## GitHub" in the note).
     7. Every GitHub repo in the library: `zeus repos`. Show a page in the app: `zeus open "<link or id>"`;
        `zeus link "<link>"` prints the `youtubezeus://` link and the Obsidian link of the note.
-    8. Machine-readable: `--json` (paragraphs with start/end seconds, chapters, tags, comments, summary).
-    9. No captions or bad auto-captions: `--whisper` listens to the audio on the Mac.
+    8. Whole channels: `zeus playlists "<channel>" --import` makes every playlist a collection in the app.
+       Knowledge for Claude from a collection: `zeus pack "<playlist link>"` (skill in ~/.claude/skills, zip for
+       claude.ai, digest prompt and transcript parts in `Sources/YouTube/Claude packs/`).
+    9. Machine-readable: `--json` (paragraphs with start/end seconds, chapters, tags, comments, summary).
+    10. No captions or bad auto-captions: `--whisper` listens to the audio on the Mac.
 
     The full guide (pipeline, note format, every command and `youtubezeus://` link): `zeus guide`, or
     `Sources/YouTube/_For AI/YOUTUBE-ZEUS-GUIDE.md` in the Second Brain.

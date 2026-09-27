@@ -3,6 +3,18 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 2.4 — 2026-09-27
+
+- **Whole channels with their playlists**: `…/@channel/playlists` links, "Import playlists" on a channel and in
+  the follow sheet, `zeus playlists <channel> --import`, `youtubezeus://playlists?channel=…`: every playlist
+  becomes a collection (grouped under its channel in the sidebar). Video links with `&list=PL…` offer the whole
+  playlist. Playlist index notes carry the channel name ("Claude Code — Nate Herk").
+- **Claude packs**: a collection becomes a Claude skill (`~/.claude/skills/<name>/`: index + one file per video),
+  a zip for claude.ai, a one-message digest and the full transcripts in parts (`Sources/YouTube/Claude packs/`);
+  rebuilt automatically while the collection is eaten and summarized. `zeus pack`, `youtubezeus://pack?…`.
+- **Two lanes after eating**: local AI polishing and summaries run side by side.
+- First use: Nate Herk's "Claude Code" playlist (110 videos).
+
 ## 2.3 — 2026-09-27
 
 - **Code on GitHub**: private repository `fablab503-collab/youtube-zeus`; `scripts/ship.sh` builds, regenerates

@@ -58,6 +58,25 @@ struct ContentView: View {
         .sheet(item: $app.channelOffer) { offer in
             ChannelOfferSheet(offer: offer)
         }
+        .alert("This video is part of a playlist", isPresented: Binding(get: { app.playlistOffer != nil },
+                                                                        set: { if !$0 { app.playlistOffer = nil } }),
+               presenting: app.playlistOffer) { offer in
+            Button("Eat the Whole Playlist") {
+                Task { await app.eatList(url: "https://www.youtube.com/playlist?list=\(offer.listID)") }
+            }
+            Button("Only This Video", role: .cancel) {}
+        } message: { _ in
+            Text("The video is being eaten. Do you also want every video of its playlist, as a collection?")
+        }
+        .overlay(alignment: .bottom) {
+            if let progress = app.importingPlaylists {
+                Label(progress, systemImage: "rectangle.stack.badge.plus")
+                    .font(.callout)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .glassEffect(.regular, in: .capsule)
+                    .padding(.bottom, 70)
+            }
+        }
         .onOpenURL { url in app.handle(url) }
         .tint(.zeus)
     }
@@ -158,21 +177,23 @@ struct SidebarView: View {
 
             if !lists.isEmpty {
                 Section("Collections") {
-                    ForEach(lists) { list in
-                        Label {
-                            HStack {
-                                Text(list.title).lineLimit(1)
-                                Spacer()
-                                Text("\(list.videoIDs.count)").foregroundStyle(.secondary).monospacedDigit()
-                            }
-                        } icon: { Image(systemName: list.kind.symbol) }
-                        .tag(SidebarItem.collection(list.listID))
-                        .contextMenu {
-                            Button("Copy for AI (summaries)") { app.copyForAI(list, transcripts: false) }
-                            Button("Copy for AI (everything)") { app.copyForAI(list, transcripts: true) }
-                            Button("Check for New Videos") { Task { await app.refresh(list) } }
-                            Divider()
-                            Button("Remove Collection", role: .destructive) { app.deleteList(list) }
+                    // Channels with several collections are grouped (e.g. all the playlists of one channel).
+                    let groups = Dictionary(grouping: lists, by: { ClaudePack.channelShort($0.channelTitle) })
+                    let grouped = groups.filter { $0.value.count > 1 && !$0.key.isEmpty }
+                    ForEach(lists.filter { grouped[ClaudePack.channelShort($0.channelTitle)] == nil }) { list in
+                        CollectionRow(list: list)
+                    }
+                    ForEach(grouped.keys.sorted(), id: \.self) { channel in
+                        DisclosureGroup {
+                            ForEach(grouped[channel] ?? []) { list in CollectionRow(list: list) }
+                        } label: {
+                            Label {
+                                HStack {
+                                    Text(channel).lineLimit(1)
+                                    Spacer()
+                                    Text("\(grouped[channel]?.count ?? 0)").foregroundStyle(.secondary).monospacedDigit()
+                                }
+                            } icon: { Image(systemName: "rectangle.stack") }
                         }
                     }
                 }
@@ -357,6 +378,33 @@ struct WelcomeView: View {
     }
 }
 
+struct CollectionRow: View {
+    @Environment(AppModel.self) private var app
+    let list: VideoList
+
+    var body: some View {
+        Label {
+            HStack {
+                Text(list.title).lineLimit(1)
+                if app.hasClaudePack(list) {
+                    Image(systemName: "shippingbox.fill").font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("\(list.videoIDs.count)").foregroundStyle(.secondary).monospacedDigit()
+            }
+        } icon: { Image(systemName: list.kind.symbol) }
+        .tag(SidebarItem.collection(list.listID))
+        .contextMenu {
+            Button("Copy for AI (summaries)") { app.copyForAI(list, transcripts: false) }
+            Button("Copy for AI (everything)") { app.copyForAI(list, transcripts: true) }
+            Button(app.hasClaudePack(list) ? "Update the Claude Pack" : "Make a Claude Pack") { Task { await app.makeClaudePack(list) } }
+            Button("Check for New Videos") { Task { await app.refresh(list) } }
+            Divider()
+            Button("Remove Collection", role: .destructive) { app.deleteList(list) }
+        }
+    }
+}
+
 struct ChannelOfferSheet: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
@@ -374,6 +422,13 @@ struct ChannelOfferSheet: View {
                         .buttonStyle(.glass)
                 }
                 Spacer()
+                Button("Import playlists") {
+                    let url = URL(string: "https://www.youtube.com/channel/\(offer.channelID)")!
+                    Task { await app.importPlaylists(from: url) }
+                    dismiss()
+                }
+                .buttonStyle(.glass)
+                .help("Every playlist of the channel becomes a collection, ready to eat")
                 Button("Only new ones") { dismiss() }
                     .buttonStyle(.glassProminent)
                     .keyboardShortcut(.defaultAction)

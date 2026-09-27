@@ -21,6 +21,7 @@ nonisolated enum BrainLinks {
     static func zeus(view: String) -> String { "youtubezeus://open?view=\(encode(view))" }
     static func zeusAsk(_ question: String) -> String { "youtubezeus://ask?q=\(encode(question))" }
     static func zeusEat(_ link: String) -> String { "youtubezeus://eat?url=\(encode(link))" }
+    static func zeusPack(collection id: String) -> String { "youtubezeus://pack?collection=\(encode(id))" }
 
     /// Markdown link to a Zeus page, for notes.
     static func markdown(_ title: String, _ link: String) -> String { "[\(title)](\(link))" }
@@ -69,6 +70,8 @@ nonisolated enum BrainLinks {
         case topic(String)
         case view(String)
         case ask(String)
+        case pack(String)
+        case playlists(String)
     }
 
     static func parse(_ url: URL) -> Target? {
@@ -80,6 +83,8 @@ nonisolated enum BrainLinks {
         switch url.host {
         case "eat": return value("url").map { .eat($0) }
         case "ask": return value("q").map { .ask($0) }
+        case "pack": return value("collection").map { .pack($0) }
+        case "playlists": return value("channel").map { .playlists($0) }
         case "open", "show":
             if let id = value("video") { return .video(id, tab: value("tab")) }
             if let id = value("collection") { return .collection(id) }

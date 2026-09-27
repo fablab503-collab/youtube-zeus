@@ -184,6 +184,12 @@ private struct Header: View {
                     if !video.polished.isEmpty {
                         Chip(text: "Polished", symbol: "wand.and.stars", tint: .mint)
                     }
+                    let repos = video.repos
+                    if !repos.isEmpty {
+                        Chip(text: "\(repos.count) GitHub repo\(repos.count == 1 ? "" : "s")",
+                             symbol: "chevron.left.forwardslash.chevron.right",
+                             tint: repos.contains(where: \.needsCare) ? .orange : .indigo)
+                    }
                     if video.viewCount > 0 {
                         Chip(text: "\(video.viewCount.formatted(.number.notation(.compactName))) views", symbol: "eye")
                     }
@@ -549,6 +555,9 @@ struct InfoBody: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if video.status.hasText {
+                VideoGitHubSection(video: video).padding(.bottom, 6)
+            }
             if !video.chapters.isEmpty {
                 Text("YouTube chapters").font(.headline)
                 ForEach(video.chapters, id: \.self) { chapter in

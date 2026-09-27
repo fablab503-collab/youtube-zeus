@@ -36,6 +36,9 @@ enum ZeusCLI {
       zeus search <words…>      find eaten videos (title, channel, transcript)
       zeus list <link> [--limit N]  list the videos of a playlist or channel
       zeus ask <question>       answer from everything eaten, with sources (uses Codex)
+      zeus github <link|id> [--save] [--json]
+          the GitHub repositories linked in a video, checked through the GitHub API (exists, activity,
+          license, security advisories, links back to the video); --save writes a note per repository
       zeus where                show where notes are saved
       zeus install-skills       install the youtube-zeus skill for Claude Code, Codex, Gemini CLI, ~/.agents
       zeus instructions         print instructions to paste into any AI
@@ -112,6 +115,11 @@ enum ZeusCLI {
             case "instructions":
                 print(AIPack.universalInstructions)
                 return 0
+            case "github":
+                guard let link = rest.first else { return fail("zeus github <link or video id>") }
+                let id: String
+                if case .video(let videoID) = YouTubeLink.parse(link) { id = videoID } else { id = link }
+                return try await github(id, flags: flags, settings: settings)
             case "ask":
                 guard !rest.isEmpty else { return fail("zeus ask \"<question>\"") }
                 return try await ask(rest.joined(separator: " "), settings: settings, json: flags.contains("--json"))
@@ -148,7 +156,7 @@ enum ZeusCLI {
                     continue
                 }
                 let snapshot = try await eatVideo(id, flags: flags, settings: settings)
-                if flags.contains("--save") { save(snapshot, settings: settings) }
+                if flags.contains("--save") { await save(snapshot, settings: settings) }
                 packs.append(flags.contains("--json") ? json(snapshot) : AIPack.video(snapshot, includeTranscript: !flags.contains("--no-transcript")))
             } catch {
                 failures += 1
@@ -214,26 +222,105 @@ enum ZeusCLI {
                     language: output.isEmpty ? "en" : output, youtubeChapters: info.chapters)
             }
         }
-        return VideoSnapshot(videoID: id, title: info.title.isEmpty ? id : info.title, channelTitle: info.channel,
-                             channelID: info.channelID, publishedAt: info.publishedAt, duration: info.duration,
-                             language: language, source: result.source, eatenAt: .now, description: info.description,
-                             tags: info.tags, viewCount: info.viewCount, likeCount: info.likeCount,
-                             chapters: info.chapters, digest: digest, paragraphs: paragraphs,
-                             comments: info.comments, polishedBy: polishedBy)
+        var snapshot = VideoSnapshot(videoID: id, title: info.title.isEmpty ? id : info.title, channelTitle: info.channel,
+                                     channelID: info.channelID, publishedAt: info.publishedAt, duration: info.duration,
+                                     language: language, source: result.source, eatenAt: .now, description: info.description,
+                                     tags: info.tags, viewCount: info.viewCount, likeCount: info.likeCount,
+                                     chapters: info.chapters, digest: digest, paragraphs: paragraphs,
+                                     comments: info.comments, polishedBy: polishedBy)
+        if settings.githubEnabled {
+            let found = GitHubLinks.find(description: info.description, channel: info.channel, comments: info.comments,
+                                         transcript: paragraphs.map(\.text).joined(separator: " "))
+            if !found.isEmpty {
+                log("Checking \(found.count) GitHub link\(found.count == 1 ? "" : "s")…")
+                snapshot.repos = await GitHubLinks.check(videoID: id, description: info.description, channel: info.channel,
+                                                         comments: info.comments,
+                                                         transcript: paragraphs.map(\.text).joined(separator: " "))
+            }
+        }
+        return snapshot
     }
 
-    static func save(_ snapshot: VideoSnapshot, settings: AppSettings) {
+    // MARK: GitHub
+
+    static func github(_ id: String, flags: Set<String>, settings: AppSettings) async throws -> Int32 {
+        guard let ytdlp = settings.makeYTDLP(withComments: settings.commentsCount > 0) else { throw EatError.missing("yt-dlp") }
+        log("Reading the description…")
+        let info = try await ytdlp.info(videoID: id)
+        var transcript = ""
+        if let note = findNote(videoID: id, settings: settings), let text = try? String(contentsOf: note, encoding: .utf8) {
+            transcript = text.components(separatedBy: "## Transcript").dropFirst().first ?? ""
+        }
+        let repos = await GitHubLinks.check(videoID: id, description: info.description, channel: info.channel,
+                                            comments: info.comments, transcript: transcript)
+        if flags.contains("--save"), !repos.isEmpty {
+            var snapshot = VideoSnapshot(videoID: id, title: info.title.isEmpty ? id : info.title, channelTitle: info.channel,
+                                         channelID: info.channelID, publishedAt: info.publishedAt, duration: info.duration,
+                                         language: info.language ?? "", source: .none, eatenAt: .now,
+                                         description: info.description, tags: info.tags, viewCount: info.viewCount,
+                                         likeCount: info.likeCount, chapters: info.chapters, digest: nil, paragraphs: [],
+                                         comments: [], polishedBy: nil)
+            snapshot.repos = repos
+            await writeRepoNotes(snapshot, noteName: findNote(videoID: id, settings: settings)?.deletingPathExtension().lastPathComponent,
+                                 settings: settings)
+            openInApp(snapshot.url)
+        }
+        if flags.contains("--json") {
+            let encoder = JSONEncoder.iso
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            print(String(decoding: try encoder.encode(repos), as: UTF8.self))
+            return 0
+        }
+        guard !repos.isEmpty else {
+            print("No GitHub repository linked in \"\(info.title)\".")
+            return 0
+        }
+        print("GitHub repositories in \"\(info.title)\" (checked through the GitHub API):\n")
+        for repo in repos {
+            print("\(repo.fullName)\n  \(repo.url.absoluteString)\n  \(repo.summaryLine) · found in the \(repo.foundIn)")
+            if let description = repo.description { print("  \(description)") }
+            if repo.criticalAdvisories > 0 {
+                print("  ! read the security advisories before installing: \(repo.url.absoluteString)/security/advisories")
+            }
+            print("")
+        }
+        print("A link in a video is not a security review: read the code before running it.")
+        return 0
+    }
+
+    /// Creates the notes of repositories that have none yet (the app keeps "Seen in" up to date).
+    static func writeRepoNotes(_ snapshot: VideoSnapshot, noteName: String?, settings: AppSettings) async {
+        let folder = settings.githubURL
+        guard SecondBrainExporter.reachable(folder.deletingLastPathComponent()) else { return }
+        let note = noteName ?? String(SecondBrainExporter.fileName(for: snapshot).dropLast(3))
+        for repo in snapshot.repos where repo.exists {
+            let file = folder.appendingPathComponent("\(repo.noteName).md")
+            guard !FileManager.default.fileExists(atPath: file.path) else { continue }
+            let readme = await GitHubLinks.readmeExcerpt(owner: repo.owner, name: repo.name)
+            let mention = GitHubLinks.Mention(note: note, title: snapshot.title, source: repo.foundIn)
+            if GitHubLinks.writeNote(repo, seenIn: [mention], folder: folder, create: true, readme: readme) {
+                log("GitHub note: \(file.path)")
+            }
+        }
+    }
+
+    static func save(_ snapshot: VideoSnapshot, settings: AppSettings) async {
         let root = settings.secondBrainURL
         if SecondBrainExporter.reachable(root) {
             if let file = try? SecondBrainExporter.write(snapshot, into: root) { log("Saved: \(file.path)") }
+            await writeRepoNotes(snapshot, noteName: nil, settings: settings)
         } else {
             log("The Second Brain folder is not reachable (\(root.path)); the app will save it when it is.")
         }
-        // Let the app add it to its library (it keeps the indexes, polishing and summaries up to date).
+        openInApp(snapshot.url)
+    }
+
+    /// Lets the app add the video to its library (it keeps the indexes, polishing and summaries up to date).
+    static func openInApp(_ videoURL: URL) {
         var components = URLComponents()
         components.scheme = "youtubezeus"
         components.host = "eat"
-        components.queryItems = [URLQueryItem(name: "url", value: snapshot.url.absoluteString)]
+        components.queryItems = [URLQueryItem(name: "url", value: videoURL.absoluteString)]
         if let url = components.url {
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = false
@@ -253,6 +340,14 @@ enum ZeusCLI {
         ]
         if let published = video.publishedAt { object["published"] = ISO8601DateFormatter().string(from: published) }
         if let polished = video.polishedBy { object["polished_by"] = polished }
+        if !video.repos.isEmpty {
+            object["github"] = video.repos.map { repo -> [String: Any] in
+                ["repository": repo.fullName, "url": repo.url.absoluteString, "exists": repo.exists, "verdict": repo.verdict,
+                 "stars": repo.stars, "license": repo.license ?? "", "last_push": repo.pushedDay,
+                 "security_advisories": repo.advisories, "critical_advisories": repo.criticalAdvisories,
+                 "links_back": repo.linkedBack, "found_in": repo.foundIn, "description": repo.description ?? ""]
+            }
+        }
         if let digest = video.digest {
             object["summary"] = digest.summary
             object["key_points"] = digest.keyPoints

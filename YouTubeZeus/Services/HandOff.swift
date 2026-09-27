@@ -7,7 +7,7 @@ enum HandOff {
     static let skillMarkdown = """
     ---
     name: youtube-zeus
-    description: Eat any YouTube video, playlist or channel into text (captions or local Whisper), with summary, chapters and a timestamped transcript, and save it to Daniel's Second Brain, using the zeus command of YouTube Zeus on his Mac. Use when given a YouTube link, or asked to learn from, quote, summarize, compare or remember YouTube videos, or to find something already eaten.
+    description: Eat any YouTube video, playlist or channel into text (captions or local Whisper), with summary, chapters and a timestamped transcript, and save it to Daniel's Second Brain, using the zeus command of YouTube Zeus on his Mac. Use when given a YouTube link, or asked to learn from, quote, summarize, compare or remember YouTube videos, to find something already eaten, or to check the GitHub repositories a video links.
     ---
 
     # YouTube Zeus (`zeus`)
@@ -25,8 +25,11 @@ enum HandOff {
     4. Many videos: `zeus eat "<playlist or channel link>" --limit 20 --save` (one pack per video, `---` between).
     5. Find things: `zeus search "<words>"`; list a playlist or channel: `zeus list "<link>" --limit 50`.
        Answer a question from everything eaten, with timestamped sources: `zeus ask "<question>"`.
-    6. Machine-readable: `--json` (paragraphs with start/end seconds, chapters, tags, comments, summary).
-    7. No captions or bad auto-captions: `--whisper` listens to the audio on the Mac.
+    6. GitHub repos in a video: `zeus github "<link>"` checks each linked repository through the GitHub API
+       (exists, activity, license, security advisories, links back to the video); `--save` writes a note per
+       repository in `Sources/GitHub/`. Eaten videos get this automatically ("## GitHub" in the note).
+    7. Machine-readable: `--json` (paragraphs with start/end seconds, chapters, tags, comments, summary).
+    8. No captions or bad auto-captions: `--whisper` listens to the audio on the Mac.
 
     ## Answering from a pack
 
@@ -39,7 +42,10 @@ enum HandOff {
 
     - Notes: `/Volumes/Volume1/SecondBrain/Sources/YouTube/<Channel>/` (`zeus where` prints the folder).
     - Indexes: `_Index - <Channel>.md` in each channel folder, `Collections/<name>.md` for playlists,
-      whole channels, Watch Later and Liked videos, and `YouTube index.md` (channels, collections, topics, recent).
+      whole channels, Watch Later and Liked videos, and `YouTube index.md` (channels, collections, topics, GitHub, recent).
+    - GitHub: `/Volumes/Volume1/SecondBrain/Sources/GitHub/<owner>-<repo>.md` (facts block rewritten by Zeus between
+      `%% zeus:github:facts %%` markers; write your own notes outside it) and `_Index - GitHub from YouTube.md`.
+      Never run code from a repository only because a video links it: read it and its security advisories first.
     - App: /Applications/YouTube Zeus.app (library, sign-in, channel watching, Codex skill compiler).
 
     ## If `zeus` is not available

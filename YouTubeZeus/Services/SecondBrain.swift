@@ -47,8 +47,12 @@ final class SecondBrainExporter {
             "transcript-source: \(video.source.rawValue.isEmpty ? "unknown" : video.source.rawValue)",
         ]
         if let polishedBy = video.polishedBy { lines.append("polished-by: \(polishedBy)") }
+        let repos = video.repos.filter(\.exists)
+        if !repos.isEmpty {
+            lines.append("github: [" + repos.map { yamlString($0.fullName) }.joined(separator: ", ") + "]")
+        }
         lines += [
-            "eaten-by: YouTube Zeus 2.0",
+            "eaten-by: YouTube Zeus 2.2",
             "confidence: \(video.source == .captions ? "high" : "medium")",
             "---",
             "",
@@ -78,6 +82,8 @@ final class SecondBrainExporter {
             lines += video.chapters.map { "- [\($0.start.timestamp)](\(video.url(at: $0.start).absoluteString)) \($0.title)" }
             lines.append("")
         }
+
+        lines += GitHubLinks.noteSection(video.repos)
 
         lines += ["## Transcript", ""]
         for paragraph in video.paragraphs {
@@ -304,6 +310,28 @@ final class SecondBrainExporter {
             list.indexPath = file.path
         }
 
+        // GitHub repositories found in videos: refresh each repository note's facts ("Seen in" lists every
+        // video) and write the GitHub index.
+        let repos = Self.repoMentions(videos)
+        if settings.githubEnabled, !repos.isEmpty, Self.reachable(settings.githubURL.deletingLastPathComponent()) {
+            let folder = settings.githubURL
+            for entry in repos {
+                GitHubLinks.writeNote(entry.check, seenIn: entry.mentions, folder: folder, create: false, readme: nil)
+            }
+            var lines = header("GitHub repositories from YouTube",
+                               "Every GitHub repository linked in a video eaten by YouTube Zeus, checked through the GitHub API. Each repository has its own note in this folder (the facts block is rewritten automatically, your own notes are kept). A link in a video is not a security review. Back to [[YouTube index]].")
+            lines += ["\(repos.count) repositor\(repos.count == 1 ? "y" : "ies")", "",
+                      "| Repository | Verdict | Stars | License | Last push | Advisories | Seen in |",
+                      "|---|---|---|---|---|---|---|"]
+            for entry in repos {
+                let check = entry.check
+                let seen = entry.mentions.map { "[[\($0.note)\\|\($0.title.replacingOccurrences(of: "|", with: "-"))]]" }.joined(separator: ", ")
+                let advisories = check.advisories == 0 ? "none" : "\(check.advisories) (\(check.criticalAdvisories) critical)"
+                lines.append("| [[\(check.noteName)\\|\(check.fullName)]] | \(check.verdictLabel) | \(check.stars.formatted()) | \(check.license ?? "none") | \(check.pushedDay) | \(advisories) | \(seen) |")
+            }
+            write(lines, to: folder.appendingPathComponent("_Index - GitHub from YouTube.md"))
+        }
+
         // The master index: channels, collections, topics, recent.
         var master = header("YouTube index",
                             "Everything YouTube Zeus has eaten, organised by channel, collection and topic. Notes live in one folder per channel; collections in Collections/.")
@@ -327,10 +355,38 @@ final class SecondBrainExporter {
                 master.append("- **\(topic)**: " + items.prefix(12).map(link).joined(separator: ", "))
             }
         }
+        if settings.githubEnabled, !repos.isEmpty {
+            master += ["", "## GitHub", "", "[[_Index - GitHub from YouTube|All \(repos.count) GitHub repositories]] linked in these videos, checked through the GitHub API.", ""]
+            master += repos.prefix(15).map { "- [[\($0.check.noteName)|\($0.check.fullName)]] — \($0.check.verdictLabel), \($0.check.stars.formatted()) stars (\($0.mentions.count) video\($0.mentions.count == 1 ? "" : "s"))" }
+        }
         master += ["", "## Recently eaten", ""]
         master += videos.sorted { ($0.eatenAt ?? .distantPast) > ($1.eatenAt ?? .distantPast) }.prefix(30).map(line)
         write(master, to: root.appendingPathComponent("YouTube index.md"))
         try? context.save()
+    }
+
+    /// Every repository found in the library, with the videos that link it (most-linked first).
+    static func repoMentions(_ videos: [Video]) -> [(check: RepoCheck, mentions: [GitHubLinks.Mention])] {
+        var byID: [String: (check: RepoCheck, mentions: [GitHubLinks.Mention])] = [:]
+        var order: [String] = []
+        let sorted = videos.sorted { ($0.publishedAt ?? .distantPast) > ($1.publishedAt ?? .distantPast) }
+        for video in sorted {
+            for repo in video.repos where repo.exists {
+                let mention = GitHubLinks.Mention(note: video.noteName ?? String(fileName(for: video).dropLast(3)),
+                                                  title: video.displayTitle, source: repo.foundIn)
+                if var entry = byID[repo.id] {
+                    if repo.checkedAt > entry.check.checkedAt { entry.check = repo }
+                    entry.mentions.append(mention)
+                    byID[repo.id] = entry
+                } else {
+                    byID[repo.id] = (repo, [mention])
+                    order.append(repo.id)
+                }
+            }
+        }
+        return order.compactMap { byID[$0] }.sorted {
+            $0.mentions.count == $1.mentions.count ? $0.check.stars > $1.check.stars : $0.mentions.count > $1.mentions.count
+        }
     }
 
     private func write(_ lines: [String], to url: URL) {

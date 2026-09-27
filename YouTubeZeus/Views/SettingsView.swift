@@ -24,6 +24,8 @@ private struct EatingSettings: View {
     @Environment(AppModel.self) private var app
     @State private var modelReady = false
     @State private var downloading: Double?
+    @State private var githubToken = ""
+    @State private var hasGitHubToken = KeychainStore.read("github")?.isEmpty == false
 
     var body: some View {
         @Bindable var settings = settings
@@ -66,6 +68,25 @@ private struct EatingSettings: View {
                     .foregroundStyle(app.exporter.folderReachable ? .green : .orange)
                     .font(.callout)
             }
+            Section("GitHub links") {
+                Toggle("Find and check GitHub repositories linked in videos", isOn: $settings.githubEnabled)
+                HStack {
+                    Text(settings.githubURL.path).font(.callout.monospaced()).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Button("Choose…") { chooseGitHubFolder() }
+                }
+                HStack {
+                    SecureField(hasGitHubToken ? "Token saved in the Keychain" : "GitHub token (optional)", text: $githubToken)
+                    Button("Save") {
+                        KeychainStore.save(githubToken.trimmingCharacters(in: .whitespacesAndNewlines), account: "github")
+                        githubToken = ""
+                        hasGitHubToken = KeychainStore.read("github")?.isEmpty == false
+                        app.show(hasGitHubToken ? "GitHub token saved in the Keychain (used after the next launch)." : "GitHub token removed.")
+                    }
+                }
+                Text("Each repository is checked through the GitHub API (exists, last activity, license, security advisories, links back to the video) and gets a note in this folder; its facts block is rewritten, your own notes are kept. Without a token GitHub allows about 15 repositories an hour; a token with no scopes (or `gh auth login`) raises that.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .task(id: settings.whisperModel) { refreshModel() }
@@ -100,6 +121,15 @@ private struct EatingSettings: View {
         panel.canCreateDirectories = true
         panel.directoryURL = settings.secondBrainURL.deletingLastPathComponent()
         if panel.runModal() == .OK, let url = panel.url { settings.secondBrainFolder = url.path }
+    }
+
+    private func chooseGitHubFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = settings.githubURL.deletingLastPathComponent()
+        if panel.runModal() == .OK, let url = panel.url { settings.githubFolder = url.path }
     }
 }
 

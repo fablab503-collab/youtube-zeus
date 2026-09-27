@@ -145,6 +145,8 @@ final class Video {
     var polishModel: String? = nil
     var polishError: String? = nil
     var noteName: String? = nil
+    @Attribute(.externalStorage) var githubData: Data? = nil
+    var githubCheckedAt: Date? = nil
     @Relationship(deleteRule: .cascade, inverse: \SkillDraft.video) var skills: [SkillDraft] = []
 
     init(videoID: String, title: String = "", channelTitle: String = "", channelID: String = "",
@@ -232,6 +234,15 @@ final class Video {
         set { polishedData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
     }
 
+    /// GitHub repositories found in the description (checked through the GitHub API).
+    var repos: [RepoCheck] {
+        get {
+            guard let githubData else { return [] }
+            return (try? JSONDecoder.iso.decode([RepoCheck].self, from: githubData)) ?? []
+        }
+        set { githubData = newValue.isEmpty ? nil : try? JSONEncoder.iso.encode(newValue) }
+    }
+
     /// Paragraphs with the polished text when it exists.
     var displayParagraphs: [TranscriptParagraph] {
         let original = paragraphs
@@ -245,7 +256,7 @@ final class Video {
                       publishedAt: publishedAt, duration: duration, language: language, source: source,
                       eatenAt: eatenAt ?? .now, description: videoDescription, tags: tags, viewCount: viewCount,
                       likeCount: likeCount, chapters: chapters, digest: digest, paragraphs: displayParagraphs,
-                      comments: comments, polishedBy: polished.isEmpty ? nil : polishModel)
+                      comments: comments, polishedBy: polished.isEmpty ? nil : polishModel, repos: repos)
     }
 
     var wordCount: Int { transcriptText.split(whereSeparator: \.isWhitespace).count }
@@ -405,6 +416,7 @@ nonisolated struct VideoSnapshot: Sendable {
     var paragraphs: [TranscriptParagraph]
     var comments: [VideoComment]
     var polishedBy: String?
+    var repos: [RepoCheck] = []
 
     var url: URL { URL(string: "https://www.youtube.com/watch?v=\(videoID)")! }
     func url(at seconds: Double) -> URL { URL(string: "https://www.youtube.com/watch?v=\(videoID)&t=\(Int(seconds))s")! }

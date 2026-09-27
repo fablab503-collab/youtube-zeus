@@ -47,6 +47,8 @@ final class AppSettings {
 
     // Organising
     var writeIndexes: Bool { didSet { save("writeIndexes", writeIndexes) } }
+    var githubEnabled: Bool { didSet { save("githubEnabled", githubEnabled) } }
+    var githubFolder: String { didSet { save("githubFolder", githubFolder) } }
 
     // Tools (empty = find automatically)
     var ytdlpPath: String { didSet { save("ytdlpPath", ytdlpPath) } }
@@ -82,6 +84,8 @@ final class AppSettings {
             "polishModel": "qwen3:4b-instruct",
             "polishCaptionsToo": false,
             "writeIndexes": true,
+            "githubEnabled": true,
+            "githubFolder": "/Volumes/Volume1/SecondBrain/Sources/GitHub",
             "ytdlpPath": "",
             "ffmpegPath": "",
             "whisperPath": "",
@@ -112,6 +116,8 @@ final class AppSettings {
         polishModel = d.string(forKey: "polishModel") ?? "qwen3:4b-instruct"
         polishCaptionsToo = d.bool(forKey: "polishCaptionsToo")
         writeIndexes = d.bool(forKey: "writeIndexes")
+        githubEnabled = d.bool(forKey: "githubEnabled")
+        githubFolder = d.string(forKey: "githubFolder") ?? ""
         ytdlpPath = d.string(forKey: "ytdlpPath") ?? ""
         ffmpegPath = d.string(forKey: "ffmpegPath") ?? ""
         whisperPath = d.string(forKey: "whisperPath") ?? ""
@@ -149,6 +155,13 @@ final class AppSettings {
 
     var secondBrainURL: URL {
         URL(fileURLWithPath: (secondBrainFolder as NSString).expandingTildeInPath, isDirectory: true)
+    }
+
+    /// Where notes about GitHub repositories found in videos live (next to Sources/YouTube by default).
+    var githubURL: URL {
+        githubFolder.isEmpty
+            ? secondBrainURL.deletingLastPathComponent().appendingPathComponent("GitHub", isDirectory: true)
+            : URL(fileURLWithPath: (githubFolder as NSString).expandingTildeInPath, isDirectory: true)
     }
 
     // Daily OpenAI token accounting

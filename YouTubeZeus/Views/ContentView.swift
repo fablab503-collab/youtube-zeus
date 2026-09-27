@@ -18,6 +18,7 @@ struct ContentView: View {
                 case .collection(let id): CollectionView(listID: id).id(id)
                 case .topic(let topic): TopicView(topic: topic).id(topic)
                 case .ask: AskSourcesList()
+                case .github: GitHubView()
                 case .browser: AccountPanel()
                 case .library, nil: LibraryView()
                 }
@@ -70,6 +71,10 @@ struct SidebarView: View {
     @Query(filter: #Predicate<Video> { $0.statusRaw == "discovered" }) private var discovered: [Video]
     @Query(sort: \VideoList.updatedAt, order: .reverse) private var lists: [VideoList]
     @Query private var allVideos: [Video]
+
+    private var repoCount: Int {
+        Set(allVideos.filter(\.status.hasText).flatMap { $0.repos.map(\.id) }).count
+    }
 
     private var topics: [(String, Int)] {
         var counts: [String: (name: String, count: Int)] = [:]
@@ -138,6 +143,17 @@ struct SidebarView: View {
 
                 Label("Ask your brain", systemImage: "brain.head.profile")
                     .tag(SidebarItem.ask)
+
+                Label {
+                    HStack {
+                        Text("GitHub")
+                        Spacer()
+                        if repoCount > 0 {
+                            Text("\(repoCount)").foregroundStyle(.secondary).monospacedDigit()
+                        }
+                    }
+                } icon: { Image(systemName: "chevron.left.forwardslash.chevron.right") }
+                .tag(SidebarItem.github)
             }
 
             if !lists.isEmpty {

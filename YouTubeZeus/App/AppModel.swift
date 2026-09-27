@@ -10,6 +10,7 @@ enum SidebarItem: Hashable {
     case skills
     case browser
     case ask
+    case github
     case channel(String)
     case collection(String)
     case topic(String)
@@ -124,6 +125,18 @@ final class AppModel {
         initialTab = domain["detailTab"] as? String
         if let id = domain["polish"] as? String, let video = engine.video(id) {
             engine.polishNow(video)
+        }
+        if let id = domain["checkGitHub"] as? String {
+            if id == "all" {
+                for video in (try? context.fetch(FetchDescriptor<Video>())) ?? [] where video.status.hasText {
+                    engine.scheduleGitHub(video.videoID, force: true)
+                }
+            } else if let video = engine.video(id) {
+                engine.recheckGitHub(video)
+            }
+        }
+        if (domain["showGitHub"] as? String) != nil {
+            selection = .github
         }
         if let link = domain["eatList"] as? String {
             Task { await eatList(url: link) }
@@ -361,6 +374,18 @@ final class AppModel {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(AIPack.video(video.snapshot), forType: .string)
         show("Knowledge pack copied — paste it into Claude, ChatGPT, Gemini, Grok, GLM…")
+    }
+
+    /// The repository's note in the Second Brain, when it exists.
+    func repoNoteURL(_ repo: RepoCheck) -> URL? {
+        let file = settings.githubURL.appendingPathComponent("\(repo.noteName).md")
+        return FileManager.default.fileExists(atPath: file.path) ? file : nil
+    }
+
+    func copyGitHubForAI(_ entries: [(RepoCheck, [VideoSnapshot])]) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(AIPack.github(entries), forType: .string)
+        show("Copied \(entries.count) GitHub repositories for AI.")
     }
 
     func packVideos(for list: VideoList) -> (videos: [VideoSnapshot], missing: Int) {

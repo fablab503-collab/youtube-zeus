@@ -34,6 +34,9 @@ final class EatEngine {
     private(set) var postCurrent: String?
     private(set) var polishing: Set<String> = []
     private var forcePolish: Set<String> = []
+    private(set) var githubQueue: [String] = []
+    private var githubRunning = false
+    private(set) var githubChecking: String?
 
     let context: ModelContext
     let settings: AppSettings
@@ -137,8 +140,9 @@ final class EatEngine {
         let doneRaw = EatStatus.done.rawValue
         let descriptor = FetchDescriptor<Video>(predicate: #Predicate { $0.statusRaw == doneRaw },
                                                 sortBy: [SortDescriptor(\.addedAt)])
-        for video in (try? context.fetch(descriptor)) ?? [] where needsPost(video) {
-            schedulePost(video.videoID)
+        for video in (try? context.fetch(descriptor)) ?? [] {
+            if needsPost(video) { schedulePost(video.videoID) }
+            if settings.githubEnabled, video.githubCheckedAt == nil { scheduleGitHub(video.videoID) }
         }
     }
 
@@ -247,6 +251,7 @@ final class EatEngine {
             try? context.save()
             exporter.export(video)
             try? context.save()
+            scheduleGitHub(id)
             schedulePost(id)
         } catch {
             let cancelled = Self.isCancellation(error)
@@ -306,6 +311,60 @@ final class EatEngine {
         if video.fromChannelWatch, settings.notifyWhenEaten {
             Notifier.post(title: "Eaten: \(video.displayTitle)", body: video.channelTitle)
         }
+    }
+
+    // MARK: GitHub links (fast, beside polishing and summaries)
+
+    func isCheckingGitHub(_ id: String) -> Bool { githubChecking == id || githubQueue.contains(id) }
+
+    /// Finds the GitHub repositories linked in a video and checks them through the GitHub API.
+    func scheduleGitHub(_ id: String, force: Bool = false) {
+        guard settings.githubEnabled || force else { return }
+        if !githubQueue.contains(id), githubChecking != id { githubQueue.append(id) }
+        guard !githubRunning else { return }
+        githubRunning = true
+        Task {
+            while !githubQueue.isEmpty {
+                let next = githubQueue.removeFirst()
+                githubChecking = next
+                if let video = video(next) { await checkGitHub(video) }
+                githubChecking = nil
+            }
+            githubRunning = false
+        }
+    }
+
+    /// Checks again now (forgets the 3-day cache).
+    func recheckGitHub(_ video: Video) {
+        GitHubLinks.clearCache()
+        scheduleGitHub(video.videoID, force: true)
+    }
+
+    private func checkGitHub(_ video: Video) async {
+        guard video.status.hasText else { return }
+        let id = video.videoID
+        let checks = await GitHubLinks.check(videoID: id, description: video.videoDescription, channel: video.channelTitle,
+                                             comments: video.comments, transcript: video.transcriptText)
+        video.repos = checks
+        // When GitHub's hourly limit was reached, try again at the next launch or channel check.
+        video.githubCheckedAt = checks.contains { $0.verdict == "unchecked" } ? nil : .now
+        try? context.save()
+        guard !checks.isEmpty else { return }
+        AppLog.write("GITHUB \(id): \(checks.map { "\($0.fullName)=\($0.verdict)" }.joined(separator: ", "))")
+        if settings.secondBrainEnabled, SecondBrainExporter.reachable(settings.githubURL.deletingLastPathComponent()) {
+            let folder = settings.githubURL
+            let note = video.noteName ?? String(SecondBrainExporter.fileName(for: video).dropLast(3))
+            for check in checks where check.exists {
+                let file = folder.appendingPathComponent("\(check.noteName).md")
+                guard !FileManager.default.fileExists(atPath: file.path) else { continue }
+                let readme = await GitHubLinks.readmeExcerpt(owner: check.owner, name: check.name)
+                let mention = GitHubLinks.Mention(note: note, title: video.displayTitle, source: check.foundIn)
+                GitHubLinks.writeNote(check, seenIn: [mention], folder: folder, create: true, readme: readme)
+            }
+        }
+        exporter.export(video)
+        exporter.scheduleIndexes(in: context)
+        try? context.save()
     }
 
     func shouldPolish(_ video: Video) -> Bool {

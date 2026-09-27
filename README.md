@@ -1,4 +1,4 @@
-# YouTube Zeus 2.1 — the YouTube eater, native on macOS 27
+# YouTube Zeus 2.2 — the YouTube eater, native on macOS 27
 
 Paste a YouTube link (video, playlist or channel). Zeus eats the video and keeps its text.
 
@@ -12,6 +12,7 @@ Paste a YouTube link (video, playlist or channel). Zeus eats the video and keeps
 - **Local AI polishing**: Ollama + `qwen3:4b-instruct` (2.5 GB, fits in 8 GB of RAM) fixes punctuation, capitals and misheard words of auto-captions and Whisper text, paragraph by paragraph, never translating or shortening. Original / Polished toggle.
 - **AI hand-off**: "Copy for AI" knowledge packs (video or collection) for Claude, ChatGPT, Gemini, Grok, GLM…; the `zeus` command for terminals and agents; the `youtube-zeus` Agent Skill installed for Claude Code, Codex, Gemini CLI and ~/.agents (Settings › AI hand-off). A copy of the skill and universal instructions lives in the Second Brain (`Sources/YouTube/_For AI/`).
 - **Ask your brain**: ask a question in any language; Zeus ranks the eaten videos and paragraphs on the Mac, and Codex answers with numbered sources (video + timestamp + quote). **Topics** in the sidebar group videos by their summary tags; new summaries reuse existing tags so the library stays tidy.
+- **GitHub links**: every github.com/<owner>/<repo> link in a video's description (or in the channel's own comment, or spelled out in the transcript) is checked through the GitHub API: exists, renamed, archived, fork, last push, stars, license, latest release, published security advisories, owner account age, and whether the repository links back to the video or its site. The video note gets a "## GitHub" section; each repository gets a note in `Sources/GitHub/<owner>-<repo>.md` (README excerpt, "Seen in" every video; Zeus only rewrites the block between `%% zeus:github:facts start/end %%`, your notes are kept) and `_Index - GitHub from YouTube.md` lists them all. Sidebar › GitHub. Results are cached 3 days; add a GitHub token (Settings › Eating, or `gh auth login`) for more than ~15 repositories an hour.
 - **Codex skills** (the 0.1 feature): OpenAI (Responses API, strict JSON schema, `store=false`) proposes up to three evidence-backed skills. Every quote is checked against the transcript, the bundle is validated (structure, prohibited content, evidence), and nothing is published without "Approve and publish". Output: `SKILL.md`, `references/evidence.md`, `references/changes.md`, `evals/evals.json` in `~/.codex/skills/<name>/` (older versions go to `Skill History`). The API key lives in the Keychain.
 
 ## Build
@@ -34,6 +35,7 @@ zeus eat "<link>" --polish --summary --json
 zeus get <link|id>                  # saved note, no network
 zeus search "<words>"
 zeus list "<playlist|channel>" --limit 50
+zeus github "<link>" [--save] [--json]   # GitHub repos linked in a video, checked through the GitHub API
 ```
 
 Installed by Settings › AI hand-off as a tiny script in /opt/homebrew/bin (or ~/.local/bin) that runs the app binary with `--cli`.
@@ -45,6 +47,7 @@ open -a "YouTube Zeus" --args -eat "https://youtu.be/…"        # eat a link at
 open -a "YouTube Zeus" --args -eatWhisper "https://youtu.be/…" # force Whisper
 open -a "YouTube Zeus" --args -selectVideo <videoID>
 open -a "YouTube Zeus" --args -ask "question"                 # also: -browse <url>, -showTopic <name>, -polish <id>
+open -a "YouTube Zeus" --args -checkGitHub <videoID|all>      # check GitHub links again (-showGitHub opens the list)
 open "youtubezeus://eat?url=<percent-encoded link>"           # hand a link to the running app
 ```
 

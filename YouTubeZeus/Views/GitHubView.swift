@@ -65,6 +65,40 @@ struct RepoCard: View {
     }
 }
 
+/// Compact repository line for the GitHub list (the videos that link it follow).
+struct RepoRow: View {
+    @Environment(AppModel.self) private var app
+    let repo: RepoCheck
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: repo.verdictSymbol)
+                .font(.title3)
+                .foregroundStyle(repo.tint)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(repo.fullName).font(.headline).lineLimit(1)
+                Text(([repo.verdictLabel]
+                      + (repo.exists ? ["\(repo.stars.formatted(.number.notation(.compactName))) stars", repo.license ?? "no license",
+                                        repo.pushedDay.isEmpty ? "" : "pushed \(repo.pushedDay)"] : []))
+                        .filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                if repo.advisories > 0 {
+                    Label("\(repo.advisories) security advisories\(repo.criticalAdvisories > 0 ? ", \(repo.criticalAdvisories) critical" : "")",
+                          systemImage: "exclamationmark.shield")
+                        .font(.caption).foregroundStyle(repo.criticalAdvisories > 0 ? .orange : .secondary)
+                }
+            }
+            Spacer(minLength: 4)
+            Button { NSWorkspace.shared.open(repo.url) } label: {
+                Image(systemName: "arrow.up.right.square")
+            }
+            .buttonStyle(.borderless)
+            .help("Open on GitHub")
+        }
+    }
+}
+
 /// GitHub section of a video's Info tab.
 struct VideoGitHubSection: View {
     @Environment(AppModel.self) private var app
@@ -143,12 +177,23 @@ struct GitHubView: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(entries) { entry in
-                Section {
-                    ForEach(entry.videos) { video in
-                        VideoRow(video: video).tag(video.videoID).contextMenu { VideoMenu(video: video) }
+                RepoRow(repo: entry.repo)
+                    .padding(.top, 6)
+                    .contextMenu {
+                        Button("Open on GitHub") { NSWorkspace.shared.open(entry.repo.url) }
+                        if let note = app.repoNoteURL(entry.repo) {
+                            Button("Open Note") { NSWorkspace.shared.open(note) }
+                        }
+                        Button("Copy Link") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(entry.repo.url.absoluteString, forType: .string)
+                        }
                     }
-                } header: {
-                    RepoCard(repo: entry.repo).padding(.vertical, 4)
+                ForEach(entry.videos) { video in
+                    VideoRow(video: video)
+                        .padding(.leading, 22)
+                        .tag(video.videoID)
+                        .contextMenu { VideoMenu(video: video) }
                 }
             }
         }

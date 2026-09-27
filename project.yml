@@ -1,0 +1,43 @@
+name: YouTubeZeus
+options:
+  bundleIdPrefix: com.danielmadac
+  deploymentTarget:
+    macOS: "27.0"
+  developmentLanguage: en
+  createIntermediateGroups: true
+  groupSortPosition: top
+settings:
+  base:
+    MARKETING_VERSION: "2.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: B7P7FR67VK
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "Developer ID Application"
+    ENABLE_HARDENED_RUNTIME: YES
+    SWIFT_VERSION: "6.0"
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+    ENABLE_APP_SANDBOX: NO
+targets:
+  YouTubeZeus:
+    type: application
+    platform: macOS
+    sources:
+      - path: YouTubeZeus
+        excludes:
+          - "AppIcon.icon"
+      - path: YouTubeZeus/AppIcon.icon
+        type: file
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.danielmadac.youtubezeus
+        PRODUCT_NAME: YouTube Zeus
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: YouTube Zeus
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Daniel Madac · FabLab 503"
+        OTHER_CODE_SIGN_FLAGS: "--timestamp=none"

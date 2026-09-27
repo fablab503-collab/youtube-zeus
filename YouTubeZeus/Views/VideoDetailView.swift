@@ -1,0 +1,520 @@
+import SwiftData
+import SwiftUI
+
+enum DetailTab: String, CaseIterable, Identifiable {
+    case transcript = "Transcript"
+    case summary = "Summary"
+    case skills = "Skills"
+    case info = "Info"
+
+    var id: String { rawValue }
+}
+
+struct VideoDetailView: View {
+    @Environment(AppModel.self) private var app
+    @Query private var matches: [Video]
+    @State private var tab: DetailTab = .transcript
+    @State private var find = ""
+    @State private var paragraphs: [TranscriptParagraph] = []
+
+    init(videoID: String) {
+        _matches = Query(filter: #Predicate<Video> { $0.videoID == videoID })
+    }
+
+    var body: some View {
+        if let video = matches.first {
+            content(video)
+        } else {
+            EmptyState(symbol: "questionmark.video", title: "Not found", message: "This video is no longer in the library.")
+        }
+    }
+
+    @ViewBuilder
+    private func content(_ video: Video) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                Header(video: video)
+                if video.status == .done || video.status == .summarizing {
+                    HStack(spacing: 12) {
+                        Picker("View", selection: $tab) {
+                            ForEach(DetailTab.allCases) { tab in Text(tab.rawValue).tag(tab) }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .frame(maxWidth: 400)
+                        Spacer()
+                        if tab == .transcript {
+                            HStack(spacing: 6) {
+                                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                                TextField("Find in transcript", text: $find)
+                                    .textFieldStyle(.plain)
+                                    .frame(width: 170)
+                                if !find.isEmpty {
+                                    Button { find = "" } label: { Image(systemName: "xmark.circle.fill") }
+                                        .buttonStyle(.plain)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .glassEffect(.regular.interactive(), in: .capsule)
+                        }
+                    }
+
+                    switch tab {
+                    case .transcript: TranscriptBody(video: video, paragraphs: paragraphs, find: find)
+                    case .summary: SummaryBody(video: video)
+                    case .skills: SkillsBody(video: video)
+                    case .info: InfoBody(video: video)
+                    }
+                } else {
+                    ProgressCard(video: video)
+                    if !video.videoDescription.isEmpty { InfoBody(video: video) }
+                }
+            }
+            .padding(28)
+            .frame(maxWidth: 900, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .navigationTitle(video.displayTitle)
+        .toolbar {
+            ToolbarItemGroup {
+                Button { NSWorkspace.shared.open(video.url) } label: { Label("Open on YouTube", systemImage: "play.rectangle") }
+                    .help("Open on YouTube")
+                if video.status == .done {
+                    Button { app.copyTranscript(video) } label: { Label("Copy transcript", systemImage: "doc.on.doc") }
+                        .help("Copy the transcript")
+                    Menu {
+                        Button("Export Markdown…") { app.exportMarkdown(video) }
+                        Button("Copy as Markdown Note") { app.copyMarkdown(video) }
+                        Button("Save to Second Brain") { app.saveToSecondBrain(video) }
+                        if let path = video.secondBrainPath {
+                            Button("Show in Second Brain") { app.reveal(path) }
+                        }
+                    } label: {
+                        Label("Export", systemImage: "square.and.arrow.up")
+                    }
+                    .help("Export")
+                }
+            }
+        }
+        .task(id: video.eatenAt) { paragraphs = video.paragraphs }
+        .onAppear {
+            if let name = app.initialTab, let initial = DetailTab.allCases.first(where: { $0.rawValue.lowercased() == name.lowercased() }) {
+                tab = initial
+                app.initialTab = nil
+            }
+        }
+    }
+}
+
+private struct Header: View {
+    @Environment(AppModel.self) private var app
+    let video: Video
+
+    private var isEaten: Bool { video.status == .done || video.status == .summarizing }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 18) {
+                Button { NSWorkspace.shared.open(video.url) } label: {
+                    ZStack {
+                        Thumbnail(url: video.thumbnailURL, width: 220, radius: 16)
+                        Image(systemName: "play.fill")
+                            .font(.title2)
+                            .foregroundStyle(.white)
+                            .padding(14)
+                            .glassEffect(.clear, in: .circle)
+                    }
+                }
+                .buttonStyle(.plain)
+                .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
+                .help("Play on YouTube")
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(video.displayTitle)
+                        .font(.title2.bold())
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text([video.channelTitle,
+                          video.publishedAt?.shortDay,
+                          video.duration > 0 ? video.duration.timestamp : nil]
+                        .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            FlowLayout(spacing: 6) {
+                StatusBadge(status: video.status)
+                if isEaten {
+                    Chip(text: video.source.label, symbol: video.source.symbol, tint: .zeus)
+                    if !video.language.isEmpty {
+                        Chip(text: Summarizer.languageName(video.language), symbol: "globe")
+                    }
+                    Chip(text: "\(video.wordCount.formatted()) words", symbol: "text.alignleft")
+                    if video.secondBrainPath != nil {
+                        Chip(text: "Second Brain", symbol: "brain.head.profile", tint: .green)
+                    } else if video.exportPending {
+                        Chip(text: "Second Brain pending", symbol: "clock", tint: .orange)
+                    }
+                    if video.digestData != nil {
+                        Chip(text: "Summarized", symbol: "apple.intelligence", tint: .pink)
+                    }
+                }
+            }
+
+            if isEaten {
+                GlassEffectContainer(spacing: 8) {
+                    FlowLayout(spacing: 8) {
+                        Button {
+                            app.summarize(video)
+                        } label: {
+                            Label(video.digestData == nil ? "Summarize" : "Summarize again", systemImage: "apple.intelligence")
+                        }
+                        .buttonStyle(.glass)
+                        .disabled(app.engine.isSummarizing(video.videoID))
+                        Button {
+                            app.compileSkills(video)
+                        } label: {
+                            Label("Make Codex skills", systemImage: "sparkles.rectangle.stack")
+                        }
+                        .buttonStyle(.glass)
+                        .disabled(app.compiler.compiling.contains(video.videoID))
+                        Button {
+                            app.saveToSecondBrain(video)
+                        } label: {
+                            Label("Save to Second Brain", systemImage: "brain.head.profile")
+                        }
+                        .buttonStyle(.glass)
+                        if video.source == .autoCaptions {
+                            Button {
+                                app.engine.retry(video, withWhisper: true)
+                            } label: {
+                                Label("Listen with Whisper", systemImage: "waveform")
+                            }
+                            .buttonStyle(.glass)
+                            .help("Auto-captions can have mistakes. Whisper listens to the audio on this Mac for a cleaner text.")
+                        }
+                    }
+                }
+                if app.engine.isSummarizing(video.videoID) || app.compiler.compiling.contains(video.videoID) {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(app.compiler.compiling.contains(video.videoID)
+                             ? "\(app.compiler.engineLabel) is reading the transcript… (about a minute)"
+                             : (app.engine.state(for: video.videoID)?.step ?? "Summarizing…"))
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Lays out views left to right and wraps onto new lines (chips and buttons).
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var widest: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+            widest = max(widest, x - spacing)
+        }
+        return CGSize(width: min(widest, maxWidth), height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
+private struct ProgressCard: View {
+    @Environment(AppModel.self) private var app
+    let video: Video
+
+    var body: some View {
+        let job = app.engine.state(for: video.videoID)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Image(systemName: video.status.symbol)
+                    .font(.title)
+                    .foregroundStyle(video.status.color)
+                    .symbolEffect(.pulse, isActive: video.status.isBusy || video.status == .queued)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.title3.bold())
+                    Text(job?.step ?? video.statusDetail)
+                        .foregroundStyle(video.status == .failed ? .red : .secondary)
+                        .textSelection(.enabled)
+                }
+                Spacer()
+            }
+            if let progress = job?.progress {
+                ProgressView(value: progress).tint(video.status.color)
+                Text(progress.formatted(.percent.precision(.fractionLength(0)))).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            } else if video.status.isBusy || video.status == .queued {
+                ProgressView().progressViewStyle(.linear).tint(video.status.color)
+            }
+            HStack {
+                switch video.status {
+                case .failed, .discovered, .waiting:
+                    Button { app.engine.retry(video) } label: { Label("Eat now", systemImage: "fork.knife") }
+                        .buttonStyle(.glassProminent)
+                case .queued, .fetching, .transcribing:
+                    Button(role: .cancel) { app.engine.cancel(video.videoID) } label: { Label("Cancel", systemImage: "xmark") }
+                        .buttonStyle(.glass)
+                default: EmptyView()
+                }
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+    }
+
+    private var title: String {
+        switch video.status {
+        case .discovered: "New upload — not eaten yet"
+        case .queued: "In line"
+        case .fetching: "Eating…"
+        case .transcribing: "Listening with Whisper…"
+        case .summarizing: "Summarizing…"
+        case .waiting: "Waiting"
+        case .failed: "Could not eat this video"
+        case .done: "Eaten"
+        }
+    }
+}
+
+struct TranscriptBody: View {
+    let video: Video
+    let paragraphs: [TranscriptParagraph]
+    let find: String
+
+    var body: some View {
+        let query = find.trimmingCharacters(in: .whitespaces)
+        let visible = query.isEmpty ? paragraphs : paragraphs.filter { $0.text.localizedStandardContains(query) }
+        VStack(alignment: .leading, spacing: 4) {
+            if !query.isEmpty {
+                Text("\(visible.count) paragraph\(visible.count == 1 ? "" : "s") with “\(query)”")
+                    .font(.callout).foregroundStyle(.secondary).padding(.bottom, 8)
+            }
+            if video.source == .autoCaptions {
+                Label("YouTube auto-captions: some words may be misheard. “Listen with Whisper” can redo it on this Mac.", systemImage: "info.circle")
+                    .font(.caption).foregroundStyle(.secondary).padding(.bottom, 8)
+            }
+            LazyVStack(alignment: .leading, spacing: 16) {
+                ForEach(visible) { paragraph in
+                    HStack(alignment: .firstTextBaseline, spacing: 14) {
+                        Button {
+                            NSWorkspace.shared.open(video.url(at: paragraph.start))
+                        } label: {
+                            Text(paragraph.start.timestamp)
+                                .font(.callout.monospacedDigit().weight(.semibold))
+                                .foregroundStyle(.tint)
+                                .frame(width: 62, alignment: .trailing)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Play from here on YouTube")
+                        Text(highlighted(paragraph.text, query))
+                            .font(.system(size: 14.5))
+                            .lineSpacing(4)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        }
+    }
+
+    private func highlighted(_ text: String, _ query: String) -> AttributedString {
+        var result = AttributedString(text)
+        guard !query.isEmpty else { return result }
+        var searchStart = result.startIndex
+        while let range = result[searchStart...].range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) {
+            result[range].backgroundColor = Color.zeusGold.opacity(0.45)
+            result[range].foregroundColor = .primary
+            searchStart = range.upperBound
+        }
+        return result
+    }
+}
+
+struct SummaryBody: View {
+    @Environment(AppModel.self) private var app
+    let video: Video
+
+    var body: some View {
+        if let digest = video.digest {
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Summary", systemImage: "apple.intelligence").font(.headline).foregroundStyle(.tint)
+                    Text(digest.summary).font(.system(size: 15)).lineSpacing(4).textSelection(.enabled)
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassEffect(.regular.tint(.zeus.opacity(0.12)), in: .rect(cornerRadius: 22))
+
+                if !digest.keyPoints.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Key points").font(.headline)
+                        ForEach(Array(digest.keyPoints.enumerated()), id: \.offset) { index, point in
+                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                Text("\(index + 1)")
+                                    .font(.caption.bold().monospacedDigit())
+                                    .foregroundStyle(.white)
+                                    .frame(width: 20, height: 20)
+                                    .background(Color.zeus, in: .circle)
+                                Text(point).textSelection(.enabled)
+                            }
+                        }
+                    }
+                }
+                if !digest.chapters.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Chapters").font(.headline)
+                        ForEach(digest.chapters, id: \.self) { chapter in
+                            Button {
+                                NSWorkspace.shared.open(video.url(at: chapter.start))
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Text(chapter.start.timestamp).monospacedDigit().foregroundStyle(.tint).frame(width: 62, alignment: .trailing)
+                                    Text(chapter.title)
+                                    Spacer()
+                                }
+                                .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                if !digest.topics.isEmpty {
+                    HStack { ForEach(digest.topics, id: \.self) { Chip(text: $0, symbol: "number", tint: .zeus) } }
+                }
+                Text(digest.engine == "Apple Intelligence"
+                     ? "Made by Apple Intelligence on this Mac, \(digest.generatedAt.relative)."
+                     : "Made by \(digest.engine), \(digest.generatedAt.relative).")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                if app.engine.isSummarizing(video.videoID) {
+                    HStack { ProgressView().controlSize(.small); Text(app.engine.state(for: video.videoID)?.step ?? "Summarizing…") }
+                } else {
+                    Text(video.digestError ?? "No summary yet.")
+                        .foregroundStyle(video.digestError == nil ? Color.secondary : Color.red)
+                    Text(app.engine.canSummarize
+                         ? (app.engine.useAppleIntelligence ? "Apple Intelligence will summarize this video on this Mac." : "Apple Intelligence is not ready, so Codex will write the summary.")
+                         : app.engine.summaryUnavailableMessage)
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button { app.summarize(video) } label: { Label("Summarize", systemImage: "apple.intelligence") }
+                        .buttonStyle(.glassProminent)
+                        .disabled(!app.engine.canSummarize)
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassEffect(.regular, in: .rect(cornerRadius: 22))
+        }
+    }
+}
+
+struct SkillsBody: View {
+    @Environment(AppModel.self) private var app
+    let video: Video
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Zeus asks \(app.compiler.usesCodex ? "Codex (your ChatGPT sign-in)" : "the OpenAI API") to find reusable know-how in this transcript and turns it into Codex skills. Every quote is checked against the transcript, and each skill waits for your approval before it goes to \(app.settings.publishFolder).")
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if !app.compiler.isReady {
+                Label(app.compiler.notReadyMessage, systemImage: "key.fill")
+                    .foregroundStyle(.orange)
+                SettingsLink { Text("Open Settings…") }.buttonStyle(.glass)
+            } else {
+                Button { app.compileSkills(video) } label: {
+                    Label(app.compiler.compiling.contains(video.videoID) ? "Working… (about a minute)" : "Make Codex skills with \(app.compiler.engineLabel)",
+                          systemImage: "sparkles.rectangle.stack")
+                }
+                .buttonStyle(.glassProminent)
+                .disabled(app.compiler.compiling.contains(video.videoID))
+            }
+            if !video.skills.isEmpty {
+                Text("Skills from this video").font(.headline).padding(.top, 8)
+                ForEach(video.skills.sorted { $0.createdAt > $1.createdAt }) { skill in
+                    Button {
+                        app.selectedSkillID = skill.id
+                        app.selection = .skills
+                    } label: {
+                        HStack {
+                            Image(systemName: skill.status == .published ? "checkmark.seal.fill" : "doc.badge.clock")
+                                .foregroundStyle(skill.status == .published ? .green : .orange)
+                            VStack(alignment: .leading) {
+                                Text(skill.title).font(.body.weight(.medium))
+                                Text("\(skill.name) · \(skill.status.label)").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                        }
+                        .padding(12)
+                        .contentShape(.rect)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+}
+
+struct InfoBody: View {
+    let video: Video
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if !video.chapters.isEmpty {
+                Text("YouTube chapters").font(.headline)
+                ForEach(video.chapters, id: \.self) { chapter in
+                    HStack(spacing: 12) {
+                        Text(chapter.start.timestamp).monospacedDigit().foregroundStyle(.tint).frame(width: 62, alignment: .trailing)
+                        Text(chapter.title)
+                    }
+                }
+            }
+            if !video.videoDescription.isEmpty {
+                Text("Description").font(.headline).padding(.top, 6)
+                Text(video.videoDescription).textSelection(.enabled).foregroundStyle(.secondary)
+            }
+            Text("Video ID \(video.videoID) · added \(video.addedAt.relative)\(video.eatenAt.map { " · eaten \($0.relative)" } ?? "")")
+                .font(.caption).foregroundStyle(.tertiary)
+            if let path = video.secondBrainPath {
+                Text(path).font(.caption.monospaced()).foregroundStyle(.tertiary).textSelection(.enabled)
+            }
+        }
+    }
+}

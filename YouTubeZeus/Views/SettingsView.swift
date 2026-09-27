@@ -223,15 +223,21 @@ private struct AISettings: View {
                       systemImage: app.summarizer.isAvailable ? "checkmark.circle.fill" : "exclamationmark.circle")
                     .foregroundStyle(app.summarizer.isAvailable ? .green : .orange)
                 Picker("Summaries with", selection: $settings.summaryEngine) {
-                    Text("Apple Intelligence, or Codex when it isn't ready").tag("auto")
+                    Text("Apple Intelligence, else Codex, else the local AI").tag("auto")
                     Text("Apple Intelligence only (private)").tag("apple")
                     Text("Codex (ChatGPT sign-in)").tag("codex")
+                    Text("Local AI on this Mac (Ollama, free, private)").tag("local")
+                }
+                if app.engine.codexPaused, let until = app.engine.codexPausedUntil {
+                    Label("Codex reached your ChatGPT usage limit: Zeus uses it again after \(until.formatted(date: .omitted, time: .shortened)) and summarizes with the local AI meanwhile.",
+                          systemImage: "hourglass")
+                        .font(.caption).foregroundStyle(.orange)
                 }
                 Toggle("Summarize every eaten video", isOn: $settings.autoSummarize)
                 Picker("Summary language", selection: $settings.summaryLanguage) {
                     ForEach(languages, id: \.0) { Text($0.1).tag($0.0) }
                 }
-                Text("Apple Intelligence works on this Mac: free and private; long videos are read in parts. Codex sends the transcript to OpenAI with your ChatGPT sign-in and needs “Allow sending transcripts to OpenAI” (Codex skills tab).")
+                Text("Apple Intelligence works on this Mac: free and private; long videos are read in parts. Codex sends the transcript to OpenAI with your ChatGPT sign-in, needs “Allow sending transcripts to OpenAI” (Codex skills tab) and uses your ChatGPT plan's Codex limit — the same one as your own Codex work. The local AI (the polishing model) is free and private but slower and simpler; choose it for big playlists to keep your Codex limit for yourself.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

@@ -69,7 +69,9 @@ enum AgentGuide {
            spelled out in the transcript is checked through the GitHub API; each repository gets its own note.
         6. **Polish** — a small local AI (Ollama, `\(settings.polishModel)`) fixes punctuation, capitals and misheard
            words of auto-captions and Whisper text, never translating or shortening. The original is kept.
-        7. **Summary** — summary, key points, topics and chapters (Apple Intelligence on the Mac, or Codex).
+        7. **Summary** — summary, key points, topics and chapters: Apple Intelligence on the Mac, else Codex (ChatGPT
+           plan), else the local AI. When Codex reaches the ChatGPT usage limit, Zeus pauses it until the reset time and
+           continues with the local AI; each note says which engine wrote its summary.
         8. **Indexes** — channel, collection, GitHub and master indexes are rewritten.
 
         Watched channels are checked every \(settings.pollMinutes) minutes and new uploads go through the same steps.

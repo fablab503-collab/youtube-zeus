@@ -8,8 +8,8 @@ options:
   groupSortPosition: top
 settings:
   base:
-    MARKETING_VERSION: "2.4"
-    CURRENT_PROJECT_VERSION: "5"
+    MARKETING_VERSION: "2.4.1"
+    CURRENT_PROJECT_VERSION: "6"
     DEVELOPMENT_TEAM: B7P7FR67VK
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "Developer ID Application"

@@ -78,18 +78,20 @@ nonisolated struct OllamaClient: Sendable {
         }
     }
 
-    func chat(model: String, system: String, user: String) async throws -> String {
+    /// `format`: an optional JSON schema (as JSON text) for structured answers.
+    func chat(model: String, system: String, user: String, format: String? = nil, context: Int = 8192) async throws -> String {
         var request = URLRequest(url: base.appendingPathComponent("api/chat"))
         request.httpMethod = "POST"
-        request.timeoutInterval = 300
-        let body: [String: Any] = [
+        request.timeoutInterval = 600
+        var body: [String: Any] = [
             "model": model,
             "stream": false,
             "think": false,
             "keep_alive": "10m",
-            "options": ["temperature": 0.1, "num_ctx": 8192],
+            "options": ["temperature": 0.1, "num_ctx": context],
             "messages": [["role": "system", "content": system], ["role": "user", "content": user]],
         ]
+        if let format, let schema = try? JSONSerialization.jsonObject(with: Data(format.utf8)) { body["format"] = schema }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {

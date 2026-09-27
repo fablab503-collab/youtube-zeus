@@ -151,6 +151,17 @@ final class EatEngine {
     /// The after-eating queue lives in memory: after a restart (or a crash), finish polishing and
     /// summaries that were still waiting. Also called at each channel check.
     func resumePending() {
+        // Summaries that failed only because the Codex usage limit was reached are tried again.
+        let failed = FetchDescriptor<Video>(predicate: #Predicate { $0.digestError != nil })
+        var cleared = 0
+        for video in (try? context.fetch(failed)) ?? [] where Self.isUsageLimit(SummaryError.model(video.digestError ?? "")) {
+            video.digestError = nil
+            cleared += 1
+        }
+        if cleared > 0 {
+            try? context.save()
+            AppLog.write("SUMMARY \(cleared) summaries stopped by the Codex usage limit are queued again")
+        }
         let doneRaw = EatStatus.done.rawValue
         let descriptor = FetchDescriptor<Video>(predicate: #Predicate { $0.statusRaw == doneRaw },
                                                 sortBy: [SortDescriptor(\.addedAt)])
@@ -521,16 +532,69 @@ final class EatEngine {
     }
 
     /// Apple Intelligence on this Mac, or Codex when allowed (Settings › AI).
-    var useAppleIntelligence: Bool { settings.summaryEngine != "codex" && summarizer.isAvailable }
-
-    var codexSummaryAllowed: Bool {
-        settings.summaryEngine != "apple" && settings.openAIConsent && CodexLocator.path != nil
+    var useAppleIntelligence: Bool {
+        settings.summaryEngine != "codex" && settings.summaryEngine != "local" && summarizer.isAvailable
     }
 
-    var canSummarize: Bool { useAppleIntelligence || codexSummaryAllowed }
+    var codexSummaryAllowed: Bool {
+        settings.summaryEngine != "apple" && settings.summaryEngine != "local" && settings.openAIConsent
+            && CodexLocator.path != nil && !codexPaused
+    }
+
+    /// The local AI (Ollama) summarizes when chosen, or in "auto" when Apple Intelligence and Codex can't.
+    var localSummaryAllowed: Bool {
+        (settings.summaryEngine == "auto" || settings.summaryEngine == "local") && polisher.isInstalled
+    }
+
+    var canSummarize: Bool { useAppleIntelligence || codexSummaryAllowed || localSummaryAllowed }
+
+    // MARK: Codex usage limit
+
+    /// When the ChatGPT plan's Codex limit is reached, Zeus stops using Codex until the time Codex gives,
+    /// so the rest of Daniel's Codex work is not blocked, and summaries continue with the local AI.
+    var codexPausedUntil: Date? {
+        get { UserDefaults.standard.object(forKey: "codexPausedUntil") as? Date }
+        set { UserDefaults.standard.set(newValue, forKey: "codexPausedUntil") }
+    }
+
+    var codexPaused: Bool { (codexPausedUntil ?? .distantPast) > .now }
+
+    nonisolated static func isUsageLimit(_ error: Error) -> Bool {
+        let text = error.localizedDescription.lowercased()
+        return text.contains("usage limit") || text.contains("rate limit") || text.contains("quota")
+    }
+
+    /// "…try again at 8:01 PM." → today (or tomorrow) at 20:01; otherwise in one hour.
+    func pauseCodex(after error: Error) {
+        let text = error.localizedDescription
+        var until = Date.now.addingTimeInterval(3600)
+        if let match = text.range(of: #"try again at (\d{1,2}):(\d{2}) ?([AaPp][Mm])?"#, options: .regularExpression) {
+            let clock = text[match].replacingOccurrences(of: "try again at ", with: "")
+            let digits = clock.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+            if digits.count >= 2 {
+                var hour = digits[0]
+                let pm = clock.lowercased().contains("pm"), am = clock.lowercased().contains("am")
+                if pm, hour < 12 { hour += 12 }
+                if am, hour == 12 { hour = 0 }
+                var parts = Calendar.current.dateComponents([.year, .month, .day], from: .now)
+                parts.hour = hour
+                parts.minute = digits[1]
+                if var date = Calendar.current.date(from: parts) {
+                    if date <= .now { date = date.addingTimeInterval(86_400) }
+                    until = date.addingTimeInterval(120)
+                }
+            }
+        }
+        codexPausedUntil = until
+        AppLog.write("CODEX usage limit reached: paused until \(until.formatted(date: .omitted, time: .shortened)); summaries continue with the local AI")
+    }
 
     var summaryUnavailableMessage: String {
         if settings.summaryEngine == "apple" { return summarizer.availabilityMessage }
+        if settings.summaryEngine == "local" { return "The local AI (Ollama) is not installed." }
+        if codexPaused, let until = codexPausedUntil {
+            return "Codex reached the ChatGPT usage limit; it is used again after \(until.formatted(date: .omitted, time: .shortened))."
+        }
         if !settings.openAIConsent { return summarizer.availabilityMessage + " To use Codex instead, allow sending transcripts to OpenAI in Settings › Codex skills." }
         return summarizer.availabilityMessage + " The Codex CLI was not found either."
     }
@@ -545,9 +609,9 @@ final class EatEngine {
         video.digestError = nil
         jobs[id] = jobs[id] ?? JobState(step: "Summarizing")
         do {
-            let digest: VideoDigest
+            var result: VideoDigest?
             if useAppleIntelligence {
-                digest = try await summarizer.summarize(
+                result = try await summarizer.summarize(
                     title: video.displayTitle,
                     channel: video.channelTitle,
                     paragraphs: video.displayParagraphs,
@@ -562,18 +626,39 @@ final class EatEngine {
                 jobs[id] = JobState(step: "Summarizing with Codex")
                 video.statusDetail = "Summarizing with Codex"
                 let language = settings.summaryLanguage == "auto" ? video.language : settings.summaryLanguage
-                digest = try await CodexSummarizer(executable: codex, model: settings.codexModel).summarize(
+                do {
+                    result = try await CodexSummarizer(executable: codex, model: settings.codexModel).summarize(
+                        title: video.displayTitle, channel: video.channelTitle, paragraphs: video.displayParagraphs,
+                        language: language.isEmpty ? "en" : language, youtubeChapters: video.chapters,
+                        knownTopics: knownTopics())
+                } catch let error where Self.isUsageLimit(error) {
+                    pauseCodex(after: error)
+                    guard localSummaryAllowed else { throw error }
+                }
+            }
+            if result == nil, localSummaryAllowed {
+                let language = settings.summaryLanguage == "auto" ? video.language : settings.summaryLanguage
+                jobs[id] = JobState(step: "Summarizing with the local AI")
+                video.statusDetail = "Summarizing with the local AI"
+                result = try await LocalSummarizer(model: settings.polishModel).summarize(
                     title: video.displayTitle, channel: video.channelTitle, paragraphs: video.displayParagraphs,
                     language: language.isEmpty ? "en" : language, youtubeChapters: video.chapters,
-                    knownTopics: knownTopics())
-            } else {
-                throw SummaryError.unavailable(summaryUnavailableMessage)
+                    knownTopics: knownTopics()) { step in
+                        Task { @MainActor in self.jobs[id] = JobState(step: step) }
+                    }
             }
+            guard let digest = result else { throw SummaryError.unavailable(summaryUnavailableMessage) }
             video.digest = digest
-            AppLog.write("SUMMARY \(id) ok")
+            AppLog.write("SUMMARY \(id) ok (\(digest.engine))")
         } catch {
-            video.digestError = error.localizedDescription
-            AppLog.write("SUMMARY \(id) failed: \(error.localizedDescription)")
+            if Self.isUsageLimit(error) {
+                // Not the video's fault: it is summarized again when Codex is back.
+                video.digestError = nil
+                AppLog.write("SUMMARY \(id) waits for Codex: \(error.localizedDescription.prefix(120))")
+            } else {
+                video.digestError = error.localizedDescription
+                AppLog.write("SUMMARY \(id) failed: \(error.localizedDescription)")
+            }
         }
         video.status = previous == .summarizing ? .done : (previous == .failed ? .failed : .done)
         video.statusDetail = ""

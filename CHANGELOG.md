@@ -3,6 +3,14 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 2.4.1 — 2026-09-27
+
+- **Summaries with the local AI**: new engine (Settings › AI › "Local AI on this Mac"), and the last fallback in
+  "auto". Long videos are read in parts (notes and chapters per part, then one summary).
+- **Codex usage limit**: when the ChatGPT plan's Codex limit is reached, Zeus pauses Codex until the reset time
+  it gives (so Daniel's own Codex work is not blocked any longer than needed), continues with the local AI, and
+  retries the summaries that had failed because of the limit (84 videos of the Nate Herk playlist).
+
 ## 2.4 — 2026-09-27
 
 - **Whole channels with their playlists**: `…/@channel/playlists` links, "Import playlists" on a channel and in

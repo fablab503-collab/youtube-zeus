@@ -15,13 +15,17 @@ struct ContentView: View {
                 case .eating: QueueView()
                 case .skills: SkillsListView()
                 case .channel(let id): ChannelView(channelID: id).id(id)
+                case .collection(let id): CollectionView(listID: id).id(id)
+                case .browser: AccountPanel()
                 case .library, nil: LibraryView()
                 }
             }
             .navigationSplitViewColumnWidth(min: 340, ideal: 420, max: 620)
             .safeAreaInset(edge: .bottom, spacing: 0) { EatBar() }
         } detail: {
-            if app.selection == .skills {
+            if app.selection == .browser {
+                BrowserScreen()
+            } else if app.selection == .skills {
                 if let id = app.selectedSkillID {
                     SkillReviewView(skillID: id).id(id)
                 } else {
@@ -49,6 +53,7 @@ struct ContentView: View {
         .sheet(item: $app.channelOffer) { offer in
             ChannelOfferSheet(offer: offer)
         }
+        .onOpenURL { url in app.handle(url) }
         .tint(.zeus)
     }
 }
@@ -59,6 +64,7 @@ struct SidebarView: View {
     @Query(filter: #Predicate<Video> { $0.statusRaw == "done" }) private var eaten: [Video]
     @Query(filter: #Predicate<SkillDraft> { $0.statusRaw == "draft" }) private var drafts: [SkillDraft]
     @Query(filter: #Predicate<Video> { $0.statusRaw == "discovered" }) private var discovered: [Video]
+    @Query(sort: \VideoList.updatedAt, order: .reverse) private var lists: [VideoList]
 
     var body: some View {
         @Bindable var app = app
@@ -100,6 +106,39 @@ struct SidebarView: View {
                     }
                 } icon: { Image(systemName: "sparkles.rectangle.stack.fill") }
                 .tag(SidebarItem.skills)
+
+                Label {
+                    HStack {
+                        Text("YouTube")
+                        Spacer()
+                        if app.account.isSignedIn {
+                            Image(systemName: "person.crop.circle.badge.checkmark").foregroundStyle(.green)
+                        }
+                    }
+                } icon: { Image(systemName: "globe") }
+                .tag(SidebarItem.browser)
+            }
+
+            if !lists.isEmpty {
+                Section("Collections") {
+                    ForEach(lists) { list in
+                        Label {
+                            HStack {
+                                Text(list.title).lineLimit(1)
+                                Spacer()
+                                Text("\(list.videoIDs.count)").foregroundStyle(.secondary).monospacedDigit()
+                            }
+                        } icon: { Image(systemName: list.kind.symbol) }
+                        .tag(SidebarItem.collection(list.listID))
+                        .contextMenu {
+                            Button("Copy for AI (summaries)") { app.copyForAI(list, transcripts: false) }
+                            Button("Copy for AI (everything)") { app.copyForAI(list, transcripts: true) }
+                            Button("Check for New Videos") { Task { await app.refresh(list) } }
+                            Divider()
+                            Button("Remove Collection", role: .destructive) { app.deleteList(list) }
+                        }
+                    }
+                }
             }
 
             Section {

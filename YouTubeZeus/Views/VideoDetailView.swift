@@ -16,6 +16,8 @@ struct VideoDetailView: View {
     @State private var tab: DetailTab = .transcript
     @State private var find = ""
     @State private var paragraphs: [TranscriptParagraph] = []
+    @State private var polishedParagraphs: [TranscriptParagraph] = []
+    @State private var showOriginal = false
 
     init(videoID: String) {
         _matches = Query(filter: #Predicate<Video> { $0.videoID == videoID })
@@ -34,7 +36,7 @@ struct VideoDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Header(video: video)
-                if video.status == .done || video.status == .summarizing {
+                if video.status.hasText {
                     HStack(spacing: 12) {
                         Picker("View", selection: $tab) {
                             ForEach(DetailTab.allCases) { tab in Text(tab.rawValue).tag(tab) }
@@ -43,6 +45,16 @@ struct VideoDetailView: View {
                         .labelsHidden()
                         .frame(maxWidth: 400)
                         Spacer()
+                        if tab == .transcript, !polishedParagraphs.isEmpty {
+                            Picker("Text", selection: $showOriginal) {
+                                Text("Polished").tag(false)
+                                Text("Original").tag(true)
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                            .fixedSize()
+                            .help("Polished by \(video.polishModel ?? "the local AI") on this Mac, or the original captions")
+                        }
                         if tab == .transcript {
                             HStack(spacing: 6) {
                                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -62,7 +74,10 @@ struct VideoDetailView: View {
                     }
 
                     switch tab {
-                    case .transcript: TranscriptBody(video: video, paragraphs: paragraphs, find: find)
+                    case .transcript:
+                        TranscriptBody(video: video,
+                                       paragraphs: polishedParagraphs.isEmpty || showOriginal ? paragraphs : polishedParagraphs,
+                                       find: find, isPolished: !polishedParagraphs.isEmpty && !showOriginal)
                     case .summary: SummaryBody(video: video)
                     case .skills: SkillsBody(video: video)
                     case .info: InfoBody(video: video)
@@ -81,7 +96,9 @@ struct VideoDetailView: View {
             ToolbarItemGroup {
                 Button { NSWorkspace.shared.open(video.url) } label: { Label("Open on YouTube", systemImage: "play.rectangle") }
                     .help("Open on YouTube")
-                if video.status == .done {
+                if video.status.hasText {
+                    Button { app.copyForAI(video) } label: { Label("Copy for AI", systemImage: "sparkles") }
+                        .help("Copy a knowledge pack for Claude, ChatGPT, Gemini, Grok, GLM…")
                     Button { app.copyTranscript(video) } label: { Label("Copy transcript", systemImage: "doc.on.doc") }
                         .help("Copy the transcript")
                     Menu {
@@ -98,7 +115,11 @@ struct VideoDetailView: View {
                 }
             }
         }
-        .task(id: video.eatenAt) { paragraphs = video.paragraphs }
+        .task(id: "\(video.eatenAt?.timeIntervalSince1970 ?? 0)-\(video.polishedData?.count ?? 0)") {
+            paragraphs = video.paragraphs
+            let polished = video.displayParagraphs
+            polishedParagraphs = video.polished.isEmpty ? [] : polished
+        }
         .onAppear {
             if let name = app.initialTab, let initial = DetailTab.allCases.first(where: { $0.rawValue.lowercased() == name.lowercased() }) {
                 tab = initial
@@ -112,7 +133,7 @@ private struct Header: View {
     @Environment(AppModel.self) private var app
     let video: Video
 
-    private var isEaten: Bool { video.status == .done || video.status == .summarizing }
+    private var isEaten: Bool { video.status.hasText }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -160,12 +181,25 @@ private struct Header: View {
                     if video.digestData != nil {
                         Chip(text: "Summarized", symbol: "apple.intelligence", tint: .pink)
                     }
+                    if !video.polished.isEmpty {
+                        Chip(text: "Polished", symbol: "wand.and.stars", tint: .mint)
+                    }
+                    if video.viewCount > 0 {
+                        Chip(text: "\(video.viewCount.formatted(.number.notation(.compactName))) views", symbol: "eye")
+                    }
                 }
             }
 
             if isEaten {
                 GlassEffectContainer(spacing: 8) {
                     FlowLayout(spacing: 8) {
+                        Button {
+                            app.copyForAI(video)
+                        } label: {
+                            Label("Copy for AI", systemImage: "sparkles")
+                        }
+                        .buttonStyle(.glassProminent)
+                        .help("A knowledge pack to paste into Claude, ChatGPT, Gemini, Grok, GLM…")
                         Button {
                             app.summarize(video)
                         } label: {
@@ -186,6 +220,16 @@ private struct Header: View {
                             Label("Save to Second Brain", systemImage: "brain.head.profile")
                         }
                         .buttonStyle(.glass)
+                        if app.polisher.isInstalled {
+                            Button {
+                                app.engine.polishNow(video)
+                            } label: {
+                                Label(video.polished.isEmpty ? "Polish with local AI" : "Polish again", systemImage: "wand.and.stars")
+                            }
+                            .buttonStyle(.glass)
+                            .disabled(app.engine.isPolishing(video.videoID))
+                            .help("Fix punctuation, capitals and misheard words with \(app.settings.polishModel), on this Mac")
+                        }
                         if video.source == .autoCaptions {
                             Button {
                                 app.engine.retry(video, withWhisper: true)
@@ -197,7 +241,10 @@ private struct Header: View {
                         }
                     }
                 }
-                if app.engine.isSummarizing(video.videoID) || app.compiler.compiling.contains(video.videoID) {
+                if let error = video.polishError {
+                    Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+                }
+                if app.engine.isSummarizing(video.videoID) || app.compiler.compiling.contains(video.videoID) || app.engine.isPolishing(video.videoID) {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
                         Text(app.compiler.compiling.contains(video.videoID)
@@ -303,6 +350,7 @@ private struct ProgressCard: View {
         case .fetching: "Eating…"
         case .transcribing: "Listening with Whisper…"
         case .summarizing: "Summarizing…"
+        case .polishing: "Polishing the text…"
         case .waiting: "Waiting"
         case .failed: "Could not eat this video"
         case .done: "Eaten"
@@ -314,6 +362,7 @@ struct TranscriptBody: View {
     let video: Video
     let paragraphs: [TranscriptParagraph]
     let find: String
+    var isPolished = false
 
     var body: some View {
         let query = find.trimmingCharacters(in: .whitespaces)
@@ -323,8 +372,11 @@ struct TranscriptBody: View {
                 Text("\(visible.count) paragraph\(visible.count == 1 ? "" : "s") with “\(query)”")
                     .font(.callout).foregroundStyle(.secondary).padding(.bottom, 8)
             }
-            if video.source == .autoCaptions {
-                Label("YouTube auto-captions: some words may be misheard. “Listen with Whisper” can redo it on this Mac.", systemImage: "info.circle")
+            if isPolished {
+                Label("Polished on this Mac by \(video.polishModel ?? "the local AI"): punctuation, capitals and misheard words fixed. Switch to Original to compare.", systemImage: "wand.and.stars")
+                    .font(.caption).foregroundStyle(.secondary).padding(.bottom, 8)
+            } else if video.source == .autoCaptions {
+                Label("YouTube auto-captions: some words may be misheard. “Polish with local AI” or “Listen with Whisper” can improve it.", systemImage: "info.circle")
                     .font(.caption).foregroundStyle(.secondary).padding(.bottom, 8)
             }
             LazyVStack(alignment: .leading, spacing: 16) {
@@ -506,9 +558,33 @@ struct InfoBody: View {
                     }
                 }
             }
+            if video.viewCount > 0 || video.likeCount > 0 {
+                HStack(spacing: 8) {
+                    if video.viewCount > 0 { Chip(text: "\(video.viewCount.formatted()) views", symbol: "eye") }
+                    if video.likeCount > 0 { Chip(text: "\(video.likeCount.formatted()) likes", symbol: "hand.thumbsup") }
+                }
+            }
+            if !video.tags.isEmpty {
+                Text("YouTube tags").font(.headline).padding(.top, 6)
+                FlowLayout(spacing: 6) { ForEach(video.tags, id: \.self) { Chip(text: $0, symbol: "number", tint: .zeus) } }
+            }
             if !video.videoDescription.isEmpty {
                 Text("Description").font(.headline).padding(.top, 6)
                 Text(video.videoDescription).textSelection(.enabled).foregroundStyle(.secondary)
+            }
+            let comments = video.comments
+            if !comments.isEmpty {
+                Text("Top comments").font(.headline).padding(.top, 6)
+                ForEach(Array(comments.prefix(30).enumerated()), id: \.offset) { _, comment in
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text(comment.author).font(.caption.weight(.semibold))
+                            if comment.likes > 0 { Text("♥ \(comment.likes)").font(.caption).foregroundStyle(.secondary) }
+                        }
+                        Text(comment.text).font(.callout).textSelection(.enabled)
+                    }
+                    .padding(.vertical, 2)
+                }
             }
             Text("Video ID \(video.videoID) · added \(video.addedAt.relative)\(video.eatenAt.map { " · eaten \($0.relative)" } ?? "")")
                 .font(.caption).foregroundStyle(.tertiary)

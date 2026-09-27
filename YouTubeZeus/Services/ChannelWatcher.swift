@@ -109,8 +109,8 @@ final class ChannelWatcher {
 
     /// Follows a channel link (@handle, /channel/UC…, /c/…, /user/…). Existing uploads are remembered, not eaten.
     func follow(url: URL) async throws -> (channel: Channel, latest: [PlaylistEntry]) {
-        guard let ytdlpPath = ToolLocator.find("yt-dlp", override: settings.ytdlpPath) else { throw WatchError.missingTool }
-        let listing = try await YTDLP(executable: ytdlpPath).flatList(url: url.absoluteString.hasSuffix("/videos")
+        guard let ytdlp = settings.makeYTDLP() else { throw WatchError.missingTool }
+        let listing = try await ytdlp.flatList(url: url.absoluteString.hasSuffix("/videos")
                                                                       ? url.absoluteString : url.absoluteString + "/videos",
                                                                       limit: 25)
         guard listing.channelID.hasPrefix("UC") else { throw WatchError.notAChannel }
@@ -142,6 +142,25 @@ final class ChannelWatcher {
             let channel = Channel(channelID: row.channelID, title: row.title)
             context.insert(channel)
             if let feed = try? await ChannelFeedReader.fetch(channelID: row.channelID) {
+                channel.knownVideoIDs = feed.entries.map(\.videoID)
+                channel.lastCheckedAt = .now
+            }
+            count += 1
+        }
+        try? context.save()
+        return count
+    }
+
+    /// Follows many channels at once (subscriptions). Existing uploads are remembered, not eaten.
+    func follow(entries: [ChannelEntry]) async -> Int {
+        var count = 0
+        for entry in entries where channel(entry.channelID) == nil {
+            let channel = Channel(channelID: entry.channelID, title: entry.title)
+            if entry.url.contains("/@"), let handle = entry.url.split(separator: "/").last(where: { $0.hasPrefix("@") }) {
+                channel.handle = String(handle)
+            }
+            context.insert(channel)
+            if let feed = try? await ChannelFeedReader.fetch(channelID: entry.channelID) {
                 channel.knownVideoIDs = feed.entries.map(\.videoID)
                 channel.lastCheckedAt = .now
             }

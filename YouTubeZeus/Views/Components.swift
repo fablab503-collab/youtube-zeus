@@ -13,6 +13,7 @@ extension EatStatus {
         case .fetching: .zeus
         case .transcribing: .orange
         case .summarizing: .pink
+        case .polishing: .mint
         case .waiting: .teal
         case .done: .green
         case .failed: .red

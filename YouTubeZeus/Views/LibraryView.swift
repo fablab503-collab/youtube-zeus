@@ -58,6 +58,20 @@ struct LibraryView: View {
         .navigationSubtitle("\(list.count) video\(list.count == 1 ? "" : "s")")
         .toolbar {
             ToolbarItem {
+                Button {
+                    let packs = list.filter { $0.status.hasText }.map(\.snapshot)
+                    let text = AIPack.collection(title: search.isEmpty ? "YouTube library" : "Videos about “\(search)”",
+                                                 kind: "YouTube Zeus library", url: "YouTube Zeus", videos: packs, missing: 0,
+                                                 includeTranscripts: !search.isEmpty && packs.count <= 5)
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                    app.show("Copied \(packs.count) videos for AI.")
+                } label: {
+                    Label("Copy for AI", systemImage: "sparkles")
+                }
+                .help("Copy the videos shown (summaries; full transcripts when 5 or fewer match a search) for any AI")
+            }
+            ToolbarItem {
                 Picker("Show", selection: $filter) {
                     ForEach(LibraryFilter.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -105,6 +119,7 @@ struct VideoRow: View {
                 HStack(spacing: 6) {
                     if video.status == .done {
                         Image(systemName: video.source.symbol).help(video.source.label)
+                        if video.polishedData != nil { Image(systemName: "wand.and.stars").help("Polished by the local AI") }
                         if video.digestData != nil { Image(systemName: "apple.intelligence").help("Summarized") }
                         if video.secondBrainPath != nil { Image(systemName: "brain.head.profile").help("In the Second Brain") }
                         if !video.skills.isEmpty { Image(systemName: "sparkles").help("Has Codex skills") }
@@ -147,7 +162,8 @@ struct VideoMenu: View {
 
     var body: some View {
         Button("Open on YouTube") { NSWorkspace.shared.open(video.url) }
-        if video.status == .done {
+        if video.status.hasText {
+            Button("Copy for AI") { app.copyForAI(video) }
             Button("Copy Transcript") { app.copyTranscript(video) }
             Button("Copy as Markdown Note") { app.copyMarkdown(video) }
             Button("Export Markdown…") { app.exportMarkdown(video) }
@@ -156,7 +172,8 @@ struct VideoMenu: View {
                 Button("Show in Second Brain") { app.reveal(path) }
             }
             Divider()
-            Button("Summarize with Apple Intelligence") { app.summarize(video) }
+            Button("Summarize") { app.summarize(video) }
+            Button("Polish with Local AI") { app.engine.polishNow(video) }
             Button("Make Codex Skills…") { app.compileSkills(video) }
             Divider()
             Button("Eat Again") { app.engine.retry(video) }

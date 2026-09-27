@@ -9,6 +9,7 @@ nonisolated enum EatStatus: String, Codable, CaseIterable, Sendable {
     case fetching
     case transcribing
     case summarizing
+    case polishing      // local AI fixes punctuation and grammar
     case waiting        // live / premiere / captions not ready: retried later
     case done
     case failed
@@ -20,6 +21,7 @@ nonisolated enum EatStatus: String, Codable, CaseIterable, Sendable {
         case .fetching: "Eating"
         case .transcribing: "Listening"
         case .summarizing: "Summarizing"
+        case .polishing: "Polishing"
         case .waiting: "Waiting"
         case .done: "Eaten"
         case .failed: "Failed"
@@ -33,13 +35,17 @@ nonisolated enum EatStatus: String, Codable, CaseIterable, Sendable {
         case .fetching: "bolt.fill"
         case .transcribing: "waveform"
         case .summarizing: "apple.intelligence"
+        case .polishing: "wand.and.stars"
         case .waiting: "hourglass"
         case .done: "checkmark.circle.fill"
         case .failed: "exclamationmark.triangle.fill"
         }
     }
 
-    var isBusy: Bool { self == .fetching || self == .transcribing || self == .summarizing }
+    var isBusy: Bool { self == .fetching || self == .transcribing || self == .summarizing || self == .polishing }
+
+    /// The text is there (eaten), possibly still being improved.
+    var hasText: Bool { self == .done || self == .summarizing || self == .polishing }
 }
 
 nonisolated enum TranscriptSource: String, Codable, Sendable {
@@ -87,6 +93,12 @@ nonisolated struct VideoChapter: Codable, Hashable, Sendable {
     var title: String
 }
 
+nonisolated struct VideoComment: Codable, Hashable, Sendable {
+    var author: String
+    var text: String
+    var likes: Int
+}
+
 nonisolated struct VideoDigest: Codable, Hashable, Sendable {
     var summary: String
     var keyPoints: [String]
@@ -125,6 +137,14 @@ final class Video {
     var fromChannelWatch: Bool
     var isShort: Bool
     var attempts: Int
+    var tags: [String] = []
+    var viewCount: Int = 0
+    var likeCount: Int = 0
+    @Attribute(.externalStorage) var commentsData: Data? = nil
+    @Attribute(.externalStorage) var polishedData: Data? = nil
+    var polishModel: String? = nil
+    var polishError: String? = nil
+    var noteName: String? = nil
     @Relationship(deleteRule: .cascade, inverse: \SkillDraft.video) var skills: [SkillDraft] = []
 
     init(videoID: String, title: String = "", channelTitle: String = "", channelID: String = "",
@@ -194,6 +214,39 @@ final class Video {
     }
 
     var paragraphs: [TranscriptParagraph] { Paragrapher.paragraphs(from: segments) }
+
+    var comments: [VideoComment] {
+        get {
+            guard let commentsData else { return [] }
+            return (try? JSONDecoder().decode([VideoComment].self, from: commentsData)) ?? []
+        }
+        set { commentsData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
+    }
+
+    /// Polished paragraph texts (same order as `paragraphs`), made by the local AI.
+    var polished: [String] {
+        get {
+            guard let polishedData else { return [] }
+            return (try? JSONDecoder().decode([String].self, from: polishedData)) ?? []
+        }
+        set { polishedData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
+    }
+
+    /// Paragraphs with the polished text when it exists.
+    var displayParagraphs: [TranscriptParagraph] {
+        let original = paragraphs
+        let better = polished
+        guard better.count == original.count else { return original }
+        return original.map { TranscriptParagraph(id: $0.id, start: $0.start, end: $0.end, text: better[$0.id]) }
+    }
+
+    var snapshot: VideoSnapshot {
+        VideoSnapshot(videoID: videoID, title: displayTitle, channelTitle: channelTitle, channelID: channelID,
+                      publishedAt: publishedAt, duration: duration, language: language, source: source,
+                      eatenAt: eatenAt ?? .now, description: videoDescription, tags: tags, viewCount: viewCount,
+                      likeCount: likeCount, chapters: chapters, digest: digest, paragraphs: displayParagraphs,
+                      comments: comments, polishedBy: polished.isEmpty ? nil : polishModel)
+    }
 
     var wordCount: Int { transcriptText.split(whereSeparator: \.isWhitespace).count }
 }
@@ -280,6 +333,81 @@ final class SkillDraft {
 
     var capability: Capability? { try? JSONDecoder().decode(Capability.self, from: capabilityData) }
     var evidence: [EvidenceItem] { (try? JSONDecoder().decode([EvidenceItem].self, from: evidenceData)) ?? [] }
+}
+
+nonisolated enum VideoListKind: String, Codable, Sendable {
+    case playlist, channel, watchLater, liked
+
+    var label: String {
+        switch self {
+        case .playlist: "Playlist"
+        case .channel: "Whole channel"
+        case .watchLater: "Watch Later"
+        case .liked: "Liked videos"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .playlist: "list.bullet.rectangle.portrait.fill"
+        case .channel: "person.crop.rectangle.stack.fill"
+        case .watchLater: "clock.fill"
+        case .liked: "hand.thumbsup.fill"
+        }
+    }
+}
+
+/// A playlist, a whole channel or an account list, eaten as one organised collection.
+@Model
+final class VideoList {
+    @Attribute(.unique) var listID: String
+    var title: String
+    var kindRaw: String
+    var urlString: String
+    var channelTitle: String
+    var videoIDs: [String]
+    var createdAt: Date
+    var updatedAt: Date
+    var indexPath: String?
+
+    init(listID: String, title: String, kind: VideoListKind, url: String, channelTitle: String, videoIDs: [String]) {
+        self.listID = listID
+        self.title = title
+        self.kindRaw = kind.rawValue
+        self.urlString = url
+        self.channelTitle = channelTitle
+        self.videoIDs = videoIDs
+        self.createdAt = .now
+        self.updatedAt = .now
+    }
+
+    var kind: VideoListKind { VideoListKind(rawValue: kindRaw) ?? .playlist }
+    var url: URL? { URL(string: urlString) }
+}
+
+/// Everything needed to write a note or an AI pack, independent of the database.
+nonisolated struct VideoSnapshot: Sendable {
+    var videoID: String
+    var title: String
+    var channelTitle: String
+    var channelID: String
+    var publishedAt: Date?
+    var duration: Double
+    var language: String
+    var source: TranscriptSource
+    var eatenAt: Date
+    var description: String
+    var tags: [String]
+    var viewCount: Int
+    var likeCount: Int
+    var chapters: [VideoChapter]
+    var digest: VideoDigest?
+    var paragraphs: [TranscriptParagraph]
+    var comments: [VideoComment]
+    var polishedBy: String?
+
+    var url: URL { URL(string: "https://www.youtube.com/watch?v=\(videoID)")! }
+    func url(at seconds: Double) -> URL { URL(string: "https://www.youtube.com/watch?v=\(videoID)&t=\(Int(seconds))s")! }
 }
 
 // MARK: - Helpers

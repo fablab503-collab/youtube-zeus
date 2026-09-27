@@ -36,6 +36,18 @@ final class AppSettings {
     var publishFolder: String { didSet { save("publishFolder", publishFolder) } }
     var skillLanguage: String { didSet { save("skillLanguage", skillLanguage) } }
 
+    // YouTube account
+    var cookieSource: String { didSet { save("cookieSource", cookieSource) } }
+    var commentsCount: Int { didSet { save("commentsCount", commentsCount) } }
+
+    // Local AI polishing (Ollama)
+    var polishEnabled: Bool { didSet { save("polishEnabled", polishEnabled) } }
+    var polishModel: String { didSet { save("polishModel", polishModel) } }
+    var polishCaptionsToo: Bool { didSet { save("polishCaptionsToo", polishCaptionsToo) } }
+
+    // Organising
+    var writeIndexes: Bool { didSet { save("writeIndexes", writeIndexes) } }
+
     // Tools (empty = find automatically)
     var ytdlpPath: String { didSet { save("ytdlpPath", ytdlpPath) } }
     var ffmpegPath: String { didSet { save("ffmpegPath", ffmpegPath) } }
@@ -64,6 +76,12 @@ final class AppSettings {
             "dailyTokenLimit": 250_000,
             "publishFolder": "~/.codex/skills",
             "skillLanguage": "English",
+            "cookieSource": "zeus",
+            "commentsCount": 30,
+            "polishEnabled": true,
+            "polishModel": "qwen3:4b-instruct",
+            "polishCaptionsToo": false,
+            "writeIndexes": true,
             "ytdlpPath": "",
             "ffmpegPath": "",
             "whisperPath": "",
@@ -88,12 +106,35 @@ final class AppSettings {
         dailyTokenLimit = d.integer(forKey: "dailyTokenLimit")
         publishFolder = d.string(forKey: "publishFolder") ?? "~/.codex/skills"
         skillLanguage = d.string(forKey: "skillLanguage") ?? "English"
+        cookieSource = d.string(forKey: "cookieSource") ?? "zeus"
+        commentsCount = d.integer(forKey: "commentsCount")
+        polishEnabled = d.bool(forKey: "polishEnabled")
+        polishModel = d.string(forKey: "polishModel") ?? "qwen3:4b-instruct"
+        polishCaptionsToo = d.bool(forKey: "polishCaptionsToo")
+        writeIndexes = d.bool(forKey: "writeIndexes")
         ytdlpPath = d.string(forKey: "ytdlpPath") ?? ""
         ffmpegPath = d.string(forKey: "ffmpegPath") ?? ""
         whisperPath = d.string(forKey: "whisperPath") ?? ""
     }
 
     private func save(_ key: String, _ value: Any) { defaults.set(value, forKey: key) }
+
+    /// yt-dlp arguments that carry the YouTube sign-in.
+    var cookieArguments: [String] {
+        switch cookieSource {
+        case "none", "": return []
+        case "zeus":
+            let file = YouTubeAccount.cookieFile
+            return FileManager.default.fileExists(atPath: file.path) ? ["--cookies", file.path] : []
+        default: return ["--cookies-from-browser", cookieSource]
+        }
+    }
+
+    /// A configured yt-dlp, or nil when it is not installed.
+    func makeYTDLP(withComments: Bool = false) -> YTDLP? {
+        guard let path = ToolLocator.find("yt-dlp", override: ytdlpPath) else { return nil }
+        return YTDLP(executable: path, cookieArguments: cookieArguments, comments: withComments ? commentsCount : 0)
+    }
 
     var preferredLanguageList: [String] {
         preferredLanguages

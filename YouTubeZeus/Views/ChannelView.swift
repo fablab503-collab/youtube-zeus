@@ -66,7 +66,7 @@ struct ChannelView: View {
             }))
             .toggleStyle(.switch)
             GlassEffectContainer(spacing: 8) {
-                HStack(spacing: 8) {
+                FlowLayout(spacing: 8) {
                     Button {
                         checking = true
                         Task {
@@ -83,8 +83,8 @@ struct ChannelView: View {
                         ForEach([3, 10, 25], id: \.self) { count in
                             Button("Latest \(count)") {
                                 Task {
-                                    guard let ytdlp = ToolLocator.find("yt-dlp", override: app.settings.ytdlpPath) else { return }
-                                    let listing = try? await YTDLP(executable: ytdlp).flatList(url: channel.url.absoluteString + "/videos", limit: count)
+                                    guard let ytdlp = app.settings.makeYTDLP() else { return }
+                                    let listing = try? await ytdlp.flatList(url: channel.url.absoluteString + "/videos", limit: count)
                                     let entries = (listing?.entries ?? []).map { (id: $0.id, title: $0.title, channel: channel.title, channelID: channel.channelID) }
                                     app.engine.enqueue(entries)
                                     app.show("Eating \(entries.count) videos of \(channel.title).")
@@ -97,6 +97,13 @@ struct ChannelView: View {
                     .menuStyle(.button)
                     .buttonStyle(.glass)
                     .fixedSize()
+                    Button {
+                        Task { await app.eatWholeChannel(channel) }
+                    } label: {
+                        Label("Eat whole channel", systemImage: VideoListKind.channel.symbol)
+                    }
+                    .buttonStyle(.glass)
+                    .help("Every video of the channel, organised as a collection with its own index note")
                     Button { NSWorkspace.shared.open(channel.url) } label: { Label("YouTube", systemImage: "play.rectangle") }
                         .buttonStyle(.glass)
                 }

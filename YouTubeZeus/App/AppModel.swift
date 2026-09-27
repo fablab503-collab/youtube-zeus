@@ -8,7 +8,9 @@ enum SidebarItem: Hashable {
     case eating
     case library
     case skills
+    case browser
     case channel(String)
+    case collection(String)
 }
 
 struct Toast: Identifiable, Equatable {
@@ -33,6 +35,17 @@ final class AppModel {
     let engine: EatEngine
     let watcher: ChannelWatcher
     let compiler: SkillCompiler
+    let polisher: Polisher
+    let account = YouTubeAccount()
+    private var browserStorage: BrowserModel?
+
+    /// Created the first time the YouTube window is shown.
+    var browser: BrowserModel {
+        if let browserStorage { return browserStorage }
+        let created = BrowserModel()
+        browserStorage = created
+        return created
+    }
 
     var selection: SidebarItem? = .library
     var selectedVideoID: String?
@@ -48,12 +61,12 @@ final class AppModel {
         let url = AppFolders.support.appendingPathComponent("Library.store")
         let configuration = ModelConfiguration(url: url)
         do {
-            return try ModelContainer(for: Video.self, Channel.self, SkillDraft.self, configurations: configuration)
+            return try ModelContainer(for: Video.self, Channel.self, SkillDraft.self, VideoList.self, configurations: configuration)
         } catch {
             // Keep the old store aside instead of losing it, then start fresh.
             let backup = url.deletingLastPathComponent().appendingPathComponent("Library-\(Int(Date.now.timeIntervalSince1970)).store")
             try? FileManager.default.moveItem(at: url, to: backup)
-            return try! ModelContainer(for: Video.self, Channel.self, SkillDraft.self, configurations: configuration)
+            return try! ModelContainer(for: Video.self, Channel.self, SkillDraft.self, VideoList.self, configurations: configuration)
         }
     }
 
@@ -61,7 +74,9 @@ final class AppModel {
         let settings = AppSettings()
         let summarizer = Summarizer()
         let exporter = SecondBrainExporter(settings: settings)
-        let engine = EatEngine(context: context, settings: settings, summarizer: summarizer, exporter: exporter)
+        let polisher = Polisher(settings: settings)
+        let engine = EatEngine(context: context, settings: settings, summarizer: summarizer, exporter: exporter, polisher: polisher)
+        self.polisher = polisher
         self.settings = settings
         self.context = context
         self.summarizer = summarizer
@@ -76,6 +91,11 @@ final class AppModel {
         started = true
         engine.resumeInterrupted()
         watcher.start()
+        Task {
+            await account.refresh()
+            HandOff.writeToBrain(root: settings.secondBrainURL)
+            exporter.scheduleIndexes(in: context)
+        }
         if settings.notifyWhenEaten { Notifier.requestPermission() }
         // Launch arguments for scripting and tests: -eat <link>, -selectVideo <id>
         let arguments = UserDefaults(suiteName: nil)
@@ -100,6 +120,18 @@ final class AppModel {
         }
         let domain = arguments?.volatileDomain(forName: UserDefaults.argumentDomain) ?? [:]
         initialTab = domain["detailTab"] as? String
+        if let id = domain["polish"] as? String, let video = engine.video(id) {
+            engine.polishNow(video)
+        }
+        if let link = domain["eatList"] as? String {
+            Task { await eatList(url: link) }
+        }
+        if (domain["showBrowser"] as? String) != nil {
+            selection = .browser
+        }
+        if let id = domain["showCollection"] as? String {
+            selection = .collection(id)
+        }
         if let id = domain["unfollow"] as? String, let channel = watcher.channel(id) {
             watcher.unfollow(channel)
         }
@@ -168,24 +200,148 @@ final class AppModel {
             if selection == .skills { selection = .library }
             selectedVideoID = id
         case .playlist(let listID):
-            await eatList(url: "https://www.youtube.com/playlist?list=\(listID)")
+            let kind: VideoListKind = listID == "WL" ? .watchLater : (listID == "LL" ? .liked : .playlist)
+            await eatList(url: "https://www.youtube.com/playlist?list=\(listID)", kind: kind)
         case .channel(let url):
             await follow(url)
         }
     }
 
-    func eatList(url: String) async {
-        guard let ytdlp = ToolLocator.find("yt-dlp", override: settings.ytdlpPath) else {
+    /// Eats a playlist (or Watch Later / Liked) as one organised collection.
+    func eatList(url: String, kind: VideoListKind = .playlist, title: String? = nil) async {
+        guard let ytdlp = settings.makeYTDLP() else {
             show(EatError.missing("yt-dlp").localizedDescription, error: true)
             return
         }
         isResolvingLink = true
         defer { isResolvingLink = false }
         do {
-            let listing = try await YTDLP(executable: ytdlp).flatList(url: url)
+            let listing = try await ytdlp.flatList(url: url)
+            guard !listing.entries.isEmpty else {
+                show(kind == .playlist ? "This playlist is empty or private." : "Nothing found. Are you signed in to YouTube in Zeus?", error: true)
+                return
+            }
+            let listID: String
+            switch kind {
+            case .watchLater: listID = "WL"
+            case .liked: listID = "LL"
+            case .channel: listID = "channel:" + listing.channelID
+            case .playlist: listID = listing.listID.isEmpty ? url : listing.listID
+            }
+            let name = title ?? (listing.listTitle.isEmpty ? listing.title : listing.listTitle)
+            let list = upsertList(listID: listID, title: name, kind: kind, url: url, channel: listing.title,
+                                  videoIDs: listing.entries.map(\.id))
             engine.enqueue(listing.entries.map { (id: $0.id, title: $0.title, channel: $0.channel, channelID: $0.channelID) })
-            show("Eating \(listing.entries.count) videos from the playlist.")
-            selection = .eating
+            show("Eating \(listing.entries.count) videos of “\(name)”. They are organised as a collection.")
+            selection = .collection(list.listID)
+        } catch {
+            show(error.localizedDescription, error: true)
+        }
+    }
+
+    /// Eats every video of a channel as one collection.
+    func eatWholeChannel(_ channel: Channel) async {
+        let base = channel.url.absoluteString
+        await eatList(url: base.hasSuffix("/videos") ? base : base + "/videos", kind: .channel, title: channel.title)
+    }
+
+    @discardableResult
+    func upsertList(listID: String, title: String, kind: VideoListKind, url: String, channel: String, videoIDs: [String]) -> VideoList {
+        var descriptor = FetchDescriptor<VideoList>(predicate: #Predicate { $0.listID == listID })
+        descriptor.fetchLimit = 1
+        if let existing = try? context.fetch(descriptor).first {
+            existing.title = title
+            existing.videoIDs = videoIDs
+            existing.updatedAt = .now
+            try? context.save()
+            return existing
+        }
+        let list = VideoList(listID: listID, title: title, kind: kind, url: url, channelTitle: channel, videoIDs: videoIDs)
+        context.insert(list)
+        try? context.save()
+        return list
+    }
+
+    func list(_ id: String) -> VideoList? {
+        var descriptor = FetchDescriptor<VideoList>(predicate: #Predicate { $0.listID == id })
+        descriptor.fetchLimit = 1
+        return try? context.fetch(descriptor).first
+    }
+
+    func refresh(_ list: VideoList) async {
+        await eatList(url: list.urlString, kind: list.kind, title: list.title)
+    }
+
+    func deleteList(_ list: VideoList) {
+        if selection == .collection(list.listID) { selection = .library }
+        context.delete(list)
+        try? context.save()
+        exporter.scheduleIndexes(in: context)
+    }
+
+    // MARK: YouTube account
+
+    func importAccountSubscriptions() async {
+        await account.refresh()
+        guard let ytdlp = settings.makeYTDLP() else { return }
+        do {
+            let channels = try await ytdlp.subscribedChannels()
+            guard !channels.isEmpty else {
+                show("No subscriptions found. Sign in to YouTube in Zeus first.", error: true)
+                return
+            }
+            let added = await watcher.follow(entries: channels)
+            show("Following \(added) new channel\(added == 1 ? "" : "s") from your subscriptions (\(channels.count) in total).")
+        } catch {
+            show(error.localizedDescription, error: true)
+        }
+    }
+
+    /// youtubezeus://eat?url=…  (used by the zeus command and by scripts)
+    func handle(_ url: URL) {
+        guard url.scheme == "youtubezeus" else { return }
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        if url.host == "eat", let link = items.first(where: { $0.name == "url" })?.value {
+            Task { await eat(link) }
+        }
+    }
+
+    // MARK: AI packs
+
+    func copyForAI(_ video: Video) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(AIPack.video(video.snapshot), forType: .string)
+        show("Knowledge pack copied — paste it into Claude, ChatGPT, Gemini, Grok, GLM…")
+    }
+
+    func packVideos(for list: VideoList) -> (videos: [VideoSnapshot], missing: Int) {
+        var videos: [VideoSnapshot] = []
+        var missing = 0
+        for id in list.videoIDs {
+            if let video = engine.video(id), video.status.hasText { videos.append(video.snapshot) } else { missing += 1 }
+        }
+        return (videos, missing)
+    }
+
+    func copyForAI(_ list: VideoList, transcripts: Bool) {
+        let (videos, missing) = packVideos(for: list)
+        let text = AIPack.collection(title: list.title, kind: list.kind.label, url: list.urlString, videos: videos,
+                                     missing: missing, includeTranscripts: transcripts)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        show("Copied \(videos.count) videos (\((text.count / 1000).formatted())k characters) — paste into any AI.")
+    }
+
+    func exportPack(_ list: VideoList) {
+        let (videos, missing) = packVideos(for: list)
+        let text = AIPack.collection(title: list.title, kind: list.kind.label, url: list.urlString, videos: videos,
+                                     missing: missing, includeTranscripts: true)
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = SecondBrainExporter.sanitize(list.title, limit: 90) + " - AI pack.md"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            show("Saved \(url.lastPathComponent). Attach it to any AI chat.")
         } catch {
             show(error.localizedDescription, error: true)
         }

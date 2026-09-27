@@ -20,6 +20,10 @@ nonisolated struct VideoInfo: Sendable {
     var subtitles: [String]
     var autoCaptions: [String]
     var isShort: Bool
+    var tags: [String] = []
+    var viewCount: Int = 0
+    var likeCount: Int = 0
+    var comments: [VideoComment] = []
 
     var isLiveOrUpcoming: Bool { liveStatus == "is_live" || liveStatus == "is_upcoming" }
 }
@@ -37,6 +41,14 @@ nonisolated struct ChannelListing: Sendable {
     let handle: String
     let avatar: String?
     let entries: [PlaylistEntry]
+    var listID: String = ""
+    var listTitle: String = ""
+}
+
+nonisolated struct ChannelEntry: Sendable {
+    let channelID: String
+    let title: String
+    let url: String
 }
 
 nonisolated struct TranscriptResult: Sendable {
@@ -61,15 +73,20 @@ nonisolated enum YTDLPError: LocalizedError, Sendable {
 
 nonisolated struct YTDLP: Sendable {
     let executable: String
+    /// `--cookies <file>` or `--cookies-from-browser <name>` when signed in to YouTube.
+    var cookieArguments: [String] = []
+    var comments: Int = 0
 
     static func watchURL(_ id: String) -> String { "https://www.youtube.com/watch?v=\(id)" }
 
     // MARK: Metadata
 
     func info(videoID: String) async throws -> VideoInfo {
-        let output = try await ProcessRunner.check(executable, [
-            "-J", "--skip-download", "--no-warnings", "--no-playlist", "--", Self.watchURL(videoID),
-        ])
+        var arguments = ["-J", "--skip-download", "--no-warnings", "--no-playlist"] + cookieArguments
+        if comments > 0 {
+            arguments += ["--get-comments", "--extractor-args", "youtube:max_comments=\(comments),\(comments),0,0;comment_sort=top"]
+        }
+        let output = try await ProcessRunner.check(executable, arguments + ["--", Self.watchURL(videoID)])
         guard let json = try? JSONSerialization.jsonObject(with: output.stdout) as? [String: Any] else {
             throw YTDLPError.badOutput("video info")
         }
@@ -97,6 +114,10 @@ nonisolated struct YTDLP: Sendable {
         let height = json["height"] as? Double ?? 0
         let duration = json["duration"] as? Double ?? 0
         let isShort = webpage.contains("/shorts/") || (height > width && duration > 0 && duration <= 180)
+        let comments = (json["comments"] as? [[String: Any]] ?? []).compactMap { item -> VideoComment? in
+            guard let text = item["text"] as? String, !text.isEmpty, (item["parent"] as? String ?? "root") == "root" else { return nil }
+            return VideoComment(author: item["author"] as? String ?? "", text: text, likes: item["like_count"] as? Int ?? 0)
+        }
         return VideoInfo(
             id: json["id"] as? String ?? fallbackID,
             title: json["title"] as? String ?? "",
@@ -111,13 +132,17 @@ nonisolated struct YTDLP: Sendable {
             chapters: chapters,
             subtitles: subtitles,
             autoCaptions: auto,
-            isShort: isShort)
+            isShort: isShort,
+            tags: json["tags"] as? [String] ?? [],
+            viewCount: json["view_count"] as? Int ?? 0,
+            likeCount: json["like_count"] as? Int ?? 0,
+            comments: Array(comments.sorted { $0.likes > $1.likes }.prefix(50)))
     }
 
     // MARK: Playlists and channels
 
     func flatList(url: String, limit: Int? = nil) async throws -> ChannelListing {
-        var arguments = ["-J", "--flat-playlist", "--no-warnings"]
+        var arguments = ["-J", "--flat-playlist", "--no-warnings"] + cookieArguments
         if let limit { arguments += ["--playlist-items", "1:\(limit)"] }
         arguments += ["--", url]
         let output = try await ProcessRunner.check(executable, arguments)
@@ -137,7 +162,23 @@ nonisolated struct YTDLP: Sendable {
                 channel: entry["channel"] as? String ?? title,
                 channelID: entry["channel_id"] as? String ?? channelID)
         }
-        return ChannelListing(channelID: channelID, title: title, handle: handle, avatar: avatar, entries: entries)
+        return ChannelListing(channelID: channelID, title: title, handle: handle, avatar: avatar, entries: entries,
+                              listID: json["id"] as? String ?? "", listTitle: json["title"] as? String ?? "")
+    }
+
+    /// The channels of the signed-in account (https://www.youtube.com/feed/channels).
+    func subscribedChannels() async throws -> [ChannelEntry] {
+        let output = try await ProcessRunner.check(executable, ["-J", "--flat-playlist", "--no-warnings"] + cookieArguments
+                                                   + ["--", "https://www.youtube.com/feed/channels"])
+        guard let json = try? JSONSerialization.jsonObject(with: output.stdout) as? [String: Any] else {
+            throw YTDLPError.badOutput("subscriptions")
+        }
+        return (json["entries"] as? [[String: Any]] ?? []).compactMap { entry in
+            let id = entry["id"] as? String ?? entry["channel_id"] as? String ?? ""
+            guard id.hasPrefix("UC") else { return nil }
+            return ChannelEntry(channelID: id, title: entry["title"] as? String ?? entry["channel"] as? String ?? id,
+                                url: entry["url"] as? String ?? "https://www.youtube.com/channel/\(id)")
+        }
     }
 
     // MARK: Captions
@@ -184,7 +225,7 @@ nonisolated struct YTDLP: Sendable {
 
     func downloadCaptions(videoID: String, track: CaptionTrack, workDir: URL) async throws -> TranscriptResult {
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
-        _ = try await ProcessRunner.check(executable, [
+        _ = try await ProcessRunner.check(executable, cookieArguments + [
             "--skip-download", "--no-warnings", "--no-progress", "--no-playlist",
             track.isAuto ? "--write-auto-subs" : "--write-subs",
             "--sub-langs", track.language,
@@ -212,7 +253,7 @@ nonisolated struct YTDLP: Sendable {
 
     func downloadAudio(videoID: String, workDir: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
-        let output = try await ProcessRunner.check(executable, [
+        let output = try await ProcessRunner.check(executable, cookieArguments + [
             "-f", "bestaudio/best", "--no-playlist", "--no-warnings", "--newline",
             "-o", workDir.appendingPathComponent("audio.%(ext)s").path,
             "--print", "after_move:filepath",

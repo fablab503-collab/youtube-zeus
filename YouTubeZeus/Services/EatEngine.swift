@@ -29,20 +29,26 @@ final class EatEngine {
     private var whisperBusy = false
     private var summarizing: Set<String> = []
     private var forceWhisper: Set<String> = []
+    private(set) var postQueue: [String] = []
+    private var postRunning = false
+    private(set) var polishing: Set<String> = []
+    private var forcePolish: Set<String> = []
 
     let context: ModelContext
     let settings: AppSettings
     let summarizer: Summarizer
     let exporter: SecondBrainExporter
+    let polisher: Polisher
 
-    init(context: ModelContext, settings: AppSettings, summarizer: Summarizer, exporter: SecondBrainExporter) {
+    init(context: ModelContext, settings: AppSettings, summarizer: Summarizer, exporter: SecondBrainExporter, polisher: Polisher) {
         self.context = context
         self.settings = settings
         self.summarizer = summarizer
         self.exporter = exporter
+        self.polisher = polisher
     }
 
-    var activeCount: Int { jobs.count + queue.count }
+    var activeCount: Int { jobs.count + queue.count + postQueue.count }
 
     func state(for id: String) -> JobState? { jobs[id] }
 
@@ -112,9 +118,13 @@ final class EatEngine {
             video.status = .queued
             if !queue.contains(video.videoID) { queue.append(video.videoID) }
         }
-        let summarizingRaw = EatStatus.summarizing.rawValue
-        let stuck = FetchDescriptor<Video>(predicate: #Predicate { $0.statusRaw == summarizingRaw })
-        for video in (try? context.fetch(stuck)) ?? [] { video.status = .done }
+        let afterEating = [EatStatus.summarizing, .polishing].map(\.rawValue)
+        let stuck = FetchDescriptor<Video>(predicate: #Predicate { afterEating.contains($0.statusRaw) })
+        for video in (try? context.fetch(stuck)) ?? [] {
+            video.status = .done
+            // Finish what was interrupted: polishing and summary.
+            if video.polishedData == nil || video.digestData == nil { schedulePost(video.videoID) }
+        }
         try? context.save()
         pump()
     }
@@ -129,7 +139,8 @@ final class EatEngine {
     }
 
     private func pump() {
-        while jobs.count < max(1, settings.maxParallel), !queue.isEmpty {
+        // Only eating tasks count here: polishing and summaries run in their own queue.
+        while tasks.count < max(1, settings.maxParallel), !queue.isEmpty {
             let id = queue.removeFirst()
             jobs[id] = JobState(step: "Starting")
             tasks[id] = Task {
@@ -150,12 +161,11 @@ final class EatEngine {
 
     private func run(_ id: String) async {
         guard let video = video(id) else { return }
-        guard let ytdlpPath = ToolLocator.find("yt-dlp", override: settings.ytdlpPath) else {
+        guard let ytdlp = settings.makeYTDLP(withComments: settings.commentsCount > 0) else {
             video.status = .failed
             video.statusDetail = EatError.missing("yt-dlp").localizedDescription
             return
         }
-        let ytdlp = YTDLP(executable: ytdlpPath)
         let workDir = AppFolders.work.appendingPathComponent(id + "-" + UUID().uuidString.prefix(6), isDirectory: true)
         defer { try? FileManager.default.removeItem(at: workDir) }
         video.attempts += 1
@@ -210,14 +220,12 @@ final class EatEngine {
             video.status = .done
             video.statusDetail = ""
             AppLog.write("EATEN \(id) [\(result.source.rawValue), \(video.language)] \(video.displayTitle)")
+            video.polished = []
+            video.polishError = nil
             try? context.save()
             exporter.export(video)
             try? context.save()
-
-            if settings.autoSummarize, canSummarize {
-                await summarize(video)
-            }
-            if video.fromChannelWatch, settings.notifyWhenEaten { Notifier.post(title: "Eaten: \(video.displayTitle)", body: video.channelTitle) }
+            schedulePost(id)
         } catch {
             let cancelled = Self.isCancellation(error)
             video.status = .failed
@@ -242,7 +250,87 @@ final class EatEngine {
         video.videoDescription = info.description
         video.chapters = info.chapters
         video.isShort = info.isShort
+        video.tags = info.tags
+        video.viewCount = info.viewCount
+        video.likeCount = info.likeCount
+        if !info.comments.isEmpty { video.comments = info.comments }
         if let thumbnail = info.thumbnail { video.thumbnailURLString = thumbnail }
+    }
+
+    // MARK: After eating: polish, summarize, save (one video at a time)
+
+    private func schedulePost(_ id: String) {
+        if !postQueue.contains(id) { postQueue.append(id) }
+        guard !postRunning else { return }
+        postRunning = true
+        Task {
+            while !postQueue.isEmpty {
+                let next = postQueue.removeFirst()
+                if let video = video(next) { await afterEating(video) }
+            }
+            postRunning = false
+        }
+    }
+
+    private func afterEating(_ video: Video) async {
+        let forced = forcePolish.remove(video.videoID) != nil
+        if forced || (shouldPolish(video) && video.polishedData == nil) { await polish(video) }
+        if settings.autoSummarize, canSummarize, video.digestData == nil { await summarize(video) }
+        exporter.export(video)
+        exporter.scheduleIndexes(in: context)
+        try? context.save()
+        if video.fromChannelWatch, settings.notifyWhenEaten {
+            Notifier.post(title: "Eaten: \(video.displayTitle)", body: video.channelTitle)
+        }
+    }
+
+    func shouldPolish(_ video: Video) -> Bool {
+        guard settings.polishEnabled, polisher.isInstalled else { return false }
+        switch video.source {
+        case .autoCaptions, .whisper: return true
+        case .captions: return settings.polishCaptionsToo
+        case .none: return false
+        }
+    }
+
+    func isPolishing(_ id: String) -> Bool { polishing.contains(id) }
+
+    /// Local AI clean-up of the transcript (Ollama). Keeps the original next to it.
+    func polish(_ video: Video) async {
+        let id = video.videoID
+        guard !polishing.contains(id), video.status.hasText else { return }
+        polishing.insert(id)
+        defer { polishing.remove(id) }
+        let previous = video.status
+        video.status = .polishing
+        video.polishError = nil
+        do {
+            jobs[id] = JobState(step: "Starting the local AI (\(settings.polishModel))")
+            let texts = try await polisher.polish(title: video.displayTitle, channel: video.channelTitle,
+                                                  paragraphs: video.paragraphs, hints: video.tags + video.chapters.map(\.title)) { done, total in
+                self.jobs[id] = JobState(step: "Polishing with \(self.settings.polishModel) — \(done)/\(total)",
+                                         progress: total > 0 ? Double(done) / Double(total) : nil)
+            }
+            video.polished = texts
+            video.polishModel = settings.polishModel
+            video.transcriptText = video.displayParagraphs.map(\.text).joined(separator: "\n\n")
+            AppLog.write("POLISHED \(id) with \(settings.polishModel)")
+        } catch {
+            video.polishError = error.localizedDescription
+            AppLog.write("POLISH \(id) failed: \(error.localizedDescription)")
+        }
+        video.status = previous == .polishing ? .done : previous
+        if video.status != .failed { video.status = .done }
+        if tasks[id] == nil { jobs[id] = nil }
+        try? context.save()
+        exporter.export(video)
+        try? context.save()
+    }
+
+    /// Polish a video by hand (from the detail view or the menu).
+    func polishNow(_ video: Video) {
+        forcePolish.insert(video.videoID)
+        schedulePost(video.videoID)
     }
 
     private func transcribeWithWhisper(id: String, ytdlp: YTDLP, workDir: URL) async throws -> TranscriptResult {
@@ -309,7 +397,7 @@ final class EatEngine {
                 digest = try await summarizer.summarize(
                     title: video.displayTitle,
                     channel: video.channelTitle,
-                    paragraphs: video.paragraphs,
+                    paragraphs: video.displayParagraphs,
                     videoLanguage: video.language,
                     youtubeChapters: video.chapters,
                     outputLanguage: settings.summaryLanguage) { step in
@@ -321,7 +409,7 @@ final class EatEngine {
                 video.statusDetail = "Summarizing with Codex"
                 let language = settings.summaryLanguage == "auto" ? video.language : settings.summaryLanguage
                 digest = try await CodexSummarizer(executable: codex, model: settings.codexModel).summarize(
-                    title: video.displayTitle, channel: video.channelTitle, paragraphs: video.paragraphs,
+                    title: video.displayTitle, channel: video.channelTitle, paragraphs: video.displayParagraphs,
                     language: language.isEmpty ? "en" : language, youtubeChapters: video.chapters)
             } else {
                 throw SummaryError.unavailable(summaryUnavailableMessage)
@@ -337,6 +425,7 @@ final class EatEngine {
         if tasks[id] == nil { jobs[id] = nil }
         try? context.save()
         exporter.export(video)
+        exporter.scheduleIndexes(in: context)
         try? context.save()
     }
 }

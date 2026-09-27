@@ -1,7 +1,6 @@
 import SwiftData
 import SwiftUI
 
-@main
 struct YouTubeZeusApp: App {
     @State private var model: AppModel
     private let container: ModelContainer
@@ -21,6 +20,7 @@ struct YouTubeZeusApp: App {
                 .task { model.start() }
         }
         .modelContainer(container)
+        .handlesExternalEvents(matching: ["*"])
         .defaultSize(width: 1320, height: 860)
         .commands { ZeusCommands(model: model) }
 

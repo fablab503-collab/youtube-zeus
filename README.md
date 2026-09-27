@@ -1,4 +1,4 @@
-# YouTube Zeus 2.0 — the YouTube eater, native on macOS 27
+# YouTube Zeus 2.1 — the YouTube eater, native on macOS 27
 
 Paste a YouTube link (video, playlist or channel). Zeus eats the video and keeps its text.
 
@@ -7,6 +7,10 @@ Paste a YouTube link (video, playlist or channel). Zeus eats the video and keeps
 - **Watches channels**: follow a channel by pasting its link, or import Google Takeout `subscriptions.csv`. Public RSS feeds are checked every 30 minutes (no Google account); new uploads are eaten automatically. Live streams, premieres and uploads whose captions are not ready yet wait and are retried.
 - **On-device summaries**: Apple Intelligence (Foundation Models) writes a summary, key points, topics and chapters. Long videos are read in parts (map → reduce). Free and private.
 - **Second Brain**: each transcript becomes a Markdown note with vault front matter in `/Volumes/Volume1/SecondBrain/Sources/YouTube/<Channel>/<date> - <title>.md`. When the NAS is not mounted, notes wait and are written when it comes back.
+- **YouTube sign-in**: a YouTube window inside Zeus (sidebar › YouTube). Sign in once; the sign-in is written to a private cookies file for yt-dlp (members-only, age-restricted, your lists). Or use cookies from Safari/Chrome/Firefox/Brave/Edge. Browse and press "Eat this video / playlist / channel". Import your subscriptions, eat Watch Later and Liked videos.
+- **Collections**: a playlist, a whole channel, Watch Later or Liked videos is eaten as one collection, in order, with its own index note (`Collections/<name>.md`). Every channel folder gets `_Index - <Channel>.md`; `YouTube index.md` lists channels, collections, topics and recent videos. Notes also carry tags, views, likes, the description and the top comments.
+- **Local AI polishing**: Ollama + `qwen3:4b-instruct` (2.5 GB, fits in 8 GB of RAM) fixes punctuation, capitals and misheard words of auto-captions and Whisper text, paragraph by paragraph, never translating or shortening. Original / Polished toggle.
+- **AI hand-off**: "Copy for AI" knowledge packs (video or collection) for Claude, ChatGPT, Gemini, Grok, GLM…; the `zeus` command for terminals and agents; the `youtube-zeus` Agent Skill installed for Claude Code, Codex, Gemini CLI and ~/.agents (Settings › AI hand-off). A copy of the skill and universal instructions lives in the Second Brain (`Sources/YouTube/_For AI/`).
 - **Codex skills** (the 0.1 feature): OpenAI (Responses API, strict JSON schema, `store=false`) proposes up to three evidence-backed skills. Every quote is checked against the transcript, the bundle is validated (structure, prohibited content, evidence), and nothing is published without "Approve and publish". Output: `SKILL.md`, `references/evidence.md`, `references/changes.md`, `evals/evals.json` in `~/.codex/skills/<name>/` (older versions go to `Skill History`). The API key lives in the Keychain.
 
 ## Build
@@ -19,6 +23,19 @@ Needs Xcode 27, XcodeGen and Homebrew tools: `brew install xcodegen yt-dlp ffmpe
 ```
 
 Signed with the Developer ID Application certificate of team B7P7FR67VK (hardened runtime, no sandbox, because it runs yt-dlp, ffmpeg and whisper-cli).
+
+## zeus command
+
+```bash
+zeus eat "<link>" --save            # knowledge pack to stdout + note in the Second Brain + app library
+zeus eat "<playlist|channel>" --limit 20 --save
+zeus eat "<link>" --polish --summary --json
+zeus get <link|id>                  # saved note, no network
+zeus search "<words>"
+zeus list "<playlist|channel>" --limit 50
+```
+
+Installed by Settings › AI hand-off as a tiny script in /opt/homebrew/bin (or ~/.local/bin) that runs the app binary with `--cli`.
 
 ## Launch arguments (scripting and tests)
 

@@ -28,8 +28,13 @@ enum HandOff {
     6. GitHub repos in a video: `zeus github "<link>"` checks each linked repository through the GitHub API
        (exists, activity, license, security advisories, links back to the video); `--save` writes a note per
        repository in `Sources/GitHub/`. Eaten videos get this automatically ("## GitHub" in the note).
-    7. Machine-readable: `--json` (paragraphs with start/end seconds, chapters, tags, comments, summary).
-    8. No captions or bad auto-captions: `--whisper` listens to the audio on the Mac.
+    7. Every GitHub repo in the library: `zeus repos`. Show a page in the app: `zeus open "<link or id>"`;
+       `zeus link "<link>"` prints the `youtubezeus://` link and the Obsidian link of the note.
+    8. Machine-readable: `--json` (paragraphs with start/end seconds, chapters, tags, comments, summary).
+    9. No captions or bad auto-captions: `--whisper` listens to the audio on the Mac.
+
+    The full guide (pipeline, note format, every command and `youtubezeus://` link): `zeus guide`, or
+    `Sources/YouTube/_For AI/YOUTUBE-ZEUS-GUIDE.md` in the Second Brain.
 
     ## Answering from a pack
 

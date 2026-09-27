@@ -97,6 +97,8 @@ final class AppModel {
         Task {
             await account.refresh()
             HandOff.writeToBrain(root: settings.secondBrainURL)
+            AgentGuide.writeToBrain(settings: settings)
+            rewriteNotesIfFormatChanged()
             exporter.scheduleIndexes(in: context)
         }
         if settings.notifyWhenEaten { Notifier.requestPermission() }
@@ -324,11 +326,92 @@ final class AppModel {
     }
 
     /// youtubezeus://eat?url=…  (used by the zeus command and by scripts)
+    /// `youtubezeus://…` links: from the zeus command, from notes in the Second Brain, from other apps and agents.
     func handle(_ url: URL) {
-        guard url.scheme == "youtubezeus" else { return }
-        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        if url.host == "eat", let link = items.first(where: { $0.name == "url" })?.value {
+        guard let target = BrainLinks.parse(url) else { return }
+        AppLog.write("LINK \(url.absoluteString)")
+        switch target {
+        case .eat(let link):
             Task { await eat(link) }
+            return
+        case .video(let id, let tab):
+            if engine.video(id) == nil {
+                Task { await eat("https://www.youtube.com/watch?v=\(id)") }
+            }
+            if selection != .library, selection != .github { selection = .library }
+            initialTab = tab
+            selectedVideoID = id
+        case .collection(let id):
+            selection = .collection(id)
+        case .channel(let id):
+            if watcher.channel(id) != nil {
+                selection = .channel(id)
+            } else {
+                // Not followed: show the channel's latest eaten video in the library.
+                var descriptor = FetchDescriptor<Video>(predicate: #Predicate { $0.channelID == id },
+                                                        sortBy: [SortDescriptor(\.addedAt, order: .reverse)])
+                descriptor.fetchLimit = 1
+                selection = .library
+                selectedVideoID = (try? context.fetch(descriptor))?.first?.videoID
+            }
+        case .repo(let fullName):
+            selection = .github
+            let key = fullName.lowercased()
+            let videos = (try? context.fetch(FetchDescriptor<Video>(sortBy: [SortDescriptor(\.addedAt, order: .reverse)]))) ?? []
+            let match = videos.first { video in video.repos.contains { repo in repo.id == key } }
+            selectedVideoID = match?.videoID ?? selectedVideoID
+            initialTab = "Info"
+        case .topic(let topic):
+            selection = .topic(topic)
+        case .view(let view):
+            switch view.lowercased() {
+            case "github": selection = .github
+            case "ask": selection = .ask
+            case "skills": selection = .skills
+            case "eating", "queue": selection = .eating
+            case "youtube", "browser": selection = .browser
+            default: selection = .library
+            }
+        case .ask(let question):
+            selection = .ask
+            Task { await ask(question) }
+        }
+        NSApp.activate()
+    }
+
+    /// Notes written by an older version get the current format once (links back to Zeus, GitHub section…).
+    static let noteFormat = 3
+
+    func rewriteNotesIfFormatChanged() {
+        let defaults = UserDefaults.standard
+        guard defaults.integer(forKey: "noteFormat") < Self.noteFormat, exporter.folderReachable else { return }
+        let videos = ((try? context.fetch(FetchDescriptor<Video>())) ?? []).filter { $0.status.hasText && $0.secondBrainPath != nil }
+        for video in videos { exporter.export(video) }
+        try? context.save()
+        defaults.set(Self.noteFormat, forKey: "noteFormat")
+        AppLog.write("NOTES rewritten in format \(Self.noteFormat): \(videos.count)")
+    }
+
+    // MARK: Open in the Second Brain (exact page)
+
+    func noteURL(for video: Video) -> URL? {
+        video.secondBrainPath.map { URL(fileURLWithPath: $0) }
+    }
+
+    func channelIndexURL(_ channelTitle: String) -> URL {
+        let folder = SecondBrainExporter.channelFolderName(channelTitle)
+        return settings.secondBrainURL.appendingPathComponent(folder).appendingPathComponent("_Index - \(folder).md")
+    }
+
+    var youtubeIndexURL: URL { settings.secondBrainURL.appendingPathComponent("YouTube index.md") }
+    var githubIndexURL: URL { settings.githubURL.appendingPathComponent("_Index - GitHub from YouTube.md") }
+    var agentGuideURL: URL { settings.secondBrainURL.appendingPathComponent("_For AI").appendingPathComponent(AgentGuide.fileName) }
+
+    /// Opens a note of the Second Brain at its exact page (Obsidian when installed).
+    func openInBrain(_ file: URL?) {
+        guard let file, BrainLinks.open(file) else {
+            show(exporter.folderReachable ? "That note does not exist yet — it is written after eating." : "The Second Brain is not reachable (is Volume1 connected?).", error: true)
+            return
         }
     }
 

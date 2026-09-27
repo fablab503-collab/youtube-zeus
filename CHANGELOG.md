@@ -1,0 +1,41 @@
+# Changelog
+
+Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
+Newest first.
+
+## 2.3 — 2026-09-27
+
+- **Code on GitHub**: private repository `fablab503-collab/youtube-zeus`; `scripts/ship.sh` builds, regenerates
+  the agent guide, commits, pushes and refreshes the source snapshot in the Second Brain. `AGENTS.md`,
+  `CLAUDE.md`, this changelog.
+- **Two-way Second Brain link**: "Open in Obsidian" (or "Open Note" without Obsidian) on videos, channels,
+  collections, repositories and indexes opens the exact note (`obsidian://open?path=…`); menu Brain (⇧⌘B).
+  Every note links back with `youtubezeus://open?video=…` / `collection=` / `channel=` / `repo=` / `view=`;
+  video notes carry a `zeus:` property. New links: `youtubezeus://open?…`, `youtubezeus://ask?q=…`.
+- **Guide for AI agents**: `Sources/YouTube/_For AI/YOUTUBE-ZEUS-GUIDE.md` (rewritten at launch), `zeus guide`,
+  `docs/AGENT-GUIDE.md`; Settings › AI hand-off › Guide for AI agents.
+- **GitHub checks everywhere**: "## GitHub" in channel and collection index notes, repositories in collection
+  AI packs and in Ask your brain; `zeus repos`, `zeus open`, `zeus link`.
+
+## 2.2 — 2026-09-27
+
+- GitHub repositories linked in a video (description, channel's own comment, transcript) are checked through the
+  GitHub API: exists/renamed, archived, fork, last push, stars, license, release, security advisories, owner age,
+  link back to the video. "## GitHub" in video notes, `Sources/GitHub/<owner>-<repo>.md` notes (facts block
+  between `%% zeus:github:facts %%` markers, user notes kept), `_Index - GitHub from YouTube.md`, sidebar ›
+  GitHub, `zeus github`.
+
+## 2.1 — 2026-09-27
+
+- YouTube sign-in window, collections (playlists, whole channels, Watch Later, Liked) with index notes, local AI
+  polishing (Ollama, qwen3:4b-instruct), `zeus` command, `youtube-zeus` Agent Skill, Copy for AI packs.
+- Ask your brain (app and `zeus ask`), topics, after-eating queue rebuilt at every launch.
+
+## 2.0 — 2026-09-27
+
+- Native SwiftUI app for macOS 27 (Liquid Glass): captions or Whisper, channel watching, on-device summaries,
+  Second Brain notes, Codex skill compiler.
+
+## 0.1 — 2026-08
+
+- Python/FastAPI web app built with Codex (history in the NAS bundle `YouTube-Zeus.bundle`, tip `8d63532`).

@@ -1,4 +1,4 @@
-# YouTube Zeus 2.2 — the YouTube eater, native on macOS 27
+# YouTube Zeus 2.3 — the YouTube eater, native on macOS 27
 
 Paste a YouTube link (video, playlist or channel). Zeus eats the video and keeps its text.
 
@@ -13,6 +13,8 @@ Paste a YouTube link (video, playlist or channel). Zeus eats the video and keeps
 - **AI hand-off**: "Copy for AI" knowledge packs (video or collection) for Claude, ChatGPT, Gemini, Grok, GLM…; the `zeus` command for terminals and agents; the `youtube-zeus` Agent Skill installed for Claude Code, Codex, Gemini CLI and ~/.agents (Settings › AI hand-off). A copy of the skill and universal instructions lives in the Second Brain (`Sources/YouTube/_For AI/`).
 - **Ask your brain**: ask a question in any language; Zeus ranks the eaten videos and paragraphs on the Mac, and Codex answers with numbered sources (video + timestamp + quote). **Topics** in the sidebar group videos by their summary tags; new summaries reuse existing tags so the library stays tidy.
 - **GitHub links**: every github.com/<owner>/<repo> link in a video's description (or in the channel's own comment, or spelled out in the transcript) is checked through the GitHub API: exists, renamed, archived, fork, last push, stars, license, latest release, published security advisories, owner account age, and whether the repository links back to the video or its site. The video note gets a "## GitHub" section; each repository gets a note in `Sources/GitHub/<owner>-<repo>.md` (README excerpt, "Seen in" every video; Zeus only rewrites the block between `%% zeus:github:facts start/end %%`, your notes are kept) and `_Index - GitHub from YouTube.md` lists them all. Sidebar › GitHub. Results are cached 3 days; add a GitHub token (Settings › Eating, or `gh auth login`) for more than ~15 repositories an hour.
+- **Two-way Second Brain link**: "Open in Obsidian" on every page opens the exact note (video, channel, collection, repository, indexes; menu Brain ⇧⌘B); every note links back with `youtubezeus://open?…`, so a click in the vault brings the same page up in Zeus.
+- **Guide for AI agents**: `Sources/YouTube/_For AI/YOUTUBE-ZEUS-GUIDE.md` (rewritten at launch), `zeus guide`, and [`docs/AGENT-GUIDE.md`](docs/AGENT-GUIDE.md) — how Zeus works and every way to connect. Developers: [`AGENTS.md`](AGENTS.md).
 - **Codex skills** (the 0.1 feature): OpenAI (Responses API, strict JSON schema, `store=false`) proposes up to three evidence-backed skills. Every quote is checked against the transcript, the bundle is validated (structure, prohibited content, evidence), and nothing is published without "Approve and publish". Output: `SKILL.md`, `references/evidence.md`, `references/changes.md`, `evals/evals.json` in `~/.codex/skills/<name>/` (older versions go to `Skill History`). The API key lives in the Keychain.
 
 ## Build
@@ -36,7 +38,23 @@ zeus get <link|id>                  # saved note, no network
 zeus search "<words>"
 zeus list "<playlist|channel>" --limit 50
 zeus github "<link>" [--save] [--json]   # GitHub repos linked in a video, checked through the GitHub API
+zeus repos [--json]                 # every repo linked in the library
+zeus open "<link|id|youtubezeus://…>"    # show it in the app
+zeus guide                          # the full guide for AI agents
 ```
+
+## Links (`youtubezeus://`)
+
+```
+youtubezeus://eat?url=<link>                 youtubezeus://open?video=<id>[&tab=Info]
+youtubezeus://open?collection=<list id>      youtubezeus://open?channel=<channel id>
+youtubezeus://open?repo=<owner>/<repo>       youtubezeus://open?view=library|github|ask|skills|eating|youtube
+youtubezeus://ask?q=<question>
+```
+
+## Shipping
+
+Source: https://github.com/fablab503-collab/youtube-zeus (private). Every feature: build, add a `CHANGELOG.md` entry, then `./scripts/ship.sh "<message>"` (build, regenerate the agent guide, commit, push, refresh the vault snapshot).
 
 Installed by Settings › AI hand-off as a tiny script in /opt/homebrew/bin (or ~/.local/bin) that runs the app binary with `--cli`.
 

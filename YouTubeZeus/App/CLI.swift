@@ -36,6 +36,10 @@ enum ZeusCLI {
       zeus search <words…>      find eaten videos (title, channel, transcript)
       zeus list <link> [--limit N]  list the videos of a playlist or channel
       zeus ask <question>       answer from everything eaten, with sources (uses Codex)
+      zeus repos [--json]       every GitHub repository linked in the eaten videos, with its check
+      zeus open <link|id|youtubezeus://…>   show a video (or any Zeus page) in the app
+      zeus link <link|id>       print the youtubezeus:// link and the Obsidian link of a video's note
+      zeus guide                print the full guide for AI agents (how Zeus works and how to connect)
       zeus github <link|id> [--save] [--json]
           the GitHub repositories linked in a video, checked through the GitHub API (exists, activity,
           license, security advisories, links back to the video); --save writes a note per repository
@@ -111,9 +115,37 @@ enum ZeusCLI {
                     }
                 }
                 HandOff.writeToBrain(root: settings.secondBrainURL)
+                AgentGuide.writeToBrain(settings: settings)
                 return 0
             case "instructions":
                 print(AIPack.universalInstructions)
+                return 0
+            case "repos":
+                return try repos(json: flags.contains("--json"))
+            case "guide":
+                print(AgentGuide.markdown(settings: settings, forVault: false))
+                return 0
+            case "link":
+                guard let link = rest.first else { return fail("zeus link <video link or id>") }
+                let id: String
+                if case .video(let videoID) = YouTubeLink.parse(link) { id = videoID } else { id = link }
+                print(BrainLinks.zeus(video: id))
+                if let note = findNote(videoID: id, settings: settings) {
+                    print(BrainLinks.obsidianURL(for: note)?.absoluteString ?? note.path)
+                }
+                return 0
+            case "open":
+                guard let target = rest.first else { return fail("zeus open <video link or id | youtubezeus:// link>") }
+                let url: URL?
+                if target.hasPrefix("youtubezeus://") {
+                    url = URL(string: target)
+                } else if case .video(let videoID) = YouTubeLink.parse(target) {
+                    url = URL(string: BrainLinks.zeus(video: videoID))
+                } else {
+                    url = URL(string: BrainLinks.zeus(video: target))
+                }
+                guard let url else { return fail("Not a link: \(target)") }
+                NSWorkspace.shared.open(url)
                 return 0
             case "github":
                 guard let link = rest.first else { return fail("zeus github <link or video id>") }
@@ -242,6 +274,43 @@ enum ZeusCLI {
     }
 
     // MARK: GitHub
+
+    /// Every repository linked in the library (read-only).
+    static func repos(json: Bool) throws -> Int32 {
+        let url = AppFolders.support.appendingPathComponent("Library.store")
+        let configuration = ModelConfiguration(url: url, allowsSave: false)
+        let container = try ModelContainer(for: Video.self, Channel.self, SkillDraft.self, VideoList.self, configurations: configuration)
+        let context = ModelContext(container)
+        let videos = try context.fetch(FetchDescriptor<Video>()).filter { $0.status.hasText }
+        var byID: [String: (repo: RepoCheck, videos: [String])] = [:]
+        for video in videos {
+            for repo in video.repos {
+                byID[repo.id, default: (repo, [])].videos.append("\(video.displayTitle) (\(video.url.absoluteString))")
+            }
+        }
+        let entries = byID.values.sorted { $0.repo.stars > $1.repo.stars }
+        if json {
+            let rows: [[String: Any]] = entries.map {
+                ["repository": $0.repo.fullName, "url": $0.repo.url.absoluteString, "verdict": $0.repo.verdict,
+                 "stars": $0.repo.stars, "license": $0.repo.license ?? "", "last_push": $0.repo.pushedDay,
+                 "security_advisories": $0.repo.advisories, "critical_advisories": $0.repo.criticalAdvisories,
+                 "zeus": BrainLinks.zeus(repo: $0.repo.fullName), "videos": $0.videos]
+            }
+            let data = try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+            print(String(decoding: data, as: UTF8.self))
+            return 0
+        }
+        guard !entries.isEmpty else {
+            print("No GitHub repository linked in the videos eaten so far.")
+            return 0
+        }
+        for entry in entries {
+            print("\(entry.repo.fullName)\n  \(entry.repo.url.absoluteString)\n  \(entry.repo.summaryLine)")
+            for video in entry.videos { print("  seen in: \(video)") }
+            print("")
+        }
+        return 0
+    }
 
     static func github(_ id: String, flags: Set<String>, settings: AppSettings) async throws -> Int32 {
         guard let ytdlp = settings.makeYTDLP(withComments: settings.commentsCount > 0) else { throw EatError.missing("yt-dlp") }

@@ -309,6 +309,7 @@ nonisolated enum GitHubLinks {
             owner += ", since \(since.prefix(4)), \(check.ownerRepos) public repos, \(check.ownerFollowers.formatted()) followers"
         }
         lines.append("| Repository | \(check.url.absoluteString) (\(owner)) |")
+        lines.append("| Open in YouTube Zeus | [\(check.fullName)](\(BrainLinks.zeus(repo: check.fullName))) |")
         if let description = check.description { lines.append("| Description | \(cell(description)) |") }
         lines.append("| Verdict | \(check.verdictLabel)\(check.linkedBack ? " · links back to the video or its site" : "") |")
         if check.exists {

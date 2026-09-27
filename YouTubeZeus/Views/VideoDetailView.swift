@@ -31,6 +31,13 @@ struct VideoDetailView: View {
         }
     }
 
+    private func applyInitialTab() {
+        guard let name = app.initialTab,
+              let initial = DetailTab.allCases.first(where: { $0.rawValue.lowercased() == name.lowercased() }) else { return }
+        tab = initial
+        app.initialTab = nil
+    }
+
     @ViewBuilder
     private func content(_ video: Video) -> some View {
         ScrollView {
@@ -120,12 +127,8 @@ struct VideoDetailView: View {
             let polished = video.displayParagraphs
             polishedParagraphs = video.polished.isEmpty ? [] : polished
         }
-        .onAppear {
-            if let name = app.initialTab, let initial = DetailTab.allCases.first(where: { $0.rawValue.lowercased() == name.lowercased() }) {
-                tab = initial
-                app.initialTab = nil
-            }
-        }
+        .onAppear { applyInitialTab() }
+        .onChange(of: app.initialTab) { applyInitialTab() }
     }
 }
 
@@ -220,12 +223,22 @@ private struct Header: View {
                         }
                         .buttonStyle(.glass)
                         .disabled(app.compiler.compiling.contains(video.videoID))
-                        Button {
-                            app.saveToSecondBrain(video)
-                        } label: {
-                            Label("Save to Second Brain", systemImage: "brain.head.profile")
+                        if let note = app.noteURL(for: video), FileManager.default.fileExists(atPath: note.path) {
+                            Button {
+                                app.openInBrain(note)
+                            } label: {
+                                Label(BrainLinks.openLabel, systemImage: "brain.head.profile")
+                            }
+                            .buttonStyle(.glass)
+                            .help("Open this video's note in the Second Brain, at its page")
+                        } else {
+                            Button {
+                                app.saveToSecondBrain(video)
+                            } label: {
+                                Label("Save to Second Brain", systemImage: "brain.head.profile")
+                            }
+                            .buttonStyle(.glass)
                         }
-                        .buttonStyle(.glass)
                         if app.polisher.isInstalled {
                             Button {
                                 app.engine.polishNow(video)

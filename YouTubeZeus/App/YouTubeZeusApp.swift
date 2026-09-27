@@ -56,6 +56,15 @@ struct ZeusCommands: Commands {
             Button("Check Channels Now") { Task { await model.watcher.checkAll() } }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
         }
+        CommandMenu("Brain") {
+            Button("Open YouTube Index") { model.openInBrain(model.youtubeIndexURL) }
+                .keyboardShortcut("b", modifiers: [.command, .shift])
+            Button("Open GitHub Index") { model.openInBrain(model.githubIndexURL) }
+            Button("Open Guide for AI Agents") { model.openInBrain(model.agentGuideURL) }
+            Divider()
+            Button("Show GitHub Repositories") { model.selection = .github }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+        }
         CommandGroup(replacing: .help) {
             Link("yt-dlp supported sites", destination: URL(string: "https://github.com/yt-dlp/yt-dlp")!)
         }

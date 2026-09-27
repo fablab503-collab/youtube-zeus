@@ -486,7 +486,7 @@ private struct HandOffSettings: View {
                         }
                     }
                 }
-                Text("zeus eat <link> --save · zeus get <link> · zeus search <words> · zeus list <link>. Claude Code, Codex, Gemini CLI or any agent with a terminal can eat videos and read your YouTube brain.")
+                Text("zeus eat <link> --save · zeus get <link> · zeus search <words> · zeus ask <question> · zeus repos · zeus open <link> · zeus guide. Claude Code, Codex, Gemini CLI or any agent with a terminal can eat videos and read your YouTube brain.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Skill for AI agents") {
@@ -514,6 +514,29 @@ private struct HandOffSettings: View {
                 .id(refresh)
                 Text("A copy of the skill and of the instructions is also kept in the Second Brain (Sources/YouTube/_For AI).")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Guide for AI agents") {
+                HStack {
+                    Text("How Zeus works and every way to connect: commands, youtubezeus:// links, notes, GitHub checks. Rewritten in the Second Brain at each launch.")
+                        .font(.callout)
+                    Spacer()
+                    Button(BrainLinks.openLabel) {
+                        AgentGuide.writeToBrain(settings: settings)
+                        app.openInBrain(app.agentGuideURL)
+                    }
+                    Button("Copy") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(AgentGuide.markdown(settings: settings, forVault: false), forType: .string)
+                        app.show("Guide copied — paste it into any AI.")
+                    }
+                }
+                Text("Links from notes and other apps: youtubezeus://open?video=<id> · ?collection= · ?channel= · ?repo=<owner>/<repo> · ?view=github · youtubezeus://ask?q=… · youtubezeus://eat?url=…")
+                    .font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                if !BrainLinks.obsidianInstalled {
+                    Label("Obsidian is not installed on this Mac: notes open in the default Markdown app. Install Obsidian and open the Second Brain folder as a vault to jump straight to each page.",
+                          systemImage: "info.circle")
+                        .font(.caption).foregroundStyle(.orange)
+                }
             }
             Section("Chat AIs without a terminal (Grok, GLM, Gemini, ChatGPT…)") {
                 HStack {

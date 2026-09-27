@@ -106,6 +106,11 @@ struct ChannelView: View {
                     .help("Every video of the channel, organised as a collection with its own index note")
                     Button { NSWorkspace.shared.open(channel.url) } label: { Label("YouTube", systemImage: "play.rectangle") }
                         .buttonStyle(.glass)
+                    Button { app.openInBrain(app.channelIndexURL(channel.title)) } label: {
+                        Label("Index note", systemImage: "list.bullet.rectangle")
+                    }
+                    .buttonStyle(.glass)
+                    .help(BrainLinks.openLabel + ": the channel's index note")
                 }
             }
         }

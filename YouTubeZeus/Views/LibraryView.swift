@@ -169,7 +169,12 @@ struct VideoMenu: View {
             Button("Export Markdown…") { app.exportMarkdown(video) }
             Button("Save to Second Brain") { app.saveToSecondBrain(video) }
             if let path = video.secondBrainPath {
-                Button("Show in Second Brain") { app.reveal(path) }
+                Button(BrainLinks.openLabel) { app.openInBrain(URL(fileURLWithPath: path)) }
+                Button("Show in Finder") { app.reveal(path) }
+            }
+            Button("Copy Zeus Link") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(BrainLinks.zeus(video: video.videoID), forType: .string)
             }
             Divider()
             Button("Summarize") { app.summarize(video) }

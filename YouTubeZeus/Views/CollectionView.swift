@@ -68,8 +68,11 @@ struct CollectionView: View {
                                 .buttonStyle(.glass)
                                 .disabled(refreshing)
                                 if let path = list.indexPath {
-                                    Button { app.reveal(path) } label: { Label("Index note", systemImage: "list.bullet.rectangle") }
-                                        .buttonStyle(.glass)
+                                    Button { app.openInBrain(URL(fileURLWithPath: path)) } label: {
+                                        Label("Index note", systemImage: "list.bullet.rectangle")
+                                    }
+                                    .buttonStyle(.glass)
+                                    .help(BrainLinks.openLabel + ": the collection's index note")
                                 }
                                 if let url = list.url {
                                     Button { NSWorkspace.shared.open(url) } label: { Label("YouTube", systemImage: "play.rectangle") }

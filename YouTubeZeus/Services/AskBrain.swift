@@ -45,6 +45,7 @@ nonisolated enum AskBrain {
         let ranked = videos.map { video -> (VideoSnapshot, Int) in
             let head = video.title + " " + (video.digest?.summary ?? "") + " " + (video.digest?.keyPoints.joined(separator: " ") ?? "")
                 + " " + (video.digest?.topics.joined(separator: " ") ?? "")
+                + " " + video.repos.map { "github \($0.owner) \($0.name) \($0.description ?? "")" }.joined(separator: " ")
             let body = video.paragraphs.map(\.text).joined(separator: " ")
             let covered = wanted.filter { SkillCompiler.words(head + " " + body).contains($0) }.count
             return (video, score(head) * 5 + min(score(body), 60) + covered * 20)
@@ -58,6 +59,12 @@ nonisolated enum AskBrain {
             if let summary = video.digest?.summary {
                 passages.append(BrainPassage(videoID: video.videoID, title: video.title, channel: video.channelTitle,
                                              start: 0, text: "Summary: " + summary))
+            }
+            let repos = video.repos.filter(\.exists)
+            if !repos.isEmpty {
+                passages.append(BrainPassage(videoID: video.videoID, title: video.title, channel: video.channelTitle, start: 0,
+                                             text: "GitHub repositories linked in this video (checked through the GitHub API): "
+                                                + repos.map { "\($0.fullName) (\($0.url.absoluteString)): \($0.summaryLine)" }.joined(separator: "; ")))
             }
             let best = video.paragraphs
                 .map { ($0, score($0.text)) }

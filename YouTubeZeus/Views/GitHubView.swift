@@ -29,7 +29,7 @@ struct RepoCard: View {
                 .buttonStyle(.glass)
                 .controlSize(.small)
                 if let note = app.repoNoteURL(repo) {
-                    Button { NSWorkspace.shared.open(note) } label: {
+                    Button { app.openInBrain(note) } label: {
                         Label("Note", systemImage: "doc.text")
                     }
                     .buttonStyle(.glass)
@@ -182,7 +182,7 @@ struct GitHubView: View {
                     .contextMenu {
                         Button("Open on GitHub") { NSWorkspace.shared.open(entry.repo.url) }
                         if let note = app.repoNoteURL(entry.repo) {
-                            Button("Open Note") { NSWorkspace.shared.open(note) }
+                            Button(BrainLinks.openLabel) { app.openInBrain(note) }
                         }
                         Button("Copy Link") {
                             NSPasteboard.general.clearContents()
@@ -207,6 +207,14 @@ struct GitHubView: View {
                     Label("Copy for AI", systemImage: "sparkles")
                 }
                 .disabled(entries.isEmpty)
+            }
+            ToolbarItem {
+                Button {
+                    app.openInBrain(app.githubIndexURL)
+                } label: {
+                    Label("Index Note", systemImage: "list.bullet.rectangle")
+                }
+                .help(BrainLinks.openLabel + ": GitHub repositories from YouTube")
             }
             ToolbarItem {
                 Button {

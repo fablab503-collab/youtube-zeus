@@ -34,6 +34,7 @@ final class SecondBrainExporter {
             "channel-id: \(video.channelID)",
             "video-id: \(video.videoID)",
             "url: \(video.url.absoluteString)",
+            "zeus: \"\(BrainLinks.zeus(video: video.videoID))\"",
         ]
         if let published = video.publishedAt { lines.append("published: \(day.string(from: published))") }
         if video.duration > 0 { lines.append("duration: \"\(video.duration.timestamp)\"") }
@@ -52,13 +53,15 @@ final class SecondBrainExporter {
             lines.append("github: [" + repos.map { yamlString($0.fullName) }.joined(separator: ", ") + "]")
         }
         lines += [
-            "eaten-by: YouTube Zeus 2.2",
+            "eaten-by: YouTube Zeus \((Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "2")",
             "confidence: \(video.source == .captions ? "high" : "medium")",
             "---",
             "",
             "# \(video.title)",
             "",
             "![[\(video.videoID).jpg|480]]",
+            "",
+            "[Watch on YouTube](\(video.url.absoluteString)) · [Open in YouTube Zeus](\(BrainLinks.zeus(video: video.videoID)))",
             "",
             "## For future agent",
             "",
@@ -283,10 +286,13 @@ final class SecondBrainExporter {
             let channel = sorted.first?.channelTitle ?? folder
             var lines = header("\(channel) — YouTube channel",
                                "Every video of \(channel) eaten by YouTube Zeus, newest first. Each link opens the transcript note. Back to [[YouTube index]].")
-            if let id = sorted.first?.channelID, !id.isEmpty { lines += ["Channel: https://www.youtube.com/channel/\(id)", ""] }
+            if let id = sorted.first?.channelID, !id.isEmpty {
+                lines += ["Channel: https://www.youtube.com/channel/\(id) · [Open in YouTube Zeus](\(BrainLinks.zeus(channel: id)))", ""]
+            }
             let words = sorted.reduce(0) { $0 + $1.wordCount }
             lines += ["\(sorted.count) video\(sorted.count == 1 ? "" : "s") · \(words.formatted()) words", "", "## Videos", ""]
             lines += sorted.map(line)
+            lines += Self.githubSection(Self.repoMentions(items))
             write(lines, to: root.appendingPathComponent(folder).appendingPathComponent("_Index - \(folder).md"))
         }
 
@@ -297,7 +303,8 @@ final class SecondBrainExporter {
             var lines = header("\(list.title) — \(list.kind.label)",
                                "Collection eaten by YouTube Zeus, in the original order. \(list.urlString). Back to [[YouTube index]].")
             let eaten = list.videoIDs.filter { byID[$0] != nil }.count
-            lines += ["\(eaten) of \(list.videoIDs.count) videos eaten", "", "## Videos", ""]
+            lines += ["[Open in YouTube Zeus](\(BrainLinks.zeus(collection: list.listID)))", "",
+                      "\(eaten) of \(list.videoIDs.count) videos eaten", "", "## Videos", ""]
             for (index, id) in list.videoIDs.enumerated() {
                 if let video = byID[id] {
                     lines.append("\(index + 1). " + String(line(video).dropFirst(2)))
@@ -305,6 +312,7 @@ final class SecondBrainExporter {
                     lines.append("\(index + 1). _not eaten yet_ https://www.youtube.com/watch?v=\(id)")
                 }
             }
+            lines += Self.githubSection(Self.repoMentions(list.videoIDs.compactMap { byID[$0] }))
             let file = collectionFolder.appendingPathComponent("\(name).md")
             write(lines, to: file)
             list.indexPath = file.path
@@ -320,7 +328,8 @@ final class SecondBrainExporter {
             }
             var lines = header("GitHub repositories from YouTube",
                                "Every GitHub repository linked in a video eaten by YouTube Zeus, checked through the GitHub API. Each repository has its own note in this folder (the facts block is rewritten automatically, your own notes are kept). A link in a video is not a security review. Back to [[YouTube index]].")
-            lines += ["\(repos.count) repositor\(repos.count == 1 ? "y" : "ies")", "",
+            lines += ["[Open in YouTube Zeus](\(BrainLinks.zeus(view: "github")))", "",
+                      "\(repos.count) repositor\(repos.count == 1 ? "y" : "ies")", "",
                       "| Repository | Verdict | Stars | License | Last push | Advisories | Seen in |",
                       "|---|---|---|---|---|---|---|"]
             for entry in repos {
@@ -335,7 +344,8 @@ final class SecondBrainExporter {
         // The master index: channels, collections, topics, recent.
         var master = header("YouTube index",
                             "Everything YouTube Zeus has eaten, organised by channel, collection and topic. Notes live in one folder per channel; collections in Collections/.")
-        master += ["\(videos.count) videos · \(channels.count) channels · \(lists.count) collections", "", "## Channels", ""]
+        master += ["Open in YouTube Zeus: [Library](\(BrainLinks.zeus(view: "library"))) · [GitHub](\(BrainLinks.zeus(view: "github"))) · [Ask your brain](\(BrainLinks.zeus(view: "ask"))) · Guide for AI agents: [[\(AgentGuide.noteName)]]", "",
+                   "\(videos.count) videos · \(channels.count) channels · \(lists.count) collections", "", "## Channels", ""]
         for (folder, items) in channels.sorted(by: { $0.value.count > $1.value.count }) {
             master.append("- [[_Index - \(folder)|\(items.first?.channelTitle ?? folder)]] (\(items.count))")
         }
@@ -363,6 +373,17 @@ final class SecondBrainExporter {
         master += videos.sorted { ($0.eatenAt ?? .distantPast) > ($1.eatenAt ?? .distantPast) }.prefix(30).map(line)
         write(master, to: root.appendingPathComponent("YouTube index.md"))
         try? context.save()
+    }
+
+    /// "## GitHub" section for a channel or collection index (empty when no video links a repository).
+    static func githubSection(_ repos: [(check: RepoCheck, mentions: [GitHubLinks.Mention])]) -> [String] {
+        guard !repos.isEmpty else { return [] }
+        var lines = ["", "## GitHub", "", "Repositories linked in these videos, checked through the GitHub API ([[_Index - GitHub from YouTube|all repositories]]).", ""]
+        lines += repos.map { entry in
+            "- [[\(entry.check.noteName)|\(entry.check.fullName)]] — \(entry.check.summaryLine) — in "
+                + entry.mentions.map { "[[\($0.note)|\($0.title.replacingOccurrences(of: "|", with: "-"))]]" }.joined(separator: ", ")
+        }
+        return lines
     }
 
     /// Every repository found in the library, with the videos that link it (most-linked first).

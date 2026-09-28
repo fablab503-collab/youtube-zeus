@@ -31,7 +31,7 @@ struct AskView: View {
                 if app.isAsking {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
-                        Text("Reading \(Set(app.askPassages.map(\.videoID)).count) videos and asking Codex…")
+                        Text("Reading \(Set(app.askPassages.map(\.videoID)).count) videos with \(app.askEngineLabel)…")
                             .foregroundStyle(.secondary)
                     }
                 }

@@ -80,6 +80,14 @@ nonisolated enum AskBrain {
         return passages
     }
 
+    static func input(_ question: String, _ passages: [BrainPassage]) -> [String: Any] {
+        [
+            "question": question,
+            "passages": passages.map { ["video_id": $0.videoID, "title": $0.title, "channel": $0.channel,
+                                        "start_seconds": Int($0.start), "text": $0.text] },
+        ]
+    }
+
     static var schema: [String: Any] {
         [
             "type": "object", "additionalProperties": false, "required": ["answer", "sources"],
@@ -93,7 +101,13 @@ nonisolated enum AskBrain {
         ]
     }
 
-    static func ask(question: String, passages: [BrainPassage], codex: String, model: String) async throws -> BrainAnswer {
+    /// Which engine answers: the local AI (free, default) or Codex (only when chosen and allowed).
+    enum Engine: Sendable {
+        case local(model: String)
+        case codex(path: String, model: String)
+    }
+
+    static func ask(question: String, passages: [BrainPassage], engine: Engine) async throws -> BrainAnswer {
         let system = """
         You answer questions from Daniel's YouTube knowledge base (videos eaten by YouTube Zeus).
         Use only the passages given; if they do not contain the answer, say so plainly.
@@ -101,14 +115,24 @@ nonisolated enum AskBrain {
         paragraphs or a list. Cite every important point with a source: the video_id, the start time in seconds
         of the passage you used, and a short exact quote from it.
         """
-        let input: [String: Any] = [
-            "question": question,
-            "passages": passages.map { ["video_id": $0.videoID, "title": $0.title, "channel": $0.channel,
-                                        "start_seconds": Int($0.start), "text": $0.text] },
-        ]
-        let data = try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys, .withoutEscapingSlashes])
-        let json = try await CodexCLIClient(executable: codex, model: model)
-            .structured(system: system, user: String(decoding: data, as: UTF8.self), schema: schema)
-        return try JSONDecoder().decode(BrainAnswer.self, from: json)
+
+        var trimmed = passages
+        let json: Data
+        switch engine {
+        case .codex(let path, let model):
+            let data = try JSONSerialization.data(withJSONObject: Self.input(question, trimmed), options: [.sortedKeys, .withoutEscapingSlashes])
+            json = try await CodexCLIClient(executable: path, model: model)
+                .structured(system: system, user: String(decoding: data, as: UTF8.self), schema: schema)
+        case .local(let model):
+            // A small model has a small context: keep the passages under about 9k tokens.
+            while trimmed.reduce(0, { $0 + $1.text.count }) > 34_000, trimmed.count > 4 { trimmed.removeLast() }
+            let data = try JSONSerialization.data(withJSONObject: Self.input(question, trimmed), options: [.sortedKeys, .withoutEscapingSlashes])
+            json = try await LocalLLM(model: model).structured(system: system, user: String(decoding: data, as: UTF8.self), schema: schema)
+        }
+        var answer = try JSONDecoder().decode(BrainAnswer.self, from: json)
+        // Keep only sources that point to a passage really given (small models can invent them).
+        let known = Set(trimmed.map(\.videoID))
+        answer = BrainAnswer(answer: answer.answer, sources: answer.sources.filter { known.contains($0.video_id) })
+        return answer
     }
 }

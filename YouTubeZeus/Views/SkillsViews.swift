@@ -30,10 +30,10 @@ struct SkillsListView: View {
         .overlay {
             if skills.isEmpty {
                 EmptyState(symbol: "sparkles.rectangle.stack", title: "No skills yet",
-                           message: "Open an eaten video and choose “Make Codex skills”. Drafts wait here for your review.")
+                           message: "Open an eaten video and choose “Make skills”. Drafts wait here for your review.")
             }
         }
-        .navigationTitle("Codex skills")
+        .navigationTitle("Skills")
         .navigationSubtitle(app.settings.publishFolder)
     }
 }

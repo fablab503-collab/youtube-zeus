@@ -10,7 +10,8 @@ For any AI agent (Codex, Claude Code, Gemini CLI, Cursor, Kimi…) working **on*
 ## Build and run
 
 - macOS 27, Xcode 27, XcodeGen (`brew install xcodegen`). Tools the app calls: yt-dlp, ffmpeg, whisper-cli, deno,
-  Ollama (optional), Codex from ChatGPT.app (optional), `gh` (optional, raises the GitHub API limit).
+  Ollama (the free local AI: polishing, summaries, Ask, skills), `gh` (optional, raises the GitHub API limit).
+  Codex / OpenAI are optional cloud engines, off by default: never make a feature depend on them.
 - `./scripts/build.sh` builds Release and installs `/Applications/YouTube Zeus.app` (`--no-install` to only build).
   The log is `build/last-build.log`. Signing: Developer ID Application, team B7P7FR67VK, hardened runtime, no sandbox.
 - Test through launch arguments (`open -a "YouTube Zeus" --args -eat <link>`, `-checkGitHub <id|all>`,
@@ -43,10 +44,14 @@ For any AI agent (Codex, Claude Code, Gemini CLI, Cursor, Kimi…) working **on*
 - `YouTubeZeus/Services` — yt-dlp, Whisper, eat pipeline (`EatEngine`), Second Brain notes and indexes
   (`SecondBrain.swift`), GitHub checks (`GitHubLinks.swift`), links (`BrainLinks.swift`), agent guide, AI packs,
   Ask your brain, local AI polishing, summaries, channel watching.
-- `YouTubeZeus/Skills` — Codex/OpenAI skill compiler.
+- `YouTubeZeus/Skills` — skill compiler (local AI by default; Codex / OpenAI API optional).
 - `YouTubeZeus/Views` — SwiftUI (Liquid Glass).
 
 ## Conventions
+
+- **Free first.** Every feature must work with free engines only: Apple Intelligence (`Summarizer`) and the local
+  AI (`OllamaClient`, `LocalSummarizer`, `LocalLLM`). Cloud engines (Codex CLI, OpenAI API) are opt-in choices
+  behind `openAIConsent`, never the default and never required.
 
 - Swift 6 with default MainActor isolation. Types used off the main actor or by the CLI (snapshots, parsers,
   exporters' static helpers, `GitHubLinks`, `BrainLinks`) are `nonisolated`.

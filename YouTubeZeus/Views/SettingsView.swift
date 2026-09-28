@@ -11,7 +11,7 @@ struct SettingsView: View {
             Tab("AI", systemImage: "apple.intelligence") { AISettings() }
             Tab("Local AI", systemImage: "wand.and.stars") { LocalAISettings() }
             Tab("AI hand-off", systemImage: "square.and.arrow.up.on.square") { HandOffSettings() }
-            Tab("Codex skills", systemImage: "sparkles.rectangle.stack") { CodexSettings() }
+            Tab("Skills & cloud AI", systemImage: "sparkles.rectangle.stack") { CodexSettings() }
             Tab("Tools", systemImage: "wrench.and.screwdriver") { ToolSettings() }
         }
         .frame(width: 660, height: 560)
@@ -218,15 +218,20 @@ private struct AISettings: View {
     var body: some View {
         @Bindable var settings = settings
         Form {
+            Section("Free by default") {
+                Label("Zeus uses only free AI: Apple Intelligence on this Mac and the open-source local AI (Ollama, \(settings.polishModel)). Nothing leaves the Mac. Codex / OpenAI are optional and off.",
+                      systemImage: "lock.shield")
+                    .font(.callout)
+            }
             Section("Apple Intelligence") {
                 Label(app.summarizer.availabilityMessage,
                       systemImage: app.summarizer.isAvailable ? "checkmark.circle.fill" : "exclamationmark.circle")
                     .foregroundStyle(app.summarizer.isAvailable ? .green : .orange)
                 Picker("Summaries with", selection: $settings.summaryEngine) {
-                    Text("Apple Intelligence, else Codex, else the local AI").tag("auto")
-                    Text("Apple Intelligence only (private)").tag("apple")
-                    Text("Codex (ChatGPT sign-in)").tag("codex")
-                    Text("Local AI on this Mac (Ollama, free, private)").tag("local")
+                    Text("Apple Intelligence when ready, else the local AI (free)").tag("auto")
+                    Text("Local AI only (free, open source)").tag("local")
+                    Text("Apple Intelligence only").tag("apple")
+                    Text("Codex (ChatGPT plan — optional, uses your limit)").tag("codex")
                 }
                 if app.engine.codexPaused, let until = app.engine.codexPausedUntil {
                     Label("Codex reached your ChatGPT usage limit: Zeus uses it again after \(until.formatted(date: .omitted, time: .shortened)) and summarizes with the local AI meanwhile.",
@@ -237,7 +242,7 @@ private struct AISettings: View {
                 Picker("Summary language", selection: $settings.summaryLanguage) {
                     ForEach(languages, id: \.0) { Text($0.1).tag($0.0) }
                 }
-                Text("Apple Intelligence works on this Mac: free and private; long videos are read in parts. Codex sends the transcript to OpenAI with your ChatGPT sign-in, needs “Allow sending transcripts to OpenAI” (Codex skills tab) and uses your ChatGPT plan's Codex limit — the same one as your own Codex work. The local AI (the polishing model) is free and private but slower and simpler; choose it for big playlists to keep your Codex limit for yourself.")
+                Text("Apple Intelligence and the local AI are free and private; long videos are read in parts. Apple Intelligence turns on in System Settings › Apple Intelligence & Siri; until its model is ready, the local AI writes the summaries. Codex is only used if you pick it here and allow it in Settings › Skills & cloud AI; it sends the transcript to OpenAI and uses your ChatGPT plan's limit.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -254,14 +259,23 @@ private struct CodexSettings: View {
     var body: some View {
         @Bindable var settings = settings
         Form {
-            Section("Engine") {
+            Section("Engines") {
                 Picker("Make skills with", selection: $settings.skillEngine) {
-                    Text("Codex CLI — your ChatGPT sign-in").tag("codex")
-                    Text("OpenAI API key").tag("openai")
+                    Text("Local AI on this Mac (free, open source)").tag("local")
+                    Text("Codex CLI — your ChatGPT plan (optional)").tag("codex")
+                    Text("OpenAI API key (optional, paid)").tag("openai")
                 }
                 .pickerStyle(.radioGroup)
-                Toggle("Allow sending transcripts to OpenAI to make skills", isOn: $settings.openAIConsent)
-                Text("Only when you press “Make Codex skills”. Nothing is sent otherwise.")
+                Picker("Ask your brain with", selection: $settings.askEngine) {
+                    Text("Local AI on this Mac (free)").tag("local")
+                    Text("Codex (optional)").tag("codex")
+                }
+                Text("The local AI (\(settings.polishModel) with Ollama) is free and never sends anything out. It reads about 10k tokens at once, so skills from very long videos come from their first part.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Cloud AI (optional, off by default)") {
+                Toggle("Allow sending transcripts to OpenAI (Codex or the API)", isOn: $settings.openAIConsent)
+                Text("Only needed if you pick Codex or the OpenAI API above or in Settings › AI. Codex uses your ChatGPT plan's limit — the same one as your own Codex work.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             if settings.skillEngine == "codex" {
@@ -273,7 +287,7 @@ private struct CodexSettings: View {
                     Text("Runs `codex exec` read-only in an empty folder. Uses your ChatGPT plan limits, no API billing.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-            } else {
+            } else if settings.skillEngine == "openai" {
                 Section("OpenAI API") {
                     HStack {
                         SecureField(hasKey ? "Key saved in the Keychain" : "sk-…", text: $key)

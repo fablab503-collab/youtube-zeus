@@ -29,6 +29,7 @@ final class AppSettings {
 
     // Codex skills (OpenAI)
     var skillEngine: String { didSet { save("skillEngine", skillEngine) } }
+    var askEngine: String { didSet { save("askEngine", askEngine) } }
     var codexModel: String { didSet { save("codexModel", codexModel) } }
     var openAIModel: String { didSet { save("openAIModel", openAIModel) } }
     var openAIConsent: Bool { didSet { save("openAIConsent", openAIConsent) } }
@@ -71,7 +72,8 @@ final class AppSettings {
             "skipShorts": false,
             "notifyWhenEaten": true,
             "keepInMenuBar": true,
-            "skillEngine": "codex",
+            "skillEngine": "local",
+            "askEngine": "local",
             "codexModel": "",
             "openAIModel": "gpt-5-mini",
             "openAIConsent": false,
@@ -103,7 +105,17 @@ final class AppSettings {
         skipShorts = d.bool(forKey: "skipShorts")
         notifyWhenEaten = d.bool(forKey: "notifyWhenEaten")
         keepInMenuBar = d.bool(forKey: "keepInMenuBar")
-        skillEngine = d.string(forKey: "skillEngine") ?? "codex"
+        // Zeus is free by default (Apple Intelligence and the local AI). Daniel chose this on 28 Sept 2026:
+        // settings saved by older versions that pointed to Codex / OpenAI are switched back once.
+        if !d.bool(forKey: "freeEngines2_5") {
+            d.set(false, forKey: "openAIConsent")
+            d.set("auto", forKey: "summaryEngine")
+            d.set("local", forKey: "skillEngine")
+            d.set("local", forKey: "askEngine")
+            d.set(true, forKey: "freeEngines2_5")
+        }
+        skillEngine = d.string(forKey: "skillEngine") ?? "local"
+        askEngine = d.string(forKey: "askEngine") ?? "local"
         codexModel = d.string(forKey: "codexModel") ?? ""
         openAIModel = d.string(forKey: "openAIModel") ?? "gpt-5-mini"
         openAIConsent = d.bool(forKey: "openAIConsent")

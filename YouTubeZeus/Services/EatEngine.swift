@@ -536,14 +536,15 @@ final class EatEngine {
         settings.summaryEngine != "codex" && settings.summaryEngine != "local" && summarizer.isAvailable
     }
 
+    /// Codex is never used unless chosen explicitly ("codex") and allowed (Settings › Cloud AI).
     var codexSummaryAllowed: Bool {
-        settings.summaryEngine != "apple" && settings.summaryEngine != "local" && settings.openAIConsent
-            && CodexLocator.path != nil && !codexPaused
+        settings.summaryEngine == "codex" && settings.openAIConsent && CodexLocator.path != nil && !codexPaused
     }
 
-    /// The local AI (Ollama) summarizes when chosen, or in "auto" when Apple Intelligence and Codex can't.
+    /// The local AI (Ollama, free) summarizes when chosen, in "auto" when Apple Intelligence is not ready,
+    /// and while Codex is paused by its usage limit.
     var localSummaryAllowed: Bool {
-        (settings.summaryEngine == "auto" || settings.summaryEngine == "local") && polisher.isInstalled
+        settings.summaryEngine != "apple" && polisher.isInstalled
     }
 
     var canSummarize: Bool { useAppleIntelligence || codexSummaryAllowed || localSummaryAllowed }
@@ -591,11 +592,13 @@ final class EatEngine {
 
     var summaryUnavailableMessage: String {
         if settings.summaryEngine == "apple" { return summarizer.availabilityMessage }
-        if settings.summaryEngine == "local" { return "The local AI (Ollama) is not installed." }
+        if settings.summaryEngine == "local" || settings.summaryEngine == "auto" {
+            return summarizer.availabilityMessage + " The local AI (Ollama) is not installed either: install it from ollama.com, it is free."
+        }
         if codexPaused, let until = codexPausedUntil {
             return "Codex reached the ChatGPT usage limit; it is used again after \(until.formatted(date: .omitted, time: .shortened))."
         }
-        if !settings.openAIConsent { return summarizer.availabilityMessage + " To use Codex instead, allow sending transcripts to OpenAI in Settings › Codex skills." }
+        if !settings.openAIConsent { return "Codex is chosen for summaries but not allowed: allow it in Settings › Cloud AI, or pick a free engine in Settings › AI." }
         return summarizer.availabilityMessage + " The Codex CLI was not found either."
     }
 

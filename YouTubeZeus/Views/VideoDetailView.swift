@@ -219,7 +219,7 @@ private struct Header: View {
                         Button {
                             app.compileSkills(video)
                         } label: {
-                            Label("Make Codex skills", systemImage: "sparkles.rectangle.stack")
+                            Label("Make skills", systemImage: "sparkles.rectangle.stack")
                         }
                         .buttonStyle(.glass)
                         .disabled(app.compiler.compiling.contains(video.videoID))
@@ -499,7 +499,9 @@ struct SummaryBody: View {
                     Text(video.digestError ?? "No summary yet.")
                         .foregroundStyle(video.digestError == nil ? Color.secondary : Color.red)
                     Text(app.engine.canSummarize
-                         ? (app.engine.useAppleIntelligence ? "Apple Intelligence will summarize this video on this Mac." : "Apple Intelligence is not ready, so Codex will write the summary.")
+                         ? (app.engine.useAppleIntelligence ? "Apple Intelligence will summarize this video on this Mac."
+                            : (app.engine.codexSummaryAllowed ? "Codex will write the summary (you chose it in Settings)."
+                               : "The local AI will write the summary on this Mac (free)."))
                          : app.engine.summaryUnavailableMessage)
                         .font(.caption).foregroundStyle(.secondary)
                     Button { app.summarize(video) } label: { Label("Summarize", systemImage: "apple.intelligence") }
@@ -520,7 +522,7 @@ struct SkillsBody: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Zeus asks \(app.compiler.usesCodex ? "Codex (your ChatGPT sign-in)" : "the OpenAI API") to find reusable know-how in this transcript and turns it into Codex skills. Every quote is checked against the transcript, and each skill waits for your approval before it goes to \(app.settings.publishFolder).")
+            Text("Zeus asks \(app.compiler.engineLabel) to find reusable know-how in this transcript and turns it into Agent Skills (for Claude Code, Codex, Gemini CLI…). Every quote is checked against the transcript, and each skill waits for your approval before it goes to \(app.settings.publishFolder).")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             if !app.compiler.isReady {
@@ -529,7 +531,7 @@ struct SkillsBody: View {
                 SettingsLink { Text("Open Settings…") }.buttonStyle(.glass)
             } else {
                 Button { app.compileSkills(video) } label: {
-                    Label(app.compiler.compiling.contains(video.videoID) ? "Working… (about a minute)" : "Make Codex skills with \(app.compiler.engineLabel)",
+                    Label(app.compiler.compiling.contains(video.videoID) ? "Working… (about a minute)" : "Make skills with \(app.compiler.engineLabel)",
                           systemImage: "sparkles.rectangle.stack")
                 }
                 .buttonStyle(.glassProminent)

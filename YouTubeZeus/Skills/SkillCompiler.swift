@@ -11,7 +11,7 @@ nonisolated enum CompileError: LocalizedError, Sendable {
 
     var errorDescription: String? {
         switch self {
-        case .noConsent: "Allow sending transcripts to OpenAI in Settings › Codex skills first."
+        case .noConsent: "This engine sends the transcript to OpenAI: allow it in Settings › Skills, or choose the local AI (free)."
         case .noTranscript: "Eat the video first: there is no transcript yet."
         case .tooLong(let chars): "This transcript is too long for one analysis (\(chars / 1000)k characters, limit 200k)."
         case .budget(let used, let limit): "Today's OpenAI budget is used (\(used) of \(limit) tokens). Raise it in Settings or try tomorrow."
@@ -20,7 +20,8 @@ nonisolated enum CompileError: LocalizedError, Sendable {
     }
 }
 
-/// Turns an eaten video into reviewed Codex skills (the original YouTube Zeus feature).
+/// Turns an eaten video into reviewed Agent Skills (the original YouTube Zeus feature).
+/// Free by default: the local AI writes the draft; Codex or the OpenAI API only when chosen and allowed.
 @Observable
 final class SkillCompiler {
     let settings: AppSettings
@@ -28,20 +29,28 @@ final class SkillCompiler {
 
     init(settings: AppSettings) { self.settings = settings }
 
+    var usesLocal: Bool { settings.skillEngine == "local" }
+
+    var localInstalled: Bool {
+        FileManager.default.fileExists(atPath: "/Applications/Ollama.app") || ToolLocator.find("ollama", override: "") != nil
+    }
+
     var hasKey: Bool { !(KeychainStore.read("openai") ?? "").isEmpty }
 
     var codexPath: String? { CodexLocator.path }
 
     var usesCodex: Bool { settings.skillEngine == "codex" && codexPath != nil }
 
-    /// Ready to compile: consent given and an engine available.
-    var isReady: Bool { settings.openAIConsent && (usesCodex || hasKey) }
+    /// Ready to compile: the local AI is installed, or consent is given and a cloud engine is available.
+    var isReady: Bool { usesLocal ? localInstalled : settings.openAIConsent && (usesCodex || hasKey) }
 
     var engineLabel: String {
-        usesCodex ? "Codex" + (settings.codexModel.isEmpty ? "" : " (\(settings.codexModel))") : settings.openAIModel
+        if usesLocal { return "the local AI (\(settings.polishModel))" }
+        return usesCodex ? "Codex" + (settings.codexModel.isEmpty ? "" : " (\(settings.codexModel))") : settings.openAIModel
     }
 
     var notReadyMessage: String {
+        if usesLocal { return "Install Ollama (free, ollama.com) to make skills on this Mac." }
         if !settings.openAIConsent { return "Allow sending transcripts to OpenAI in Settings › Codex skills." }
         if settings.skillEngine == "codex", codexPath == nil { return "The Codex CLI was not found. Install it (npm i -g @openai/codex) or use an API key." }
         return "Add your OpenAI API key in Settings › Codex skills."
@@ -50,9 +59,17 @@ final class SkillCompiler {
     // MARK: Compile
 
     func compile(_ video: Video, context: ModelContext) async throws -> [SkillDraft] {
-        guard settings.openAIConsent else { throw CompileError.noConsent }
-        let paragraphs = video.paragraphs
+        guard usesLocal || settings.openAIConsent else { throw CompileError.noConsent }
+        var paragraphs = video.paragraphs
         guard !paragraphs.isEmpty else { throw CompileError.noTranscript }
+        if usesLocal {
+            // The local model reads about 10k tokens at once: long videos are analysed from the start.
+            var size = 0
+            paragraphs = Array(paragraphs.prefix { paragraph in
+                size += paragraph.text.count + 40
+                return size <= 36_000
+            })
+        }
 
         let input: [String: Any] = [
             "video": [
@@ -74,7 +91,12 @@ final class SkillCompiler {
         let system = AnalysisPrompt.system(skillLanguage: settings.skillLanguage)
         let json: Data
         let modelName: String
-        if usesCodex, let codex = codexPath {
+        if usesLocal {
+            AppLog.write("SKILLS \(video.videoID): asking the local AI (\(settings.polishModel)), \(paragraphs.count) paragraphs")
+            json = try await LocalLLM(model: settings.polishModel, context: 16_384)
+                .structured(system: system, user: user, schema: AnalysisPrompt.schema)
+            modelName = settings.polishModel + " (local)"
+        } else if usesCodex, let codex = codexPath {
             AppLog.write("SKILLS \(video.videoID): asking Codex (\(codex))")
             json = try await CodexCLIClient(executable: codex, model: settings.codexModel)
                 .structured(system: system, user: user, schema: AnalysisPrompt.schema)

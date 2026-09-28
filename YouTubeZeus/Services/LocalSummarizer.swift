@@ -111,3 +111,21 @@ nonisolated struct LocalSummarizer: Sendable {
                            language: language, engine: "the local AI (\(model), on this Mac)", generatedAt: .now)
     }
 }
+
+/// Structured answers (JSON that follows a schema) from the local AI — the free replacement for Codex
+/// in "Ask your brain" and the skill compiler.
+nonisolated struct LocalLLM: Sendable {
+    let model: String
+    var context: Int = 16_384
+    private let client = OllamaClient()
+
+    func structured(system: String, user: String, schema: [String: Any]) async throws -> Data {
+        try await client.ensureRunning()
+        let format = String(decoding: try JSONSerialization.data(withJSONObject: schema, options: [.sortedKeys]), as: UTF8.self)
+        let text = try await client.chat(model: model, system: system, user: user, format: format, context: context)
+        var body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let start = body.firstIndex(of: "{"), let end = body.lastIndex(of: "}") { body = String(body[start...end]) }
+        guard !body.isEmpty else { throw SummaryError.model("The local AI gave an empty answer.") }
+        return Data(body.utf8)
+    }
+}

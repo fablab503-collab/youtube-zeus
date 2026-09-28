@@ -29,13 +29,13 @@ enum ZeusCLI {
           --save      write the note to the Second Brain and add the video to the YouTube Zeus library
           --whisper   listen with Whisper instead of captions
           --polish    fix punctuation and grammar with the local AI (Ollama)
-          --summary   add a summary (Apple Intelligence, or Codex when allowed in the app)
+          --summary   add a summary (Apple Intelligence, else the local AI — both free)
           --fresh     eat again even if the video is already in the Second Brain
           --limit N   for playlists and channels: only the first N videos (default 25)
       zeus get <link|id>        print the saved note of an eaten video (no network)
       zeus search <words…>      find eaten videos (title, channel, transcript)
       zeus list <link> [--limit N]  list the videos of a playlist or channel
-      zeus ask <question>       answer from everything eaten, with sources (uses Codex)
+      zeus ask <question>       answer from everything eaten, with sources (local AI, free)
       zeus repos [--json]       every GitHub repository linked in the eaten videos, with its check
       zeus playlists <channel> [--import]   list a channel's playlists; --import makes each one a collection in the app
       zeus pack <playlist|collection> [--no-install]
@@ -263,15 +263,21 @@ enum ZeusCLI {
         if flags.contains("--summary") {
             log("Summarizing…")
             let summarizer = Summarizer()
-            if settings.summaryEngine != "codex", summarizer.isAvailable {
+            let output = settings.summaryLanguage == "auto" ? language : settings.summaryLanguage
+            if settings.summaryEngine == "auto" || settings.summaryEngine == "apple", summarizer.isAvailable {
                 digest = try? await summarizer.summarize(title: info.title, channel: info.channel, paragraphs: paragraphs,
                                                          videoLanguage: language, youtubeChapters: info.chapters,
                                                          outputLanguage: settings.summaryLanguage) { _ in }
-            } else if settings.openAIConsent, let codex = CodexLocator.path {
-                let output = settings.summaryLanguage == "auto" ? language : settings.summaryLanguage
+            } else if settings.summaryEngine == "codex", settings.openAIConsent, let codex = CodexLocator.path {
                 digest = try? await CodexSummarizer(executable: codex, model: settings.codexModel).summarize(
                     title: info.title, channel: info.channel, paragraphs: paragraphs,
                     language: output.isEmpty ? "en" : output, youtubeChapters: info.chapters)
+            }
+            if digest == nil, settings.summaryEngine != "apple" {
+                log("Summarizing with the local AI (\(settings.polishModel))…")
+                digest = try? await LocalSummarizer(model: settings.polishModel).summarize(
+                    title: info.title, channel: info.channel, paragraphs: paragraphs,
+                    language: output.isEmpty ? "en" : output, youtubeChapters: info.chapters, knownTopics: []) { _ in }
             }
         }
         var snapshot = VideoSnapshot(videoID: id, title: info.title.isEmpty ? id : info.title, channelTitle: info.channel,
@@ -489,8 +495,15 @@ enum ZeusCLI {
     // MARK: Ask
 
     static func ask(_ question: String, settings: AppSettings, json: Bool) async throws -> Int32 {
-        guard let codex = CodexLocator.path else { return fail("Codex was not found.") }
-        guard settings.openAIConsent else { return fail("Allow sending transcripts to OpenAI in YouTube Zeus › Settings › Codex skills first.") }
+        let engine: AskBrain.Engine
+        if settings.askEngine == "codex" {
+            guard settings.openAIConsent, let codex = CodexLocator.path else {
+                return fail("Ask is set to Codex but Codex is not allowed (YouTube Zeus › Settings › Skills & cloud AI). The local AI is free.")
+            }
+            engine = .codex(path: codex, model: settings.codexModel)
+        } else {
+            engine = .local(model: settings.polishModel)
+        }
         // Read the app's library without changing it.
         let url = AppFolders.support.appendingPathComponent("Library.store")
         let configuration = ModelConfiguration(url: url, allowsSave: false)
@@ -501,7 +514,8 @@ enum ZeusCLI {
         let passages = AskBrain.retrieve(question: question, videos: videos.map(\.snapshot))
         guard !passages.isEmpty else { return fail("Nothing in the library talks about that yet.") }
         log("Reading \(Set(passages.map(\.videoID)).count) videos…")
-        let answer = try await AskBrain.ask(question: question, passages: passages, codex: codex, model: settings.codexModel)
+        log("Answering with \(settings.askEngine == "codex" ? "Codex" : "the local AI (\(settings.polishModel))")…")
+        let answer = try await AskBrain.ask(question: question, passages: passages, engine: engine)
         if json {
             let data = try JSONEncoder().encode(answer)
             print(String(decoding: data, as: UTF8.self))

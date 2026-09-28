@@ -35,7 +35,7 @@ struct ContentView: View {
                     SkillReviewView(skillID: id).id(id)
                 } else {
                     EmptyState(symbol: "bolt.badge.checkmark", title: "No skill selected",
-                               message: "Skills made from videos wait here for your review before they go to Codex.")
+                               message: "Skills made from videos wait here for your review before they are published for your AI agents.")
                 }
             } else if let id = app.selectedVideoID {
                 VideoDetailView(videoID: id).id(id)
@@ -136,7 +136,7 @@ struct SidebarView: View {
 
                 Label {
                     HStack {
-                        Text("Codex skills")
+                        Text("Skills")
                         Spacer()
                         if !drafts.isEmpty {
                             Text("\(drafts.count)")
@@ -345,7 +345,7 @@ struct WelcomeView: View {
                     Feature(symbol: "captions.bubble.fill", title: "Captions & Whisper")
                     Feature(symbol: "dot.radiowaves.left.and.right", title: "Watches channels")
                     Feature(symbol: "apple.intelligence", title: "On-device summaries")
-                    Feature(symbol: "sparkles.rectangle.stack.fill", title: "Codex skills")
+                    Feature(symbol: "sparkles.rectangle.stack.fill", title: "Agent skills")
                 }
             }
             if app.clipboardLink != nil {

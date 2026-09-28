@@ -492,6 +492,19 @@ final class AppModel {
 
     // MARK: Ask your YouTube brain
 
+    /// The local AI by default (free, on this Mac); Codex only when chosen and allowed.
+    var askEngine: AskBrain.Engine? {
+        if settings.askEngine == "codex" {
+            guard settings.openAIConsent, !engine.codexPaused, let codex = CodexLocator.path else { return nil }
+            return .codex(path: codex, model: settings.codexModel)
+        }
+        return polisher.isInstalled ? .local(model: settings.polishModel) : nil
+    }
+
+    var askEngineLabel: String {
+        settings.askEngine == "codex" ? "Codex" : "the local AI (\(settings.polishModel))"
+    }
+
     var askAnswer: BrainAnswer?
     var askPassages: [BrainPassage] = []
     var askQuestion = ""
@@ -504,8 +517,10 @@ final class AppModel {
         askQuestion = question
         askAnswer = nil
         askError = nil
-        guard settings.openAIConsent, let codex = CodexLocator.path else {
-            askError = "Ask uses Codex: allow sending transcripts to OpenAI in Settings › Codex skills."
+        guard let engine = askEngine else {
+            askError = settings.askEngine == "codex"
+                ? "Ask is set to Codex but Codex is not allowed or not found (Settings › Cloud AI). Pick the local AI to keep it free."
+                : "Ask uses the local AI: install Ollama (free, ollama.com) and polish one video once to download the model."
             return
         }
         isAsking = true
@@ -519,7 +534,7 @@ final class AppModel {
             return
         }
         do {
-            askAnswer = try await AskBrain.ask(question: question, passages: passages, codex: codex, model: settings.codexModel)
+            askAnswer = try await AskBrain.ask(question: question, passages: passages, engine: engine)
             AppLog.write("ASK ok: \(question)")
         } catch {
             askError = error.localizedDescription

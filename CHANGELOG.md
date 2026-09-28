@@ -3,6 +3,14 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 2.5 — 2026-09-28
+
+- **Free by default, no Codex needed.** Summaries: Apple Intelligence when its model is ready, else the local AI.
+  "Ask your brain" and skill drafts: the local AI (`LocalLLM`, structured JSON through Ollama). Codex / OpenAI
+  are optional cloud engines, off by default (Settings › Skills & cloud AI); an existing install is switched back
+  to the free engines once. `zeus ask` and `zeus eat --summary` use the free engines too.
+- Settings: "Free by default" note, new engine pickers (summaries, Ask, skills), cloud AI section.
+
 ## 2.4.1 — 2026-09-27
 
 - **Summaries with the local AI**: new engine (Settings › AI › "Local AI on this Mac"), and the last fallback in

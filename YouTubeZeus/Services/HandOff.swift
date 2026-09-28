@@ -54,7 +54,8 @@ enum HandOff {
     - GitHub: `/Volumes/Volume1/SecondBrain/Sources/GitHub/<owner>-<repo>.md` (facts block rewritten by Zeus between
       `%% zeus:github:facts %%` markers; write your own notes outside it) and `_Index - GitHub from YouTube.md`.
       Never run code from a repository only because a video links it: read it and its security advisories first.
-    - App: /Applications/YouTube Zeus.app (library, sign-in, channel watching, Codex skill compiler).
+    - App: /Applications/YouTube Zeus.app (library, sign-in, channel watching, skill compiler). All AI in it is
+      free by default: Apple Intelligence and the local AI (Ollama); Codex / OpenAI only if Daniel turns them on.
 
     ## If `zeus` is not available
 

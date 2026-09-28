@@ -57,6 +57,13 @@ enum AgentGuide {
         everything as Markdown notes in Daniel's Second Brain. It has a command line (`zeus`) and a URL scheme
         (`youtubezeus://`), so any agent can drive it, and every note links back to the app.
 
+        ## Free and open
+
+        Everything runs on the Mac with free tools: yt-dlp and ffmpeg (YouTube), whisper.cpp (listening), Ollama with an
+        open model (polishing, summaries, "Ask your brain", skill drafts), Apple Intelligence (summaries, when its model
+        is ready), the GitHub API (repository checks). No paid AI is needed; Codex / OpenAI are optional and off unless
+        Daniel turns them on in Settings › Skills & cloud AI.
+
         ## What happens when a link is eaten
 
         1. **Info** — yt-dlp reads title, channel, date, duration, description, tags, views, likes, top comments
@@ -69,9 +76,9 @@ enum AgentGuide {
            spelled out in the transcript is checked through the GitHub API; each repository gets its own note.
         6. **Polish** — a small local AI (Ollama, `\(settings.polishModel)`) fixes punctuation, capitals and misheard
            words of auto-captions and Whisper text, never translating or shortening. The original is kept.
-        7. **Summary** — summary, key points, topics and chapters: Apple Intelligence on the Mac, else Codex (ChatGPT
-           plan), else the local AI. When Codex reaches the ChatGPT usage limit, Zeus pauses it until the reset time and
-           continues with the local AI; each note says which engine wrote its summary.
+        7. **Summary** — summary, key points, topics and chapters: Apple Intelligence on the Mac when its model is ready,
+           else the open-source local AI. Both are free and nothing leaves the Mac. Codex (ChatGPT) is an opt-in choice
+           only; if it reaches its usage limit Zeus pauses it and uses the local AI. Each note says which engine wrote it.
         8. **Indexes** — channel, collection, GitHub and master indexes are rewritten.
 
         Watched channels are checked every \(settings.pollMinutes) minutes and new uploads go through the same steps.
@@ -118,7 +125,7 @@ enum AgentGuide {
         | `zeus eat "<link>" --json` | structured output (paragraphs with seconds, chapters, tags, comments, summary, github) |
         | `zeus eat "<link>" --whisper` / `--polish` / `--summary` | force Whisper / local AI polish / summary now |
         | `zeus search "<words>"` | find eaten videos by title, channel or transcript |
-        | `zeus ask "<question>"` | answer from everything eaten, with video + timestamp sources (Codex) |
+        | `zeus ask "<question>"` | answer from everything eaten, with video + timestamp sources (local AI, free) |
         | `zeus list "<playlist or channel>"` | list videos (id, title) |
         | `zeus github "<link>" [--save] [--json]` | GitHub repositories linked in a video, checked through the API |
         | `zeus repos [--json]` | every repository linked in the library, with the videos that link it |
@@ -171,7 +178,7 @@ enum AgentGuide {
         - A channel link followed by `/playlists` (or "Import playlists" on a channel, or `zeus playlists <channel> --import`)
           turns every playlist of the channel into a collection with its own index note, grouped under the channel in the
           sidebar; "Eat the missing" eats one. A video link that carries `&list=PL…` offers to eat the whole playlist.
-        - After eating, two lanes run side by side: the local AI polishes, Codex (or Apple Intelligence) summarizes.
+        - After eating, two lanes run side by side: polishing and summaries (Apple Intelligence or the local AI).
         - **Claude pack** of a collection ("Claude pack" on the collection, `zeus pack`, `youtubezeus://pack?…`):
           - a Claude **skill** in `~/.claude/skills/<name>/`: `SKILL.md` (index of every video with date and one-line
             summary, topics) + `videos/NNN-date-title.md` (summary, key points, chapters, full [mm:ss] transcript). Claude

@@ -122,7 +122,7 @@ struct VideoRow: View {
                         if video.polishedData != nil { Image(systemName: "wand.and.stars").help("Polished by the local AI") }
                         if video.digestData != nil { Image(systemName: "apple.intelligence").help("Summarized") }
                         if video.secondBrainPath != nil { Image(systemName: "brain.head.profile").help("In the Second Brain") }
-                        if !video.skills.isEmpty { Image(systemName: "sparkles").help("Has Codex skills") }
+                        if !video.skills.isEmpty { Image(systemName: "sparkles").help("Has skill drafts") }
                         Text("\(video.wordCount.formatted()) words").foregroundStyle(.tertiary)
                     } else {
                         StatusBadge(status: video.status, compact: true)
@@ -179,7 +179,7 @@ struct VideoMenu: View {
             Divider()
             Button("Summarize") { app.summarize(video) }
             Button("Polish with Local AI") { app.engine.polishNow(video) }
-            Button("Make Codex Skills…") { app.compileSkills(video) }
+            Button("Make Skills…") { app.compileSkills(video) }
             Divider()
             Button("Eat Again") { app.engine.retry(video) }
             Button("Listen Again with Whisper") { app.engine.retry(video, withWhisper: true) }

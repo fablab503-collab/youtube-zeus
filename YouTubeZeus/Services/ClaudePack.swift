@@ -216,7 +216,7 @@ nonisolated enum ClaudePack {
             "",
             "# \(packName)",
             "",
-            "Transcripts of the YouTube \(input.kindLabel.lowercased()) [\(input.title)](\(input.url))\(input.channel.isEmpty ? "" : " by \(input.channel)"), eaten by YouTube Zeus on Daniel's Mac. \(input.videos.count) videos\(input.missing > 0 ? " (\(input.missing) more not eaten yet)" : "")\(span).",
+            "Transcripts of the YouTube \(input.kindLabel.lowercased()) [\(input.title)](\(input.url))\(input.channel.isEmpty ? "" : " by \(input.channel)"), eaten by YouTube Zeus. \(input.videos.count) videos\(input.missing > 0 ? " (\(input.missing) more not eaten yet)" : "")\(span).",
             "",
             "## How to use this skill",
             "",

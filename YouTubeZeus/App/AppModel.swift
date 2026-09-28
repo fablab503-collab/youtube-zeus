@@ -485,7 +485,7 @@ final class AppModel {
     /// Opens a note of the Second Brain at its exact page (Obsidian when installed).
     func openInBrain(_ file: URL?) {
         guard let file, BrainLinks.open(file) else {
-            show(exporter.folderReachable ? "That note does not exist yet — it is written after eating." : "The Second Brain is not reachable (is Volume1 connected?).", error: true)
+            show(exporter.folderReachable ? "That note does not exist yet — it is written after eating." : "The Second Brain is not reachable (is its drive connected?).", error: true)
             return
         }
     }
@@ -742,7 +742,7 @@ final class AppModel {
             show("Saved in the Second Brain.")
         } else if !exporter.folderReachable {
             try? context.save()
-            show("The Second Brain folder is not reachable (is Volume1 connected?). Zeus will save it when it is.", error: true)
+            show("The Second Brain folder is not reachable (is its drive connected?). Zeus will save it when it is.", error: true)
         } else {
             show("Could not save to the Second Brain. Check the folder in Settings.", error: true)
         }

@@ -3,6 +3,12 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 2.5.1 — 2026-09-28
+
+- **Open source (MIT).** The repository is public: `LICENSE`, README (install, privacy, responsible use),
+  generic default folders (`~/SecondBrain/Sources/YouTube`; existing installs keep theirs), no personal paths in
+  the guide, the agent skill or the prompts, `ZEUS_VAULT_COPY` / `scripts/ship.local` for the vault snapshot.
+
 ## 2.5 — 2026-09-28
 
 - **Free by default, no Codex needed.** Summaries: Apple Intelligence when its model is ready, else the local AI.
@@ -16,7 +22,7 @@ Newest first.
 - **Summaries with the local AI**: new engine (Settings › AI › "Local AI on this Mac"), and the last fallback in
   "auto". Long videos are read in parts (notes and chapters per part, then one summary).
 - **Codex usage limit**: when the ChatGPT plan's Codex limit is reached, Zeus pauses Codex until the reset time
-  it gives (so Daniel's own Codex work is not blocked any longer than needed), continues with the local AI, and
+  it gives (so the user's own Codex work is not blocked any longer than needed), continues with the local AI, and
   retries the summaries that had failed because of the limit (84 videos of the Nate Herk playlist).
 
 ## 2.4 — 2026-09-27
@@ -33,7 +39,7 @@ Newest first.
 
 ## 2.3 — 2026-09-27
 
-- **Code on GitHub**: private repository `fablab503-collab/youtube-zeus`; `scripts/ship.sh` builds, regenerates
+- **Code on GitHub**: repository `fablab503-collab/youtube-zeus`; `scripts/ship.sh` builds, regenerates
   the agent guide, commits, pushes and refreshes the source snapshot in the Second Brain. `AGENTS.md`,
   `CLAUDE.md`, this changelog.
 - **Two-way Second Brain link**: "Open in Obsidian" (or "Open Note" without Obsidian) on videos, channels,

@@ -102,9 +102,9 @@ nonisolated enum AIPack {
     static let universalInstructions = """
     # YouTube Zeus — instructions for any AI
 
-    Daniel's Mac has YouTube Zeus, a YouTube "eater": it turns any YouTube video, playlist or channel into text
+    This Mac has YouTube Zeus, a YouTube "eater": it turns any YouTube video, playlist or channel into text
     (captions, or local Whisper when there are none), polishes it with a local AI, summarizes it, and saves one
-    Markdown note per video in his Second Brain: /Volumes/Volume1/SecondBrain/Sources/YouTube/<Channel>/<date> - <title>.md,
+    Markdown note per video in the user's Second Brain: <notes folder>/<Channel>/<date> - <title>.md (`zeus where`),
     with index notes (_Index - <Channel>.md, Collections/<name>.md, YouTube index.md).
 
     ## If you can run commands on the Mac (Claude Code, Codex, Gemini CLI, Cowork…)
@@ -128,7 +128,7 @@ nonisolated enum AIPack {
     Every note has an "Open in YouTube Zeus" link (youtubezeus://open?…). Do not edit notes marked generated:.
 
     ## If you are a chat AI without a terminal (Grok, GLM, Gemini web, ChatGPT…)
-    Ask Daniel to press "Copy for AI" in YouTube Zeus (video, collection or search results) and paste it here.
+    Ask the user to press "Copy for AI" in YouTube Zeus (video, collection or search results) and paste it here.
     Absorb the pack, answer from it with timestamps, and save the key facts to your memory if you have one.
     """
 }

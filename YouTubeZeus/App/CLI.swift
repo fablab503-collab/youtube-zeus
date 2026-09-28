@@ -143,7 +143,7 @@ enum ZeusCLI {
             case "repos":
                 return try repos(json: flags.contains("--json"))
             case "guide":
-                print(AgentGuide.markdown(settings: settings, forVault: false))
+                print(AgentGuide.markdown(settings: settings, forVault: false, generic: flags.contains("--generic")))
                 return 0
             case "link":
                 guard let link = rest.first else { return fail("zeus link <video link or id>") }

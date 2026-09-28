@@ -12,9 +12,10 @@ enum AgentGuide {
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "2.3"
     }
 
-    static func markdown(settings: AppSettings, forVault: Bool) -> String {
-        let youtube = settings.secondBrainURL.path
-        let github = settings.githubURL.path
+    /// `generic`: default folders instead of this Mac's (for the copy published with the source code).
+    static func markdown(settings: AppSettings, forVault: Bool, generic: Bool = false) -> String {
+        let youtube = generic ? "~/SecondBrain/Sources/YouTube" : settings.secondBrainURL.path
+        let github = generic ? "~/SecondBrain/Sources/GitHub" : settings.githubURL.path
         let day = SecondBrainExporter.dayFormatter.string(from: .now)
         var head = ""
         if forVault {
@@ -35,7 +36,7 @@ enum AgentGuide {
 
             ## For future agent
 
-            This note explains YouTube Zeus, Daniel's YouTube "eater" app on his Mac (version \(version)), and every way an AI agent can use it: the `zeus` command, `youtubezeus://` links, the notes it writes in this vault, and the GitHub repository checks. Read it before eating, searching or quoting YouTube videos, or before touching `Sources/YouTube/` and `Sources/GitHub/`. Project note: [[YouTube Zeus]].
+            This note explains YouTube Zeus, the YouTube "eater" app on this Mac (version \(version)), and every way an AI agent can use it: the `zeus` command, `youtubezeus://` links, the notes it writes in this vault, and the GitHub repository checks. Read it before eating, searching or quoting YouTube videos, or before touching `Sources/YouTube/` and `Sources/GitHub/`. Project note: [[YouTube Zeus]].
 
 
             """
@@ -54,7 +55,7 @@ enum AgentGuide {
 
         YouTube Zeus is a native macOS app (`/Applications/YouTube Zeus.app`) that "eats" YouTube videos, playlists and
         channels: it keeps their text, cleans it, summarizes it, checks the GitHub repositories they link, and files
-        everything as Markdown notes in Daniel's Second Brain. It has a command line (`zeus`) and a URL scheme
+        everything as Markdown notes in the user's Second Brain (an Obsidian-style vault). It has a command line (`zeus`) and a URL scheme
         (`youtubezeus://`), so any agent can drive it, and every note links back to the app.
 
         ## Free and open
@@ -62,12 +63,12 @@ enum AgentGuide {
         Everything runs on the Mac with free tools: yt-dlp and ffmpeg (YouTube), whisper.cpp (listening), Ollama with an
         open model (polishing, summaries, "Ask your brain", skill drafts), Apple Intelligence (summaries, when its model
         is ready), the GitHub API (repository checks). No paid AI is needed; Codex / OpenAI are optional and off unless
-        Daniel turns them on in Settings › Skills & cloud AI.
+        the user turns them on in Settings › Skills & cloud AI.
 
         ## What happens when a link is eaten
 
         1. **Info** — yt-dlp reads title, channel, date, duration, description, tags, views, likes, top comments
-           (with Daniel's YouTube sign-in when needed: members-only, age-restricted, Watch Later, Liked).
+           (with the user's YouTube sign-in when needed: members-only, age-restricted, Watch Later, Liked).
         2. **Text** — the channel's own captions in the video's language, else YouTube's original auto-captions,
            else **Whisper** listens to the audio on the Mac (whisper.cpp, large-v3-turbo). Timestamps are kept.
         3. **Library** — the video goes into the app's library (SwiftData).
@@ -165,7 +166,7 @@ enum AgentGuide {
 
         ### 4. You are a chat AI without tools (ChatGPT, Gemini, Grok, GLM, Claude.ai…)
 
-        Ask Daniel to press **Copy for AI** in YouTube Zeus (on a video, a collection, a topic or the GitHub page) and
+        Ask the user to press **Copy for AI** in YouTube Zeus (on a video, a collection, a topic or the GitHub page) and
         paste the pack. Absorb it, answer from it with timestamps, and save the key facts to your memory if you have one.
 
         ### 5. Agent Skill
@@ -212,7 +213,7 @@ enum AgentGuide {
         - Auto-captions and Whisper can mishear names; say so when a detail matters.
         - Do not edit generated notes (see Note format); change the app or write in a repository note's own sections.
         - Any write you make in the vault gets one line in `Logs/YYYY-MM-DD.md`: `**HH:MM** - <verb> | <what changed>`.
-        - Prefer `zeus get` / `zeus search` over walking the folders; never scan `/Volumes/Volume1` recursively.
+        - Prefer `zeus get` / `zeus search` over walking the folders; never scan a network volume recursively.
 
         ## Working on the app itself
 

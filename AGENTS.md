@@ -13,7 +13,8 @@ For any AI agent (Codex, Claude Code, Gemini CLI, Cursor, Kimi…) working **on*
   Ollama (the free local AI: polishing, summaries, Ask, skills), `gh` (optional, raises the GitHub API limit).
   Codex / OpenAI are optional cloud engines, off by default: never make a feature depend on them.
 - `./scripts/build.sh` builds Release and installs `/Applications/YouTube Zeus.app` (`--no-install` to only build).
-  The log is `build/last-build.log`. Signing: Developer ID Application, team B7P7FR67VK, hardened runtime, no sandbox.
+  The log is `build/last-build.log`. Signing: your own team in `project.yml` (`DEVELOPMENT_TEAM`), hardened
+  runtime, no sandbox.
 - Test through launch arguments (`open -a "YouTube Zeus" --args -eat <link>`, `-checkGitHub <id|all>`,
   `-showGitHub 1`, `-selectVideo <id> -detailTab Info`…), `youtubezeus://` links and the `zeus` command.
   App log: `~/Library/Application Support/YouTube Zeus/zeus.log`.
@@ -24,8 +25,8 @@ For any AI agent (Codex, Claude Code, Gemini CLI, Cursor, Kimi…) working **on*
 2. Add the entry to `CHANGELOG.md` and, if the version changes, `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`
    in `project.yml`.
 3. `./scripts/ship.sh "<what changed>"`: rebuild, regenerate `docs/AGENT-GUIDE.md`, commit, push to
-   https://github.com/fablab503-collab/youtube-zeus (private), refresh the snapshot in the Second Brain.
-4. Update the project note `Projects/YouTube Zeus.md` in the vault and append a line to `Logs/YYYY-MM-DD.md`.
+   https://github.com/fablab503-collab/youtube-zeus, and (with `ZEUS_VAULT_COPY`) refresh a snapshot in your vault.
+4. If you keep a project note or a daily log in your vault, update them.
 
 ## Every new feature must be reachable by agents
 

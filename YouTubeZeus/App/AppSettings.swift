@@ -58,6 +58,18 @@ final class AppSettings {
 
     init() {
         let d = UserDefaults.standard
+        // Before 2.5.1 the default folders pointed to the author's NAS. An install that relied on those defaults
+        // keeps them (written once, explicitly) now that the defaults are generic.
+        if d.object(forKey: "legacyFoldersKept") == nil {
+            let persistent = d.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "") ?? [:]
+            let legacy = "/Volumes/Volume1/SecondBrain/Sources/YouTube"
+            let existingInstall = persistent["noteFormat"] != nil || persistent["freeEngines2_5"] != nil
+            if existingInstall, persistent["secondBrainFolder"] == nil {
+                d.set(legacy, forKey: "secondBrainFolder")
+                if persistent["githubFolder"] == nil { d.set("/Volumes/Volume1/SecondBrain/Sources/GitHub", forKey: "githubFolder") }
+            }
+            d.set(true, forKey: "legacyFoldersKept")
+        }
         d.register(defaults: [
             "preferredLanguages": "en, fr, it, es, ro, de",
             "useWhisperFallback": true,
@@ -67,7 +79,7 @@ final class AppSettings {
             "summaryLanguage": "auto",
             "summaryEngine": "auto",
             "secondBrainEnabled": true,
-            "secondBrainFolder": "/Volumes/Volume1/SecondBrain/Sources/YouTube",
+            "secondBrainFolder": "~/SecondBrain/Sources/YouTube",
             "pollMinutes": 30,
             "skipShorts": false,
             "notifyWhenEaten": true,
@@ -87,7 +99,7 @@ final class AppSettings {
             "polishCaptionsToo": false,
             "writeIndexes": true,
             "githubEnabled": true,
-            "githubFolder": "/Volumes/Volume1/SecondBrain/Sources/GitHub",
+            "githubFolder": "",
             "ytdlpPath": "",
             "ffmpegPath": "",
             "whisperPath": "",
@@ -105,8 +117,8 @@ final class AppSettings {
         skipShorts = d.bool(forKey: "skipShorts")
         notifyWhenEaten = d.bool(forKey: "notifyWhenEaten")
         keepInMenuBar = d.bool(forKey: "keepInMenuBar")
-        // Zeus is free by default (Apple Intelligence and the local AI). Daniel chose this on 28 Sept 2026:
-        // settings saved by older versions that pointed to Codex / OpenAI are switched back once.
+        // Zeus is free by default (Apple Intelligence and the local AI): settings saved by older versions that
+        // pointed to Codex / OpenAI are switched back once.
         if !d.bool(forKey: "freeEngines2_5") {
             d.set(false, forKey: "openAIConsent")
             d.set("auto", forKey: "summaryEngine")

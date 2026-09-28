@@ -21,7 +21,7 @@ if (( BUILD )); then ./scripts/build.sh; fi
 
 APP_BIN="/Applications/YouTube Zeus.app/Contents/MacOS/YouTube Zeus"
 mkdir -p docs
-"$APP_BIN" --cli guide > docs/AGENT-GUIDE.md
+"$APP_BIN" --cli guide --generic > docs/AGENT-GUIDE.md
 
 git add -A
 if ! git diff --cached --quiet; then
@@ -33,8 +33,11 @@ if git remote get-url origin >/dev/null 2>&1; then
   echo "Pushed to $(git remote get-url origin)"
 fi
 
-VAULT_COPY="/Volumes/Volume1/SecondBrain/youtube-zeus"
-if [[ -d "$VAULT_COPY" ]]; then
+# Optional: a source snapshot kept in your vault. Set ZEUS_VAULT_COPY (or put it in scripts/ship.local,
+# which is not committed), e.g. ZEUS_VAULT_COPY="$HOME/SecondBrain/youtube-zeus".
+[[ -f scripts/ship.local ]] && source scripts/ship.local
+VAULT_COPY="${ZEUS_VAULT_COPY:-}"
+if [[ -n "$VAULT_COPY" && -d "$VAULT_COPY" ]]; then
   git archive HEAD | tar -x -C "$VAULT_COPY"
   git bundle create "$VAULT_COPY/youtube-zeus.gitbundle" --all 2>/dev/null
   HASH=$(git rev-parse --short HEAD)

@@ -1,4 +1,7 @@
-# YouTube Zeus 2.5 — the YouTube eater, native on macOS 27
+# YouTube Zeus 2.5.1 — the YouTube eater, native on macOS 27
+
+Open source (MIT). A native macOS app that turns YouTube videos, playlists and whole channels into organised,
+searchable Markdown notes in your Second Brain (an Obsidian-style vault), and hands that knowledge to any AI agent.
 
 **Free and open by default:** every step runs on the Mac with free tools — yt-dlp, ffmpeg, whisper.cpp, Ollama with an open model (Qwen3, Apache 2.0) and Apple Intelligence. No paid AI is needed. Codex / OpenAI are optional and off (Settings › Skills & cloud AI).
 
@@ -8,7 +11,7 @@ Paste a YouTube link (video, playlist or channel). Zeus eats the video and keeps
 - **Whisper when there are none**: downloads the audio and listens on this Mac with whisper.cpp (`whisper-cli`, model downloaded once into `~/Library/Application Support/YouTube Zeus/Models`). "Listen with Whisper" also re-does videos that only had auto-captions.
 - **Watches channels**: follow a channel by pasting its link, or import Google Takeout `subscriptions.csv`. Public RSS feeds are checked every 30 minutes (no Google account); new uploads are eaten automatically. Live streams, premieres and uploads whose captions are not ready yet wait and are retried.
 - **On-device summaries**: Apple Intelligence (Foundation Models) writes a summary, key points, topics and chapters. Long videos are read in parts (map → reduce). Free and private.
-- **Second Brain**: each transcript becomes a Markdown note with vault front matter in `/Volumes/Volume1/SecondBrain/Sources/YouTube/<Channel>/<date> - <title>.md`. When the NAS is not mounted, notes wait and are written when it comes back.
+- **Second Brain**: each transcript becomes a Markdown note with vault front matter in `<notes folder>/<Channel>/<date> - <title>.md` (default `~/SecondBrain/Sources/YouTube`, Settings › Eating). A folder on a NAS works too: when it is not mounted, notes wait and are written when it comes back.
 - **YouTube sign-in**: a YouTube window inside Zeus (sidebar › YouTube). Sign in once; the sign-in is written to a private cookies file for yt-dlp (members-only, age-restricted, your lists). Or use cookies from Safari/Chrome/Firefox/Brave/Edge. Browse and press "Eat this video / playlist / channel". Import your subscriptions, eat Watch Later and Liked videos.
 - **Collections**: a playlist, a whole channel, Watch Later or Liked videos is eaten as one collection, in order, with its own index note (`Collections/<name>.md`). Every channel folder gets `_Index - <Channel>.md`; `YouTube index.md` lists channels, collections, topics and recent videos. Notes also carry tags, views, likes, the description and the top comments.
 - **Local AI polishing**: Ollama + `qwen3:4b-instruct` (2.5 GB, fits in 8 GB of RAM) fixes punctuation, capitals and misheard words of auto-captions and Whisper text, paragraph by paragraph, never translating or shortening. Original / Polished toggle.
@@ -20,16 +23,25 @@ Paste a YouTube link (video, playlist or channel). Zeus eats the video and keeps
 - **Whole channels and Claude packs**: import every playlist of a channel as collections (`@channel/playlists`, "Import playlists", `zeus playlists --import`), then turn any collection into a **Claude pack**: a skill installed in `~/.claude/skills` (index + one file per video), a zip for claude.ai, a one-message digest and the full transcripts in parts in `Sources/YouTube/Claude packs/` (`zeus pack <playlist>`). Polishing and summaries run in two parallel lanes.
 - **Skills** (the 0.1 feature): the local AI (free; or, if you opt in, Codex / the OpenAI API) proposes up to three evidence-backed skills. Every quote is checked against the transcript, the bundle is validated (structure, prohibited content, evidence), and nothing is published without "Approve and publish". Output: `SKILL.md`, `references/evidence.md`, `references/changes.md`, `evals/evals.json` in `~/.codex/skills/<name>/` (older versions go to `Skill History`). The API key lives in the Keychain.
 
-## Build
+## Install and build
 
-Needs Xcode 27, XcodeGen and Homebrew tools: `brew install xcodegen yt-dlp ffmpeg whisper-cpp deno`.
+Needs macOS 27, Xcode 27 and a few free tools:
+
+```bash
+brew install xcodegen yt-dlp ffmpeg whisper-cpp deno   # required
+brew install --cask ollama                            # the free local AI (polishing, summaries, Ask, skills)
+brew install gh && gh auth login                      # optional: more GitHub checks per hour
+```
+
+In `project.yml`, set `DEVELOPMENT_TEAM` to your own Apple team (or sign locally with "Sign to Run Locally"), and
+optionally change the bundle identifier. Then:
 
 ```bash
 ./scripts/build.sh              # Release build, installs /Applications/YouTube Zeus.app
 ./scripts/build.sh --no-install # build only
 ```
 
-Signed with the Developer ID Application certificate of team B7P7FR67VK (hardened runtime, no sandbox, because it runs yt-dlp, ffmpeg and whisper-cli).
+The app is not sandboxed (it runs yt-dlp, ffmpeg and whisper-cli) and uses the hardened runtime. The first time you polish or summarize, Zeus downloads the local model (`qwen3:4b-instruct`, 2.5 GB) through Ollama. Keep Ollama's model folder out of iCloud-synced folders (Ollama › Settings › Model location), or iCloud may move the model away.
 
 ## zeus command
 
@@ -57,11 +69,11 @@ youtubezeus://open?repo=<owner>/<repo>       youtubezeus://open?view=library|git
 youtubezeus://ask?q=<question>
 ```
 
-## Shipping
+The `zeus` command is installed by Settings › AI hand-off as a tiny script in /opt/homebrew/bin (or ~/.local/bin) that runs the app binary with `--cli`.
 
-Source: https://github.com/fablab503-collab/youtube-zeus (private). Every feature: build, add a `CHANGELOG.md` entry, then `./scripts/ship.sh "<message>"` (build, regenerate the agent guide, commit, push, refresh the vault snapshot).
+## Contributing and shipping
 
-Installed by Settings › AI hand-off as a tiny script in /opt/homebrew/bin (or ~/.local/bin) that runs the app binary with `--cli`.
+Source: https://github.com/fablab503-collab/youtube-zeus. Read [`AGENTS.md`](AGENTS.md) first (conventions: free engines first, every feature reachable by agents). Every feature: build, add a `CHANGELOG.md` entry, then `./scripts/ship.sh "<message>"` (build, regenerate the agent guide, commit, push; with `ZEUS_VAULT_COPY` set, also refresh a source snapshot in your vault).
 
 ## Launch arguments (scripting and tests)
 
@@ -87,7 +99,18 @@ The after-eating queue (polish → summary → note → indexes) is rebuilt at e
 - `YouTubeZeus/Views` — SwiftUI (Liquid Glass) views
 - `YouTubeZeus/AppIcon.icon` — Icon Composer icon
 
-Version 0.1 (Python/FastAPI web app, Aug 2026) is kept as a git bundle on the NAS:
-`SecondBrain/NAS/Snapshots/MacBook-Daniel-Migration-2026-08-31/Repositories/YouTube-Zeus.bundle`.
+Version 0.1 (Aug 2026) was a Python/FastAPI web app; 2.x is a full native rewrite.
 
-Downloading YouTube content can conflict with YouTube's Terms of Service; this app is for personal use on your own Mac.
+## Privacy
+
+Everything runs on your Mac. Nothing is sent anywhere except the requests the tools need (YouTube for videos and
+captions, GitHub's public API for repository checks, Ollama's registry to download the model once). Optional cloud
+engines (Codex, OpenAI API) are off unless you turn them on. Keys live in the Keychain; the YouTube sign-in in a
+private cookies file in Application Support.
+
+## Licence and responsible use
+
+MIT — see [`LICENSE`](LICENSE). © 2026 Daniel Madac · FabLab 503.
+
+Downloading YouTube content can conflict with YouTube's Terms of Service. Use YouTube Zeus for personal study of
+videos you are allowed to access, respect creators, and do not republish their transcripts.

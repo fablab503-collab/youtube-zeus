@@ -552,7 +552,7 @@ final class EatEngine {
     // MARK: Codex usage limit
 
     /// When the ChatGPT plan's Codex limit is reached, Zeus stops using Codex until the time Codex gives,
-    /// so the rest of Daniel's Codex work is not blocked, and summaries continue with the local AI.
+    /// so the user's own Codex work is not blocked, and summaries continue with the local AI.
     var codexPausedUntil: Date? {
         get { UserDefaults.standard.object(forKey: "codexPausedUntil") as? Date }
         set { UserDefaults.standard.set(newValue, forKey: "codexPausedUntil") }

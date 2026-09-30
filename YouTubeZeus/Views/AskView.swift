@@ -53,7 +53,9 @@ struct AskView: View {
                         Button {
                             var text = "Q: \(app.askQuestion)\n\n\(answer.answer)\n\nSources:\n"
                             text += answer.sources.map {
-                                "- \(title(for: $0.video_id)) [\(($0.seconds).timestamp)] https://www.youtube.com/watch?v=\($0.video_id)&t=\(Int($0.seconds))s — “\($0.quote)”"
+                                "- \(title(for: $0.video_id)) [\(($0.seconds).timestamp)] "
+                                    + MediaLinks.url(kind: MediaKind.of(id: $0.video_id), id: $0.video_id, at: $0.seconds).absoluteString
+                                    + " — “\($0.quote)”"
                             }.joined(separator: "\n")
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(text, forType: .string)
@@ -107,9 +109,7 @@ private struct SourceRow: View {
 
     var body: some View {
         Button {
-            if let url = URL(string: "https://www.youtube.com/watch?v=\(source.video_id)&t=\(Int(source.seconds))s") {
-                NSWorkspace.shared.open(url)
-            }
+            app.open(video: source.video_id, at: source.seconds)
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -125,11 +125,14 @@ private struct SourceRow: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .help("Play on YouTube at \(source.seconds.timestamp)")
+        .help("Show this moment in the transcript (\(source.seconds.timestamp))")
         .contextMenu {
-            Button("Open in the Library") {
-                app.selection = .library
-                app.selectedVideoID = source.video_id
+            Button(MediaKind.of(id: source.video_id) == .youtube ? "Play on YouTube at \(source.seconds.timestamp)" : "Play at \(source.seconds.timestamp)") {
+                if let video = app.engine.video(source.video_id) { app.playMoment(video, at: source.seconds) }
+            }
+            Button("Copy Link to This Moment") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(BrainLinks.zeus(video: source.video_id, t: source.seconds), forType: .string)
             }
         }
     }

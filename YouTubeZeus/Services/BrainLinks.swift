@@ -11,8 +11,9 @@ nonisolated enum BrainLinks {
 
     static let scheme = "youtubezeus"
 
-    static func zeus(video id: String, tab: String? = nil) -> String {
+    static func zeus(video id: String, tab: String? = nil, t seconds: Double? = nil) -> String {
         "youtubezeus://open?video=\(encode(id))" + (tab.map { "&tab=\(encode($0))" } ?? "")
+            + (seconds.map { "&t=\(Int($0.rounded(.down)))" } ?? "")
     }
     static func zeus(collection id: String) -> String { "youtubezeus://open?collection=\(encode(id))" }
     static func zeus(channel id: String) -> String { "youtubezeus://open?channel=\(encode(id))" }
@@ -22,6 +23,14 @@ nonisolated enum BrainLinks {
     static func zeusAsk(_ question: String) -> String { "youtubezeus://ask?q=\(encode(question))" }
     static func zeusEat(_ link: String) -> String { "youtubezeus://eat?url=\(encode(link))" }
     static func zeusPack(collection id: String) -> String { "youtubezeus://pack?collection=\(encode(id))" }
+    static func zeus(entity name: String) -> String { "youtubezeus://open?entity=\(encode(name))" }
+    static func zeusSearch(_ query: String) -> String { "youtubezeus://search?q=\(encode(query))" }
+    static func zeusPodcast(feed: String, latest: Int? = nil) -> String {
+        "youtubezeus://podcast?feed=\(encode(feed))" + (latest.map { "&latest=\($0)" } ?? "")
+    }
+    static func zeusEatFile(_ path: String) -> String { "youtubezeus://eat?file=\(encode(path))" }
+    static func zeusScreen(video id: String) -> String { "youtubezeus://screen?video=\(encode(id))" }
+    static func zeusDigest(week: String) -> String { "youtubezeus://digest?week=\(encode(week))" }
 
     /// Markdown link to a Zeus page, for notes.
     static func markdown(_ title: String, _ link: String) -> String { "[\(title)](\(link))" }
@@ -63,7 +72,8 @@ nonisolated enum BrainLinks {
 
     enum Target: Equatable, Sendable {
         case eat(String)
-        case video(String, tab: String?)
+        case eatFile(String)
+        case video(String, tab: String?, t: Double?)
         case collection(String)
         case channel(String)
         case repo(String)
@@ -72,6 +82,11 @@ nonisolated enum BrainLinks {
         case ask(String)
         case pack(String)
         case playlists(String)
+        case podcast(String, latest: Int?)
+        case search(String)
+        case entity(String)
+        case screen(String)
+        case digest(String?)
     }
 
     static func parse(_ url: URL) -> Target? {
@@ -81,12 +96,19 @@ nonisolated enum BrainLinks {
             items.first { $0.name == name }?.value.flatMap { $0.isEmpty ? nil : $0 }
         }
         switch url.host {
-        case "eat": return value("url").map { .eat($0) }
+        case "eat":
+            if let file = value("file") { return .eatFile(file) }
+            return value("url").map { .eat($0) }
         case "ask": return value("q").map { .ask($0) }
         case "pack": return value("collection").map { .pack($0) }
         case "playlists": return value("channel").map { .playlists($0) }
+        case "podcast": return (value("feed") ?? value("url")).map { .podcast($0, latest: value("latest").flatMap { Int($0) }) }
+        case "search": return value("q").map { .search($0) }
+        case "screen": return value("video").map { .screen($0) }
+        case "digest": return .digest(value("week"))
         case "open", "show":
-            if let id = value("video") { return .video(id, tab: value("tab")) }
+            if let id = value("video") { return .video(id, tab: value("tab"), t: value("t").flatMap(Self.seconds)) }
+            if let name = value("entity") { return .entity(name) }
             if let id = value("collection") { return .collection(id) }
             if let id = value("channel") { return .channel(id) }
             if let repo = value("repo") { return .repo(repo) }
@@ -95,5 +117,32 @@ nonisolated enum BrainLinks {
             return .view("library")
         default: return nil
         }
+    }
+
+    /// "754", "754s", "12:34", "1:02:03", "12m34s" → seconds.
+    static func seconds(_ text: String) -> Double? {
+        let value = text.trimmingCharacters(in: .whitespaces).lowercased()
+        if let plain = Double(value.hasSuffix("s") ? String(value.dropLast()) : value) { return max(0, plain) }
+        if value.contains(":") {
+            var total = 0.0
+            for part in value.split(separator: ":") {
+                guard let number = Double(part) else { return nil }
+                total = total * 60 + number
+            }
+            return total
+        }
+        var total = 0.0, number = ""
+        for character in value {
+            if character.isNumber { number.append(character); continue }
+            guard let amount = Double(number) else { return nil }
+            switch character {
+            case "h": total += amount * 3600
+            case "m": total += amount * 60
+            case "s": total += amount
+            default: return nil
+            }
+            number = ""
+        }
+        return number.isEmpty ? total : nil
     }
 }

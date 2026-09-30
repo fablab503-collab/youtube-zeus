@@ -11,10 +11,11 @@ struct SettingsView: View {
             Tab("AI", systemImage: "apple.intelligence") { AISettings() }
             Tab("Local AI", systemImage: "wand.and.stars") { LocalAISettings() }
             Tab("AI hand-off", systemImage: "square.and.arrow.up.on.square") { HandOffSettings() }
+            Tab("Extras", systemImage: "sparkle.magnifyingglass") { ExtrasSettings() }
             Tab("Skills & cloud AI", systemImage: "sparkles.rectangle.stack") { CodexSettings() }
             Tab("Tools", systemImage: "wrench.and.screwdriver") { ToolSettings() }
         }
-        .frame(width: 660, height: 560)
+        .frame(width: 700, height: 600)
         .tint(.zeus)
     }
 }
@@ -38,7 +39,15 @@ private struct EatingSettings: View {
             }
             Section("When there are no captions") {
                 Toggle("Listen with Whisper on this Mac", isOn: $settings.useWhisperFallback)
-                Picker("Whisper model", selection: $settings.whisperModel) {
+                Picker("Speech recognition", selection: $settings.speechEngine) {
+                    ForEach(SpeechEngine.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+                .disabled(!settings.useWhisperFallback)
+                Text(MLXWhisper.executable == nil
+                     ? "MLX Whisper needs uv (brew install uv); until then whisper.cpp listens. Measured on an M2 Pro: a 20-minute talk in 40 s with MLX, 53 s with whisper.cpp, same accuracy."
+                     : "MLX Whisper (large-v3-turbo, 1.6 GB downloaded once) listens; whisper.cpp takes over if it fails. Measured on an M2 Pro: a 20-minute talk in 40 s instead of 67 s in Zeus 2.5, with fewer word errors.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Picker("whisper.cpp model", selection: $settings.whisperModel) {
                     ForEach(WhisperModel.allCases) { Text($0.label).tag($0.rawValue) }
                 }
                 .disabled(!settings.useWhisperFallback)
@@ -572,5 +581,91 @@ private struct HandOffSettings: View {
         }
         .formStyle(.grouped)
         .onAppear { command = HandOff.installedCommand }
+    }
+}
+
+/// 3.0: text on screen, people/tools/companies, weekly digest, iPhone and iPad, MCP server.
+private struct ExtrasSettings: View {
+    @Environment(AppSettings.self) private var settings
+    @Environment(AppModel.self) private var app
+    @State private var refresh = 0
+    @State private var connecting: MCPConnect.Client?
+
+    var body: some View {
+        @Bindable var settings = settings
+        Form {
+            Section("Text on screen") {
+                Toggle("Read the screen of your own videos automatically", isOn: $settings.readScreenOfFiles)
+                Stepper("One frame every \(settings.screenInterval) second\(settings.screenInterval == 1 ? "" : "s")", value: $settings.screenInterval, in: 1...10)
+                Text("“Read the screen” on any video (or zeus screen <id>): slide titles, code and commands are read by Apple's Vision on this Mac and added to the note with their moments. For YouTube, the picture is downloaded without sound (up to 1080p) and deleted afterwards.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("People, tools and companies") {
+                Toggle("Find the names after each summary (local AI)", isOn: $settings.entitiesEnabled)
+                Stepper("A note once \(settings.entityNoteThreshold) item\(settings.entityNoteThreshold == 1 ? "" : "s") name it", value: $settings.entityNoteThreshold, in: 1...10)
+                Text("Notes go to Sources/People, Sources/Tools and Sources/Companies, next to Sources/YouTube. Zeus only rewrites the block between its markers; your own notes are kept.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Weekly digest") {
+                Toggle("Write a digest every week", isOn: $settings.digestEnabled)
+                Picker("Day", selection: $settings.digestWeekday) {
+                    ForEach(1...7, id: \.self) { Text(Calendar.current.weekdaySymbols[$0 - 1]).tag($0) }
+                }
+                Stepper("At \(settings.digestHour):00", value: $settings.digestHour, in: 0...23)
+                Button("Write this week's digest now") { Task { await app.openDigest(week: nil) } }
+            }
+            Section("iPhone and iPad") {
+                Toggle("Eat links shared from iPhone and iPad", isOn: $settings.phoneInboxEnabled)
+                HStack {
+                    Text(PhoneInbox.iCloudAvailable ? "Inbox: iCloud Drive › Shortcuts › YouTube Zeus › Inbox" : "iCloud Drive is off on this Mac.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Add the “Eat with Zeus” shortcut") { app.installPhoneShortcut() }
+                        .disabled(!PhoneInbox.iCloudAvailable)
+                }
+                Text("Zeus makes a shortcut that appears in the share sheet of the YouTube app, Safari and Podcasts. It saves the link in iCloud Drive; this Mac eats it within a minute (Zeus must be running). \(app.phoneLinksEaten > 0 ? "\(app.phoneLinksEaten) link\(app.phoneLinksEaten == 1 ? "" : "s") eaten from the phone since launch." : "")")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("MCP server (zeus mcp)") {
+                ForEach(MCPConnect.Client.allCases) { client in
+                    let installed = MCPConnect.isInstalled(client)
+                    let connected = MCPConnect.isConnected(client)
+                    HStack {
+                        Image(systemName: connected ? "checkmark.circle.fill" : "circle").foregroundStyle(connected ? .green : .secondary)
+                        VStack(alignment: .leading) {
+                            Text(client.label)
+                            Text(installed ? client.note : "Not found on this Mac").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button(connected ? "Connect again" : "Connect") {
+                            connecting = client
+                            Task {
+                                do {
+                                    try await MCPConnect.connect(client)
+                                    app.show("YouTube Zeus is connected to \(client.label). \(client.note)")
+                                } catch {
+                                    app.show("Could not connect \(client.label): \(error.localizedDescription)", error: true)
+                                }
+                                connecting = nil
+                                refresh += 1
+                            }
+                        }
+                        .disabled(!installed || connecting != nil)
+                    }
+                }
+                HStack {
+                    Text("Other MCP clients: command \(MCPConnect.command), arguments --cli mcp.")
+                        .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(2)
+                    Spacer()
+                    Button("Copy JSON") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(MCPConnect.snippet, forType: .string)
+                        app.show("MCP configuration copied.")
+                    }
+                }
+            }
+            .id(refresh)
+        }
+        .formStyle(.grouped)
     }
 }

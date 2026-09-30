@@ -15,8 +15,11 @@ struct ContentView: View {
                 case .eating: QueueView()
                 case .skills: SkillsListView()
                 case .channel(let id): ChannelView(channelID: id).id(id)
+                case .podcast(let id): ChannelView(channelID: id).id(id)
                 case .collection(let id): CollectionView(listID: id).id(id)
                 case .topic(let topic): TopicView(topic: topic).id(topic)
+                case .entities: EntitiesListView()
+                case .digests: DigestsListView()
                 case .ask: AskSourcesList()
                 case .github: GitHubView()
                 case .browser: AccountPanel()
@@ -30,6 +33,10 @@ struct ContentView: View {
                 BrowserScreen()
             } else if app.selection == .ask {
                 AskView()
+            } else if app.selection == .entities, let name = app.selectedEntity {
+                EntityDetailView(name: name).id(name)
+            } else if app.selection == .digests, let week = app.selectedDigest {
+                DigestDetailView(week: week).id(week)
             } else if app.selection == .skills {
                 if let id = app.selectedSkillID {
                     SkillReviewView(skillID: id).id(id)
@@ -39,8 +46,10 @@ struct ContentView: View {
                 }
             } else if let id = app.selectedVideoID {
                 VideoDetailView(videoID: id).id(id)
+                    .safeAreaInset(edge: .bottom, spacing: 0) { PlayerBar() }
             } else {
                 WelcomeView()
+                    .safeAreaInset(edge: .bottom, spacing: 0) { PlayerBar() }
             }
         }
         .overlay(alignment: .top) {
@@ -50,13 +59,22 @@ struct ContentView: View {
         }
         .animation(.spring(duration: 0.35), value: app.toast)
         .dropDestination(for: URL.self) { urls, _ in
-            let links = urls.map(\.absoluteString).filter { YouTubeLink.parse($0) != nil }
-            guard !links.isEmpty else { return false }
-            Task { for link in links { await app.eat(link) } }
+            // YouTube links, podcast feeds, and your own audio or video files.
+            let files = urls.filter { $0.isFileURL && MediaFiles.isMedia($0) }
+            let links = urls.filter { !$0.isFileURL }.map(\.absoluteString)
+                .filter { YouTubeLink.parse($0) != nil || PodcastFeed.looksLikePodcast($0) }
+            guard !files.isEmpty || !links.isEmpty else { return false }
+            Task {
+                if !files.isEmpty { await app.eatFiles(files) }
+                for link in links { await app.eat(link) }
+            }
             return true
         }
         .sheet(item: $app.channelOffer) { offer in
             ChannelOfferSheet(offer: offer)
+        }
+        .sheet(item: $app.podcastOffer) { offer in
+            PodcastOfferSheet(offer: offer)
         }
         .alert("This video is part of a playlist", isPresented: Binding(get: { app.playlistOffer != nil },
                                                                         set: { if !$0 { app.playlistOffer = nil } }),
@@ -84,7 +102,9 @@ struct ContentView: View {
 
 struct SidebarView: View {
     @Environment(AppModel.self) private var app
-    @Query(sort: \Channel.title) private var channels: [Channel]
+    @Query(sort: \Channel.title) private var allChannels: [Channel]
+    private var channels: [Channel] { allChannels.filter { !$0.isPodcast } }
+    private var podcasts: [Channel] { allChannels.filter(\.isPodcast) }
     @Query(filter: #Predicate<Video> { $0.statusRaw == "done" }) private var eaten: [Video]
     @Query(filter: #Predicate<SkillDraft> { $0.statusRaw == "draft" }) private var drafts: [SkillDraft]
     @Query(filter: #Predicate<Video> { $0.statusRaw == "discovered" }) private var discovered: [Video]
@@ -163,6 +183,12 @@ struct SidebarView: View {
                 Label("Ask your brain", systemImage: "brain.head.profile")
                     .tag(SidebarItem.ask)
 
+                Label("People & tools", systemImage: "person.2.fill")
+                    .tag(SidebarItem.entities)
+
+                Label("Weekly digests", systemImage: "calendar")
+                    .tag(SidebarItem.digests)
+
                 Label {
                     HStack {
                         Text("GitHub")
@@ -211,6 +237,37 @@ struct SidebarView: View {
                             }
                         } icon: { Image(systemName: "number") }
                         .tag(SidebarItem.topic(topic.0))
+                    }
+                }
+            }
+
+            if !podcasts.isEmpty {
+                Section("Podcasts") {
+                    ForEach(podcasts) { show in
+                        Label {
+                            HStack {
+                                Text(show.title.isEmpty ? "Podcast" : show.title).lineLimit(1)
+                                Spacer()
+                                let count = discovered.filter { $0.channelID == show.channelID }.count
+                                if count > 0 {
+                                    Text("\(count)").font(.caption.weight(.bold)).foregroundStyle(.tint)
+                                } else if !show.autoEat {
+                                    Image(systemName: "pause.circle").foregroundStyle(.tertiary)
+                                }
+                            }
+                        } icon: {
+                            Avatar(url: show.avatarURL, title: show.title, size: 20)
+                        }
+                        .tag(SidebarItem.podcast(show.channelID))
+                        .contextMenu {
+                            Button("Check Now") { Task { await app.watcher.check(show) } }
+                            Button("Open the Website") { NSWorkspace.shared.open(show.url) }
+                            Divider()
+                            Button("Unfollow", role: .destructive) {
+                                if app.selection == .podcast(show.channelID) { app.selection = .library }
+                                app.watcher.unfollow(show)
+                            }
+                        }
                     }
                 }
             }
@@ -282,10 +339,17 @@ struct EatBar: View {
             Image(systemName: "bolt.fill")
                 .foregroundStyle(Color.zeusGold)
                 .font(.title3)
-            TextField("Paste a YouTube link", text: $text)
+            TextField("Paste a YouTube or podcast link", text: $text)
                 .textFieldStyle(.plain)
                 .focused($focused)
                 .onSubmit(eat)
+            Button {
+                app.chooseFiles()
+            } label: {
+                Image(systemName: "doc.badge.plus")
+            }
+            .buttonStyle(.borderless)
+            .help("Eat your own audio or video files (a call, a lecture, a voice memo), on this Mac")
             if app.isResolvingLink {
                 ProgressView().controlSize(.small)
             } else if text.isEmpty, let link = app.clipboardLink {
@@ -336,13 +400,14 @@ struct WelcomeView: View {
                 .glassEffect(.regular.tint(.zeus.opacity(0.35)), in: .circle)
             VStack(spacing: 8) {
                 Text("YouTube Zeus").font(.largeTitle.bold())
-                Text("Paste a YouTube link below. Zeus eats the video and keeps its text:\ncaptions when they exist, Whisper when they don't.")
+                Text("Paste a YouTube or podcast link below, or drop your own recordings on the window.\nZeus eats them and keeps their text: captions when they exist, Whisper when they don't.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
             }
             GlassEffectContainer(spacing: 12) {
                 HStack(spacing: 12) {
                     Feature(symbol: "captions.bubble.fill", title: "Captions & Whisper")
+                    Feature(symbol: "mic.fill", title: "Podcasts & your files")
                     Feature(symbol: "dot.radiowaves.left.and.right", title: "Watches channels")
                     Feature(symbol: "apple.intelligence", title: "On-device summaries")
                     Feature(symbol: "sparkles.rectangle.stack.fill", title: "Agent skills")
@@ -402,6 +467,43 @@ struct CollectionRow: View {
             Divider()
             Button("Remove Collection", role: .destructive) { app.deleteList(list) }
         }
+    }
+}
+
+struct PodcastOfferSheet: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.dismiss) private var dismiss
+    let offer: PodcastOffer
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Following \(offer.title)", systemImage: "mic.fill")
+                .font(.title2.bold())
+            Text("New episodes are eaten automatically: the transcript published with the episode when there is one, otherwise Zeus listens on this Mac. Do you also want recent episodes?")
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let first = offer.episodes.first {
+                Text("Latest: \(first.title)\(first.published.map { " · \($0.shortDay)" } ?? "")")
+                    .font(.callout).lineLimit(2)
+            }
+            HStack {
+                ForEach([1, 3, 10].filter { $0 <= max(1, offer.episodes.count) }, id: \.self) { count in
+                    Button("Latest \(min(count, offer.episodes.count))") {
+                        if let channel = app.watcher.channel(offer.channelID) {
+                            app.eatEpisodes(Array(offer.episodes.prefix(count)), channel: channel, feed: offer.feed, language: offer.language)
+                        }
+                        dismiss()
+                    }
+                    .buttonStyle(.glass)
+                }
+                Spacer()
+                Button("Only new ones") { dismiss() }
+                    .buttonStyle(.glassProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 520)
     }
 }
 

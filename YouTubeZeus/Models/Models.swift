@@ -53,6 +53,7 @@ nonisolated enum TranscriptSource: String, Codable, Sendable {
     case captions
     case autoCaptions = "auto-captions"
     case whisper
+    case published      // a transcript published with a podcast episode
 
     var label: String {
         switch self {
@@ -60,6 +61,7 @@ nonisolated enum TranscriptSource: String, Codable, Sendable {
         case .captions: "Captions"
         case .autoCaptions: "Auto-captions"
         case .whisper: "Whisper"
+        case .published: "Published transcript"
         }
     }
 
@@ -69,8 +71,112 @@ nonisolated enum TranscriptSource: String, Codable, Sendable {
         case .captions: "captions.bubble.fill"
         case .autoCaptions: "text.bubble.fill"
         case .whisper: "waveform"
+        case .published: "doc.text.fill"
         }
     }
+}
+
+/// Where an eaten item comes from. Everything is a "video" in the library; podcasts and files use their own IDs
+/// (`pod-…`, `file-…`) and open in Zeus (youtubezeus:// links) instead of YouTube.
+nonisolated enum MediaKind: String, Codable, Sendable, CaseIterable {
+    case youtube
+    case podcast
+    case file
+
+    var label: String {
+        switch self {
+        case .youtube: "YouTube video"
+        case .podcast: "Podcast episode"
+        case .file: "Your file"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .youtube: "play.rectangle.fill"
+        case .podcast: "mic.fill"
+        case .file: "doc.fill"
+        }
+    }
+
+    static func of(id: String) -> MediaKind {
+        if id.hasPrefix("pod-") { return .podcast }
+        if id.hasPrefix("file-") { return .file }
+        return .youtube
+    }
+}
+
+/// A sentence with the moment of the video that supports it (nil when Zeus is not sure).
+nonisolated struct TimedLine: Codable, Hashable, Sendable {
+    var text: String
+    var seconds: Double?
+}
+
+/// Text read on screen (Vision, on this Mac): slide titles, code, terminal commands.
+nonisolated enum ScreenKind: String, Codable, Sendable, CaseIterable {
+    case title, code, command, text
+
+    var label: String {
+        switch self {
+        case .title: "Slide"
+        case .code: "Code"
+        case .command: "Command"
+        case .text: "Text"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .title: "rectangle.on.rectangle"
+        case .code: "chevron.left.forwardslash.chevron.right"
+        case .command: "terminal"
+        case .text: "text.viewfinder"
+        }
+    }
+}
+
+nonisolated struct ScreenItem: Codable, Hashable, Sendable {
+    var start: Double
+    var kind: ScreenKind
+    var text: String
+}
+
+/// People, tools and companies named in a video (local AI), with the moments they are mentioned.
+nonisolated enum EntityKind: String, Codable, Sendable, CaseIterable, Identifiable {
+    case person, tool, company
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .person: "Person"
+        case .tool: "Tool"
+        case .company: "Company"
+        }
+    }
+
+    var plural: String {
+        switch self {
+        case .person: "People"
+        case .tool: "Tools"
+        case .company: "Companies"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .person: "person.fill"
+        case .tool: "wrench.and.screwdriver.fill"
+        case .company: "building.2.fill"
+        }
+    }
+}
+
+nonisolated struct EntityMention: Codable, Hashable, Sendable {
+    var name: String
+    var kind: EntityKind
+    var note: String?
+    var times: [Double]
 }
 
 nonisolated struct TranscriptSegment: Codable, Hashable, Sendable {
@@ -107,6 +213,15 @@ nonisolated struct VideoDigest: Codable, Hashable, Sendable {
     var language: String
     var engine: String
     var generatedAt: Date
+    /// The moment of the video behind each key point (same order; nil when not found).
+    var keyPointTimes: [Double?]?
+    /// The summary split into sentences, each with its moment.
+    var summaryLines: [TimedLine]?
+
+    func keyPointTime(_ index: Int) -> Double? {
+        guard let times = keyPointTimes, index < times.count else { return nil }
+        return times[index]
+    }
 }
 
 // MARK: - SwiftData models
@@ -147,6 +262,17 @@ final class Video {
     var noteName: String? = nil
     @Attribute(.externalStorage) var githubData: Data? = nil
     var githubCheckedAt: Date? = nil
+    // 3.0: podcasts and your own files, text on screen, people/tools/companies
+    var kindRaw: String = "youtube"
+    var mediaURLString: String? = nil
+    var pageURLString: String? = nil
+    @Attribute(.externalStorage) var screenData: Data? = nil
+    var screenReadAt: Date? = nil
+    var screenError: String? = nil
+    @Attribute(.externalStorage) var entitiesData: Data? = nil
+    var entitiesAt: Date? = nil
+    /// Podcast episodes: transcripts published with the episode ("type|url").
+    var transcriptLinks: [String] = []
     @Relationship(deleteRule: .cascade, inverse: \SkillDraft.video) var skills: [SkillDraft] = []
 
     init(videoID: String, title: String = "", channelTitle: String = "", channelID: String = "",
@@ -169,6 +295,13 @@ final class Video {
         self.fromChannelWatch = fromChannelWatch
         self.isShort = false
         self.attempts = 0
+        self.kindRaw = MediaKind.of(id: videoID).rawValue
+        if kind != .youtube { self.thumbnailURLString = nil }
+    }
+
+    var kind: MediaKind {
+        get { MediaKind(rawValue: kindRaw) ?? .youtube }
+        set { kindRaw = newValue.rawValue }
     }
 
     var status: EatStatus {
@@ -183,10 +316,29 @@ final class Video {
 
     var displayTitle: String { title.isEmpty ? "Video \(videoID)" : title }
 
-    var url: URL { URL(string: "https://www.youtube.com/watch?v=\(videoID)")! }
+    /// YouTube for videos; the episode page for podcasts; Zeus itself (which plays the file) for your files.
+    var url: URL { MediaLinks.url(kind: kind, id: videoID, page: pageURLString, media: mediaURLString) }
 
-    func url(at seconds: Double) -> URL {
-        URL(string: "https://www.youtube.com/watch?v=\(videoID)&t=\(Int(seconds))s")!
+    /// The moment in the video: YouTube at &t=…s, or Zeus (youtubezeus://open?video=…&t=…) for podcasts and files.
+    func url(at seconds: Double) -> URL { MediaLinks.url(kind: kind, id: videoID, at: seconds) }
+
+    /// The audio or video file itself (podcast enclosure, your file), when there is one.
+    var mediaURL: URL? { mediaURLString.flatMap(URL.init(string:)) }
+
+    var screen: [ScreenItem] {
+        get {
+            guard let screenData else { return [] }
+            return (try? JSONDecoder().decode([ScreenItem].self, from: screenData)) ?? []
+        }
+        set { screenData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
+    }
+
+    var entities: [EntityMention] {
+        get {
+            guard let entitiesData else { return [] }
+            return (try? JSONDecoder().decode([EntityMention].self, from: entitiesData)) ?? []
+        }
+        set { entitiesData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
     }
 
     var thumbnailURL: URL? { thumbnailURLString.flatMap(URL.init(string:)) }
@@ -256,7 +408,8 @@ final class Video {
                       publishedAt: publishedAt, duration: duration, language: language, source: source,
                       eatenAt: eatenAt ?? .now, description: videoDescription, tags: tags, viewCount: viewCount,
                       likeCount: likeCount, chapters: chapters, digest: digest, paragraphs: displayParagraphs,
-                      comments: comments, polishedBy: polished.isEmpty ? nil : polishModel, repos: repos)
+                      comments: comments, polishedBy: polished.isEmpty ? nil : polishModel, repos: repos,
+                      kind: kind, mediaURL: mediaURLString, pageURL: pageURLString, screen: screen, entities: entities)
     }
 
     var wordCount: Int { transcriptText.split(whereSeparator: \.isWhitespace).count }
@@ -273,6 +426,10 @@ final class Channel {
     var lastCheckedAt: Date?
     var lastError: String?
     var knownVideoIDs: [String]
+    // 3.0: a followed podcast is a Channel with kind "podcast" and its RSS feed.
+    var kindRaw: String = "youtube"
+    var feedURLString: String? = nil
+    var websiteURLString: String? = nil
 
     init(channelID: String, title: String, handle: String = "", avatarURLString: String? = nil, autoEat: Bool = true) {
         self.channelID = channelID
@@ -284,7 +441,13 @@ final class Channel {
         self.knownVideoIDs = []
     }
 
+    var isPodcast: Bool { kindRaw == "podcast" }
+
     var url: URL {
+        if isPodcast {
+            return websiteURLString.flatMap(URL.init(string:)) ?? feedURLString.flatMap(URL.init(string:))
+                ?? URL(string: "https://podcasts.apple.com")!
+        }
         if !handle.isEmpty, handle.hasPrefix("@") {
             return URL(string: "https://www.youtube.com/\(handle)")!
         }
@@ -417,9 +580,37 @@ nonisolated struct VideoSnapshot: Sendable {
     var comments: [VideoComment]
     var polishedBy: String?
     var repos: [RepoCheck] = []
+    var kind: MediaKind = .youtube
+    var mediaURL: String? = nil
+    var pageURL: String? = nil
+    var screen: [ScreenItem] = []
+    var entities: [EntityMention] = []
 
-    var url: URL { URL(string: "https://www.youtube.com/watch?v=\(videoID)")! }
-    func url(at seconds: Double) -> URL { URL(string: "https://www.youtube.com/watch?v=\(videoID)&t=\(Int(seconds))s")! }
+    var url: URL { MediaLinks.url(kind: kind, id: videoID, page: pageURL, media: mediaURL) }
+    func url(at seconds: Double) -> URL { MediaLinks.url(kind: kind, id: videoID, at: seconds) }
+    /// Always the page in Zeus at that moment (for any kind).
+    func zeusURL(at seconds: Double) -> String { BrainLinks.zeus(video: videoID, t: seconds) }
+}
+
+/// Links for each kind of item.
+nonisolated enum MediaLinks {
+    static func url(kind: MediaKind, id: String, page: String?, media: String?) -> URL {
+        switch kind {
+        case .youtube: return URL(string: "https://www.youtube.com/watch?v=\(id)")!
+        case .podcast:
+            if let page, let url = URL(string: page), url.scheme?.hasPrefix("http") == true { return url }
+            if let media, let url = URL(string: media) { return url }
+            return URL(string: BrainLinks.zeus(video: id))!
+        case .file: return URL(string: BrainLinks.zeus(video: id))!
+        }
+    }
+
+    static func url(kind: MediaKind, id: String, at seconds: Double) -> URL {
+        switch kind {
+        case .youtube: return URL(string: "https://www.youtube.com/watch?v=\(id)&t=\(Int(seconds))s")!
+        case .podcast, .file: return URL(string: BrainLinks.zeus(video: id, t: seconds))!
+        }
+    }
 }
 
 // MARK: - Helpers

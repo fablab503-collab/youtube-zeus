@@ -63,6 +63,7 @@ final class ChannelWatcher {
     /// Looks at the channel's feed; new uploads since following are added (and eaten when auto-eat is on).
     @discardableResult
     func check(_ channel: Channel) async -> Int {
+        if channel.isPodcast { return await checkPodcast(channel) }
         do {
             let feed = try await ChannelFeedReader.fetch(channelID: channel.channelID)
             if channel.title.isEmpty || channel.title == channel.channelID, !feed.title.isEmpty { channel.title = feed.title }
@@ -91,6 +92,36 @@ final class ChannelWatcher {
                 }
             }
             try? context.save()
+            return fresh.count
+        } catch {
+            channel.lastError = error.localizedDescription
+            channel.lastCheckedAt = .now
+            try? context.save()
+            return 0
+        }
+    }
+
+    /// A followed podcast: episodes published since following are eaten (or listed when auto-eat is off).
+    private func checkPodcast(_ channel: Channel) async -> Int {
+        guard let text = channel.feedURLString, let feed = URL(string: text) else { return 0 }
+        do {
+            let show = try await PodcastFeed.fetch(feed)
+            var known = Set(channel.knownVideoIDs)
+            var fresh: [PodcastEpisode] = []
+            for episode in show.episodes {
+                let id = episode.id(feed: feed)
+                guard !known.contains(id) else { continue }
+                known.insert(id)
+                let isNew = (episode.published ?? .now) > channel.addedAt.addingTimeInterval(-3600)
+                if isNew, engine.video(id) == nil { fresh.append(episode) }
+            }
+            channel.knownVideoIDs = Array(known).suffix(2_000).map { $0 }
+            channel.lastCheckedAt = .now
+            channel.lastError = nil
+            if let image = show.image { channel.avatarURLString = image }
+            engine.addEpisodes(fresh, channel: channel, feed: feed, language: show.language, fromWatch: true, autoEat: channel.autoEat)
+            try? context.save()
+            if !fresh.isEmpty { AppLog.write("PODCAST \(channel.title): \(fresh.count) new episode(s)") }
             return fresh.count
         } catch {
             channel.lastError = error.localizedDescription

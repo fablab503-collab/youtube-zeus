@@ -10,6 +10,7 @@ final class AppSettings {
     var preferredLanguages: String { didSet { save("preferredLanguages", preferredLanguages) } }
     var useWhisperFallback: Bool { didSet { save("useWhisperFallback", useWhisperFallback) } }
     var whisperModel: String { didSet { save("whisperModel", whisperModel) } }
+    var speechEngine: String { didSet { save("speechEngine", speechEngine) } }
     var maxParallel: Int { didSet { save("maxParallel", maxParallel) } }
 
     // Apple Intelligence
@@ -51,6 +52,16 @@ final class AppSettings {
     var githubEnabled: Bool { didSet { save("githubEnabled", githubEnabled) } }
     var githubFolder: String { didSet { save("githubFolder", githubFolder) } }
 
+    // 3.0
+    var readScreenOfFiles: Bool { didSet { save("readScreenOfFiles", readScreenOfFiles) } }
+    var screenInterval: Int { didSet { save("screenInterval", screenInterval) } }
+    var entitiesEnabled: Bool { didSet { save("entitiesEnabled", entitiesEnabled) } }
+    var entityNoteThreshold: Int { didSet { save("entityNoteThreshold", entityNoteThreshold) } }
+    var digestEnabled: Bool { didSet { save("digestEnabled", digestEnabled) } }
+    var digestWeekday: Int { didSet { save("digestWeekday", digestWeekday) } }
+    var digestHour: Int { didSet { save("digestHour", digestHour) } }
+    var phoneInboxEnabled: Bool { didSet { save("phoneInboxEnabled", phoneInboxEnabled) } }
+
     // Tools (empty = find automatically)
     var ytdlpPath: String { didSet { save("ytdlpPath", ytdlpPath) } }
     var ffmpegPath: String { didSet { save("ffmpegPath", ffmpegPath) } }
@@ -74,6 +85,7 @@ final class AppSettings {
             "preferredLanguages": "en, fr, it, es, ro, de",
             "useWhisperFallback": true,
             "whisperModel": WhisperModel.turbo.rawValue,
+            "speechEngine": SpeechEngine.auto.rawValue,
             "maxParallel": 2,
             "autoSummarize": true,
             "summaryLanguage": "auto",
@@ -100,6 +112,14 @@ final class AppSettings {
             "writeIndexes": true,
             "githubEnabled": true,
             "githubFolder": "",
+            "readScreenOfFiles": true,
+            "screenInterval": 2,
+            "entitiesEnabled": true,
+            "entityNoteThreshold": 2,
+            "digestEnabled": true,
+            "digestWeekday": 1,
+            "digestHour": 19,
+            "phoneInboxEnabled": true,
             "ytdlpPath": "",
             "ffmpegPath": "",
             "whisperPath": "",
@@ -107,6 +127,7 @@ final class AppSettings {
         preferredLanguages = d.string(forKey: "preferredLanguages") ?? ""
         useWhisperFallback = d.bool(forKey: "useWhisperFallback")
         whisperModel = d.string(forKey: "whisperModel") ?? WhisperModel.turbo.rawValue
+        speechEngine = d.string(forKey: "speechEngine") ?? SpeechEngine.auto.rawValue
         maxParallel = max(1, d.integer(forKey: "maxParallel"))
         autoSummarize = d.bool(forKey: "autoSummarize")
         summaryLanguage = d.string(forKey: "summaryLanguage") ?? "auto"
@@ -142,6 +163,14 @@ final class AppSettings {
         writeIndexes = d.bool(forKey: "writeIndexes")
         githubEnabled = d.bool(forKey: "githubEnabled")
         githubFolder = d.string(forKey: "githubFolder") ?? ""
+        readScreenOfFiles = d.bool(forKey: "readScreenOfFiles")
+        screenInterval = max(1, d.integer(forKey: "screenInterval"))
+        entitiesEnabled = d.bool(forKey: "entitiesEnabled")
+        entityNoteThreshold = max(1, d.integer(forKey: "entityNoteThreshold"))
+        digestEnabled = d.bool(forKey: "digestEnabled")
+        digestWeekday = min(7, max(1, d.integer(forKey: "digestWeekday")))
+        digestHour = min(23, max(0, d.integer(forKey: "digestHour")))
+        phoneInboxEnabled = d.bool(forKey: "phoneInboxEnabled")
         ytdlpPath = d.string(forKey: "ytdlpPath") ?? ""
         ffmpegPath = d.string(forKey: "ffmpegPath") ?? ""
         whisperPath = d.string(forKey: "whisperPath") ?? ""
@@ -180,6 +209,14 @@ final class AppSettings {
     var secondBrainURL: URL {
         URL(fileURLWithPath: (secondBrainFolder as NSString).expandingTildeInPath, isDirectory: true)
     }
+
+    /// Notes about people, tools and companies: Sources/People, Sources/Tools, Sources/Companies.
+    func entityFolder(_ kind: EntityKind) -> URL {
+        secondBrainURL.deletingLastPathComponent().appendingPathComponent(kind.plural, isDirectory: true)
+    }
+
+    /// Weekly digest notes: Sources/YouTube/Digests.
+    var digestFolder: URL { secondBrainURL.appendingPathComponent("Digests", isDirectory: true) }
 
     /// Where notes about GitHub repositories found in videos live (next to Sources/YouTube by default).
     var githubURL: URL {

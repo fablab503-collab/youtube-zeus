@@ -28,7 +28,7 @@ struct ChannelView: View {
                         }
                     } header: {
                         HStack {
-                            Text("New uploads (auto-eat is off)")
+                            Text(channel.isPodcast ? "New episodes (auto-eat is off)" : "New uploads (auto-eat is off)")
                             Spacer()
                             Button("Eat all") { discovered.forEach { app.engine.retry($0) } }.buttonStyle(.borderless)
                         }
@@ -60,11 +60,58 @@ struct ChannelView: View {
                     }
                 }
             }
-            Toggle("Eat new uploads automatically", isOn: Binding(get: { channel.autoEat }, set: {
+            Toggle(channel.isPodcast ? "Eat new episodes automatically" : "Eat new uploads automatically", isOn: Binding(get: { channel.autoEat }, set: {
                 channel.autoEat = $0
                 try? app.context.save()
             }))
             .toggleStyle(.switch)
+            if channel.isPodcast {
+                podcastButtons(channel)
+            } else {
+                youtubeButtons(channel)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    private func podcastButtons(_ channel: Channel) -> some View {
+        GlassEffectContainer(spacing: 8) {
+            FlowLayout(spacing: 8) {
+                Button {
+                    checking = true
+                    Task {
+                        let count = await app.watcher.check(channel)
+                        checking = false
+                        app.show(count == 0 ? "No new episodes of \(channel.title)." : "\(count) new episode\(count == 1 ? "" : "s") of \(channel.title).")
+                    }
+                } label: {
+                    Label(checking ? "Checking…" : "Check now", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.glass)
+                .disabled(checking)
+                Menu {
+                    ForEach([1, 3, 10, 25], id: \.self) { count in
+                        Button("Latest \(count)") { Task { await app.eatLatestEpisodes(channel, count: count) } }
+                    }
+                } label: {
+                    Label("Eat latest", systemImage: "fork.knife")
+                }
+                .menuStyle(.button)
+                .buttonStyle(.glass)
+                .fixedSize()
+                Button { NSWorkspace.shared.open(channel.url) } label: { Label("Website", systemImage: "safari") }
+                    .buttonStyle(.glass)
+                Button { app.openInBrain(app.channelIndexURL(channel.title)) } label: {
+                    Label("Index note", systemImage: "list.bullet.rectangle")
+                }
+                .buttonStyle(.glass)
+                .help(BrainLinks.openLabel + ": the podcast's index note")
+            }
+        }
+    }
+
+    private func youtubeButtons(_ channel: Channel) -> some View {
+        VStack(alignment: .leading) {
             GlassEffectContainer(spacing: 8) {
                 FlowLayout(spacing: 8) {
                     Button {
@@ -122,6 +169,5 @@ struct ChannelView: View {
                 }
             }
         }
-        .padding(.vertical, 8)
     }
 }

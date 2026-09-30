@@ -1,11 +1,28 @@
-# YouTube Zeus 2.5.1 — the YouTube eater, native on macOS 27
+# YouTube Zeus 3.0 — the YouTube eater, native on macOS 27
 
-Open source (MIT). A native macOS app that turns YouTube videos, playlists and whole channels into organised,
-searchable Markdown notes in your Second Brain (an Obsidian-style vault), and hands that knowledge to any AI agent.
+Open source (MIT). A native macOS app that turns YouTube videos, playlists and whole channels, podcasts and your own
+recordings into organised, searchable Markdown notes in your Second Brain (an Obsidian-style vault), and hands that
+knowledge to any AI agent (command line, MCP server, links, skills).
 
-**Free and open by default:** every step runs on the Mac with free tools — yt-dlp, ffmpeg, whisper.cpp, Ollama with an open model (Qwen3, Apache 2.0) and Apple Intelligence. No paid AI is needed. Codex / OpenAI are optional and off (Settings › Skills & cloud AI).
+**Free and open by default:** every step runs on the Mac with free tools — yt-dlp, ffmpeg, MLX Whisper or whisper.cpp, Apple's Vision and NaturalLanguage, SQLite, Ollama with an open model (Qwen3, Apache 2.0) and Apple Intelligence. No paid AI is needed. Codex / OpenAI are optional and off (Settings › Skills & cloud AI).
 
-Paste a YouTube link (video, playlist or channel). Zeus eats the video and keeps its text.
+Paste a YouTube or podcast link, or drop a recording on the window. Zeus eats it and keeps its text.
+
+## New in 3.0
+
+- **Faster listening**: MLX Whisper (large-v3-turbo) when `uv` is installed, whisper.cpp otherwise — a 20-minute talk in
+  40 s instead of 67 s on an M2 Pro, with fewer word errors, and no repetition loops (measured; see CHANGELOG).
+- **Instant full-text search** of titles, summaries, transcripts and on-screen text (SQLite FTS5): "phrases", word*,
+  OR, NOT, a NEAR b; every hit opens the transcript at its moment. `zeus search`.
+- **Answers that point to the second**: every key point and summary sentence links to the moment it comes from; Ask
+  your brain's sources are checked against their quotes.
+- **Podcasts by RSS** (or an Apple Podcasts link): published transcripts when they exist, Whisper otherwise.
+- **Your own files**: .mp4, .mov, .mp3, .m4a, .wav… transcribed, summarized and filed, all on the Mac.
+- **Text on screen**: slide titles, code and terminal commands read by Apple's Vision, with their moments.
+- **Notes for people, tools and companies** named in the videos (local AI), with backlinks and moments.
+- **Weekly digest** every Sunday: what was eaten, best ideas, open questions, new repositories.
+- **MCP server** (`zeus mcp`) for Claude, Claude Code, Codex, Cursor, LM Studio, Gemini CLI — one click to connect.
+- **Share from iPhone and iPad**: an "Eat with Zeus" shortcut sends links to the Mac through iCloud Drive.
 
 - **Captions first**: the channel's own captions in the video's language, then YouTube's original auto-captions (yt-dlp, json3).
 - **Whisper when there are none**: downloads the audio and listens on this Mac with whisper.cpp (`whisper-cli`, model downloaded once into `~/Library/Application Support/YouTube Zeus/Models`). "Listen with Whisper" also re-does videos that only had auto-captions.
@@ -29,7 +46,8 @@ Needs macOS 27, Xcode 27 and a few free tools:
 
 ```bash
 brew install xcodegen yt-dlp ffmpeg whisper-cpp deno   # required
-brew install --cask ollama                            # the free local AI (polishing, summaries, Ask, skills)
+brew install uv                                       # optional: MLX Whisper, the fastest listening on Apple silicon
+brew install --cask ollama                            # the free local AI (polishing, summaries, names, digests, Ask)
 brew install gh && gh auth login                      # optional: more GitHub checks per hour
 ```
 
@@ -50,7 +68,13 @@ zeus eat "<link>" --save            # knowledge pack to stdout + note in the Sec
 zeus eat "<playlist|channel>" --limit 20 --save
 zeus eat "<link>" --polish --summary --json
 zeus get <link|id>                  # saved note, no network
-zeus search "<words>"
+zeus search "<words>" [--json]      # full text: "phrases", word*, OR, NOT, a NEAR b
+zeus eat ~/Movies/lecture.mp4       # your own recording, eaten by the app
+zeus podcast "<feed or Apple Podcasts link>" --follow --latest 3
+zeus screen "<link|id>"             # text on screen: slide titles, code, commands
+zeus entities [name] / zeus entity "<name>"   # people, tools and companies
+zeus digest [--last] [--save]       # the weekly digest
+zeus mcp                            # MCP server (stdio) for Claude, Codex, Cursor, LM Studio…
 zeus list "<playlist|channel>" --limit 50
 zeus github "<link>" [--save] [--json]   # GitHub repos linked in a video, checked through the GitHub API
 zeus repos [--json]                 # every repo linked in the library
@@ -63,7 +87,10 @@ zeus pack "<playlist>"              # Claude pack: skill + digest + transcript p
 ## Links (`youtubezeus://`)
 
 ```
-youtubezeus://eat?url=<link>                 youtubezeus://open?video=<id>[&tab=Info]
+youtubezeus://eat?url=<link>                 youtubezeus://open?video=<id>[&tab=Info][&t=<seconds>]
+youtubezeus://eat?file=<path>                youtubezeus://podcast?feed=<feed>[&latest=N]
+youtubezeus://search?q=<words>               youtubezeus://screen?video=<id>
+youtubezeus://open?entity=<name>             youtubezeus://digest?week=<2026-W39>
 youtubezeus://open?collection=<list id>      youtubezeus://open?channel=<channel id>
 youtubezeus://open?repo=<owner>/<repo>       youtubezeus://open?view=library|github|ask|skills|eating|youtube
 youtubezeus://ask?q=<question>
@@ -104,7 +131,9 @@ Version 0.1 (Aug 2026) was a Python/FastAPI web app; 2.x is a full native rewrit
 ## Privacy
 
 Everything runs on your Mac. Nothing is sent anywhere except the requests the tools need (YouTube for videos and
-captions, GitHub's public API for repository checks, Ollama's registry to download the model once). Optional cloud
+captions, podcast feeds and their audio, Apple's podcast lookup for Apple Podcasts links, GitHub's public API for
+repository checks, Ollama's registry and Hugging Face to download the models once). Links shared from the iPhone travel
+through your own iCloud Drive. Optional cloud
 engines (Codex, OpenAI API) are off unless you turn them on. Keys live in the Keychain; the YouTube sign-in in a
 private cookies file in Application Support.
 

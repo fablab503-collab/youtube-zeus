@@ -16,5 +16,9 @@ if [[ "${1:-}" != "--no-install" ]]; then
   pkill -x "YouTube Zeus" 2>/dev/null && sleep 1 || true
   rm -rf "/Applications/YouTube Zeus.app"
   ditto "$APP" "/Applications/YouTube Zeus.app"
+  # Only the installed copy should answer youtubezeus:// links (not the build folder's copy).
+  LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+  "$LSREGISTER" -u "$APP" 2>/dev/null || true
+  "$LSREGISTER" -f "/Applications/YouTube Zeus.app" 2>/dev/null || true
   echo "Installed /Applications/YouTube Zeus.app"
 fi

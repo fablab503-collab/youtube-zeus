@@ -294,6 +294,29 @@ nonisolated struct YTDLP: Sendable {
         return audio
     }
 
+    // MARK: Video (to read the text on screen)
+
+    /// The picture only (no sound), H.264 up to 1080p when YouTube has it: small, and every Mac decodes it.
+    func downloadVideo(videoID: String, workDir: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+        let output = try await ProcessRunner.check(executable, cookieArguments + [
+            "-f", "bv*[vcodec^=avc1][height<=1080]/bv*[vcodec^=avc][height<=1080]/bv*[height<=1080][ext=mp4]/bv*[height<=1080]/b[height<=1080]/b",
+            "--no-playlist", "--no-warnings", "--newline",
+            "-o", workDir.appendingPathComponent("video.%(ext)s").path,
+            "--print", "after_move:filepath",
+            "--", Self.watchURL(videoID),
+        ], streamStdout: true) { line in
+            if line.hasPrefix("[download]"), let percent = Self.percent(in: line) { progress(percent) }
+        }
+        let path = output.stdoutString.split(whereSeparator: \.isNewline).map(String.init).last(where: { $0.hasPrefix("/") })
+        if let path, FileManager.default.fileExists(atPath: path) { return URL(fileURLWithPath: path) }
+        let files = (try? FileManager.default.contentsOfDirectory(at: workDir, includingPropertiesForKeys: nil)) ?? []
+        guard let video = files.first(where: { $0.lastPathComponent.hasPrefix("video.") }) else {
+            throw YTDLPError.badOutput("video file")
+        }
+        return video
+    }
+
     static func percent(in line: String) -> Double? {
         guard let range = line.range(of: #"(\d+(\.\d+)?)%"#, options: .regularExpression) else { return nil }
         return Double(line[range].dropLast()).map { $0 / 100 }

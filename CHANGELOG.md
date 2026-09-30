@@ -3,6 +3,47 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 3.0 — 2026-09-28
+
+The ten ideas starred on the 3.0 board. Everything stays free and on the Mac.
+
+- **Faster listening, no more loops.** Measured on an M2 Pro with a 20-minute talk and its human captions: whisper.cpp
+  as in 2.x 66.8 s / 7.9 % word errors; MLX Whisper large-v3-turbo without text context 39.6 s / 7.2 % (now the
+  default when `uv` is installed, whisper.cpp as fallback); whisper.cpp without text context 53.4 s / 7.3 %; WhisperKit
+  on the Neural Engine 101 s. With text context both greedy decoders fell into repetition loops (36–40 % errors), so
+  Zeus never conditions on the previous text any more. Settings › Eating › Speech recognition.
+- **Instant full-text search** (SQLite FTS5, `Search.sqlite`): titles, summaries, key points, transcripts, text on
+  screen; "exact phrases", word*, OR, NOT, a NEAR b; every hit opens the transcript at its moment. The library's
+  search field, `zeus search` (`--json`), Ask your brain (retrieval by BM25) and the MCP server use it.
+- **Answers that point to the second.** Every key point and summary sentence is placed in the video (BM25 against
+  the paragraphs, no AI; 95 % of the 1,020 key points of the library placed) and gets `[▶ mm:ss]`; Ask sources are
+  corrected to the paragraph that holds their quote. `youtubezeus://open?video=…&t=…` opens the transcript there and
+  highlights the paragraph. Notes are rewritten once (format 4).
+- **Podcasts by RSS**: follow a feed or an Apple Podcasts link (paste it, drop it, `zeus podcast`,
+  `youtubezeus://podcast?feed=…`); new episodes are eaten like videos, with the transcript published with the episode
+  (Podcasting 2.0 JSON, WebVTT, SRT) when there is one, else Whisper. One folder and index note per show.
+- **Your own files**: drop an .mp4, .mov, .mp3, .m4a, .wav… on the window (or "Choose files", `zeus eat <path>`,
+  `youtubezeus://eat?file=…`): transcript, summary, note in `My files/`, all on the Mac. A small player plays podcasts and
+  files from any moment.
+- **Text on screen**: "Read the screen" (or `zeus screen`): frames every 2 s (ffmpeg), unchanged frames skipped, Apple's
+  Vision reads the rest; slide titles, terminal commands and code blocks with their moments, in the note
+  (`## On screen`), the "On screen" tab and search. Automatic for your own videos.
+- **Notes for people, tools and companies**: after each summary the local AI (helped by NaturalLanguage) lists the
+  names an item mentions, with the moments they are said; names in 2+ items get a note in `Sources/People`,
+  `Sources/Tools`, `Sources/Companies` (facts block between markers, your notes kept) and an index. Sidebar › People &
+  tools, `zeus entities`, `zeus entity`. Phrases, file names, generic words and names the AI itself doubts are left
+  out, common misspellings are merged ("Cloud Code" → Claude Code, "VS Code" → Visual Studio Code), and notes are only
+  rewritten when their content changes.
+- **Weekly digest**: every Sunday at 19:00 (Settings › Extras) `Sources/YouTube/Digests/<year>-W<week>.md`: what was
+  eaten, the best ideas and open questions (local AI, each pointing to its moment), new GitHub repositories, the
+  week's names. A missed week is written at the next launch. Sidebar › Weekly digests, `zeus digest`.
+- **Zeus as an MCP server**: `zeus mcp` (stdio JSON-RPC) with the tools search, get_transcript, get_note, ask,
+  list_items, item_status, collections, claude_pack, entities, entity, github_repos, weekly_digest and eat; one-click
+  connection for Claude, Claude Code, Codex, Cursor, LM Studio and Gemini CLI (Settings › Extras, configs backed up).
+- **Share from iPhone and iPad**: Zeus makes an "Eat with Zeus" shortcut (signed with `shortcuts sign`) that appears in
+  the share sheet; it saves the link in iCloud Drive › Shortcuts › YouTube Zeus › Inbox and the Mac eats it within a
+  minute.
+
 ## 2.5.1 — 2026-09-28
 
 - **Open source (MIT).** The repository is public: `LICENSE`, README (install, privacy, responsible use),

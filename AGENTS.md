@@ -10,7 +10,8 @@ For any AI agent (Codex, Claude Code, Gemini CLI, Cursor, Kimi…) working **on*
 ## Build and run
 
 - macOS 27, Xcode 27, XcodeGen (`brew install xcodegen`). Tools the app calls: yt-dlp, ffmpeg, whisper-cli, deno,
-  Ollama (the free local AI: polishing, summaries, Ask, skills), `gh` (optional, raises the GitHub API limit).
+  uv (optional: MLX Whisper through `uvx`), Ollama (the free local AI: polishing, summaries, names, digests, Ask,
+  skills), `gh` (optional, raises the GitHub API limit), `/usr/bin/shortcuts` (signs the iPhone shortcut).
   Codex / OpenAI are optional cloud engines, off by default: never make a feature depend on them.
 - `./scripts/build.sh` builds Release and installs `/Applications/YouTube Zeus.app` (`--no-install` to only build).
   The log is `build/last-build.log`. Signing: your own team in `project.yml` (`DEVELOPMENT_TEAM`), hardened
@@ -30,8 +31,8 @@ For any AI agent (Codex, Claude Code, Gemini CLI, Cursor, Kimi…) working **on*
 
 ## Every new feature must be reachable by agents
 
-- A `zeus` subcommand (`App/CLI.swift`) and/or a `youtubezeus://` link (`Services/BrainLinks.swift`,
-  `AppModel.handle`).
+- A `zeus` subcommand (`App/CLI.swift`), an MCP tool when agents query it (`App/MCPServer.swift`) and/or a
+  `youtubezeus://` link (`Services/BrainLinks.swift`, `AppModel.handle`).
 - Documented in `Services/AgentGuide.swift` (the generated guide) and, if agents use it often, in the
   `youtube-zeus` skill (`Services/HandOff.swift`).
 - If it writes to the vault: notes keep the format described in the guide, start with front matter and a
@@ -40,11 +41,15 @@ For any AI agent (Codex, Claude Code, Gemini CLI, Cursor, Kimi…) working **on*
 
 ## Code layout
 
-- `YouTubeZeus/App` — `@main Launcher` (app or `--cli`), `AppModel` (state, URL handling), settings, `CLI.swift`.
+- `YouTubeZeus/App` — `@main Launcher` (app or `--cli`), `AppModel` (+ `AppModel+V3` for 3.0 features), settings,
+  `CLI.swift`, `MCPServer.swift` (`zeus mcp`).
 - `YouTubeZeus/Models` — SwiftData models (`Video`, `Channel`, `SkillDraft`, `VideoList`), `VideoSnapshot`.
-- `YouTubeZeus/Services` — yt-dlp, Whisper, eat pipeline (`EatEngine`), Second Brain notes and indexes
-  (`SecondBrain.swift`), GitHub checks (`GitHubLinks.swift`), links (`BrainLinks.swift`), agent guide, AI packs,
-  Ask your brain, local AI polishing, summaries, channel watching.
+- `YouTubeZeus/Services` — yt-dlp, Whisper (MLX / whisper.cpp), eat pipeline (`EatEngine`, `EatEngine+Media` for
+  podcasts, files, text on screen and names), Second Brain notes and indexes (`SecondBrain.swift`), full-text search
+  (`SearchIndex`, `SearchIndexer`), moments (`Grounder`), podcasts (`Podcasts`), your files (`MediaFiles`, `MediaPlayer`),
+  text on screen (`ScreenReader`), people/tools/companies (`Entities`), weekly digest (`WeeklyDigest`), iPhone inbox
+  (`PhoneInbox`), MCP connections (`MCPConnect`), GitHub checks (`GitHubLinks.swift`), links (`BrainLinks.swift`),
+  agent guide, AI packs, Ask your brain, local AI polishing, summaries, channel and podcast watching.
 - `YouTubeZeus/Skills` — skill compiler (local AI by default; Codex / OpenAI API optional).
 - `YouTubeZeus/Views` — SwiftUI (Liquid Glass).
 

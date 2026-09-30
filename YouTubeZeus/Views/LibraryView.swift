@@ -14,8 +14,14 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
 struct LibraryView: View {
     @Environment(AppModel.self) private var app
     @Query(sort: \Video.addedAt, order: .reverse) private var videos: [Video]
-    @State private var search = ""
     @State private var filter: LibraryFilter = .all
+    @State private var hits: [SearchHit] = []
+    @State private var searching = false
+
+    private var query: String { app.librarySearch.trimmingCharacters(in: .whitespaces) }
+
+    /// With the search index, a search shows the matching moments (full-text, ranked); without it, the old filter.
+    private var usesIndex: Bool { app.indexer.isAvailable && !query.isEmpty }
 
     private var shown: [Video] {
         videos.filter { video in
@@ -27,8 +33,7 @@ struct LibraryView: View {
             case .summarized: if video.digestData == nil { return false }
             case .failed: if video.status != .failed { return false }
             }
-            let query = search.trimmingCharacters(in: .whitespaces)
-            guard !query.isEmpty else { return true }
+            guard !query.isEmpty, !usesIndex else { return true }
             return video.title.localizedStandardContains(query)
                 || video.channelTitle.localizedStandardContains(query)
                 || video.transcriptText.localizedStandardContains(query)
@@ -38,31 +43,47 @@ struct LibraryView: View {
     var body: some View {
         @Bindable var app = app
         let list = shown
-        List(selection: $app.selectedVideoID) {
-            ForEach(list) { video in
-                VideoRow(video: video, highlight: search)
-                    .tag(video.videoID)
-                    .contextMenu { VideoMenu(video: video) }
+        Group {
+            if usesIndex {
+                SearchResultsList(hits: hits, videos: videos, searching: searching, query: query)
+            } else {
+                List(selection: $app.selectedVideoID) {
+                    ForEach(list) { video in
+                        VideoRow(video: video, highlight: query)
+                            .tag(video.videoID)
+                            .contextMenu { VideoMenu(video: video) }
+                    }
+                }
+                .overlay {
+                    if videos.isEmpty {
+                        EmptyState(symbol: "fork.knife", title: "Nothing eaten yet",
+                                   message: "Paste a YouTube link, a podcast feed or drop a video or audio file on the window.")
+                    } else if list.isEmpty {
+                        ContentUnavailableView.search(text: query)
+                    }
+                }
             }
         }
-        .overlay {
-            if videos.isEmpty {
-                EmptyState(symbol: "fork.knife", title: "Nothing eaten yet",
-                           message: "Paste a YouTube link in the bar below, or drop one on the window.")
-            } else if list.isEmpty {
-                ContentUnavailableView.search(text: search)
-            }
+        .searchable(text: $app.librarySearch, placement: .toolbar, prompt: "Search everything — words, \"phrases\", a NEAR b")
+        .task(id: query) {
+            guard usesIndex else { hits = []; return }
+            searching = true
+            try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled else { return }
+            hits = await app.indexer.search(query)
+            searching = false
         }
-        .searchable(text: $search, placement: .toolbar, prompt: "Search titles, channels and transcripts")
         .navigationTitle("Library")
-        .navigationSubtitle("\(list.count) video\(list.count == 1 ? "" : "s")")
+        .navigationSubtitle(usesIndex ? "\(Set(hits.map(\.videoID)).count) item\(Set(hits.map(\.videoID)).count == 1 ? "" : "s") match"
+                                      : "\(list.count) item\(list.count == 1 ? "" : "s")")
         .toolbar {
             ToolbarItem {
                 Button {
-                    let packs = list.filter { $0.status.hasText }.map(\.snapshot)
-                    let text = AIPack.collection(title: search.isEmpty ? "YouTube library" : "Videos about “\(search)”",
+                    let matching = usesIndex ? orderedVideos(for: hits) : list
+                    let packs = matching.filter { $0.status.hasText }.map(\.snapshot)
+                    let text = AIPack.collection(title: query.isEmpty ? "YouTube library" : "Videos about “\(query)”",
                                                  kind: "YouTube Zeus library", url: "YouTube Zeus", videos: packs, missing: 0,
-                                                 includeTranscripts: !search.isEmpty && packs.count <= 5)
+                                                 includeTranscripts: !query.isEmpty && packs.count <= 5)
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                     app.show("Copied \(packs.count) videos for AI.")
@@ -76,11 +97,128 @@ struct LibraryView: View {
                     ForEach(LibraryFilter.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.menu)
+                .disabled(usesIndex)
             }
         }
         .onDeleteCommand {
             if let id = app.selectedVideoID, let video = videos.first(where: { $0.videoID == id }) { app.delete(video) }
         }
+    }
+
+    private func orderedVideos(for hits: [SearchHit]) -> [Video] {
+        var seen = Set<String>()
+        return hits.compactMap { hit in
+            guard seen.insert(hit.videoID).inserted else { return nil }
+            return videos.first { $0.videoID == hit.videoID }
+        }
+    }
+}
+
+/// Full-text search results: each item with its best moments; a click opens the transcript at that moment.
+struct SearchResultsList: View {
+    @Environment(AppModel.self) private var app
+    let hits: [SearchHit]
+    let videos: [Video]
+    let searching: Bool
+    let query: String
+
+    private struct Group: Identifiable {
+        let id: String
+        let items: [SearchHit]
+    }
+
+    var body: some View {
+        let groups = grouped
+        List {
+            ForEach(groups) { group in
+                let id = group.id
+                let items = group.items
+                Section {
+                    ForEach(items) { hit in
+                        Button {
+                            app.open(video: hit.videoID, at: hit.section == "title" || hit.section == "description" ? nil : hit.start)
+                        } label: {
+                            HitRow(hit: hit)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    if let video = videos.first(where: { $0.videoID == id }) {
+                        Button {
+                            app.open(video: id)
+                        } label: {
+                            VideoRow(video: video).contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu { VideoMenu(video: video) }
+                    } else {
+                        Text(items.first?.title ?? id).font(.headline)
+                    }
+                }
+            }
+        }
+        .overlay {
+            if hits.isEmpty {
+                if searching {
+                    ProgressView()
+                } else {
+                    ContentUnavailableView {
+                        Label("No match for “\(query)”", systemImage: "magnifyingglass")
+                    } description: {
+                        Text("Search looks in titles, summaries, transcripts and text read on screen. Try fewer words, a word* prefix, or OR.")
+                    }
+                }
+            }
+        }
+    }
+
+    private var grouped: [Group] {
+        var order: [String] = []
+        var byID: [String: [SearchHit]] = [:]
+        for hit in hits {
+            if byID[hit.videoID] == nil { order.append(hit.videoID) }
+            byID[hit.videoID, default: []].append(hit)
+        }
+        return order.map { Group(id: $0, items: byID[$0] ?? []) }
+    }
+}
+
+struct HitRow: View {
+    let hit: SearchHit
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            if hit.section == "title" || hit.section == "description" {
+                Image(systemName: hit.section == "title" ? "textformat" : "text.alignleft")
+                    .foregroundStyle(.secondary).frame(width: 52, alignment: .trailing)
+            } else {
+                Text(hit.start.timestamp)
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.tint)
+                    .frame(width: 52, alignment: .trailing)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(highlighted).font(.callout).lineLimit(3)
+                if hit.section != "transcript" {
+                    Text(hit.sectionLabel).font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+        .contentShape(.rect)
+    }
+
+    private var highlighted: AttributedString {
+        var result = AttributedString()
+        for part in hit.markedParts {
+            var piece = AttributedString(part.text)
+            if part.matched {
+                piece.backgroundColor = Color.zeusGold.opacity(0.4)
+                piece.foregroundColor = .primary
+            }
+            result += piece
+        }
+        return result
     }
 }
 
@@ -161,7 +299,12 @@ struct VideoMenu: View {
     let video: Video
 
     var body: some View {
-        Button("Open on YouTube") { NSWorkspace.shared.open(video.url) }
+        switch video.kind {
+        case .youtube: Button("Open on YouTube") { NSWorkspace.shared.open(video.url) }
+        case .podcast: Button("Open the Episode Page") { NSWorkspace.shared.open(video.url) }
+        case .file:
+            if let file = video.mediaURL, file.isFileURL { Button("Show the File in Finder") { app.reveal(file.path) } }
+        }
         if video.status.hasText {
             Button("Copy for AI") { app.copyForAI(video) }
             Button("Copy Transcript") { app.copyTranscript(video) }
@@ -180,6 +323,7 @@ struct VideoMenu: View {
             Button("Summarize") { app.summarize(video) }
             Button("Polish with Local AI") { app.engine.polishNow(video) }
             Button("Make Skills…") { app.compileSkills(video) }
+            if video.kind != .podcast { Button("Read the Screen") { app.readScreen(video) } }
             Divider()
             Button("Eat Again") { app.engine.retry(video) }
             Button("Listen Again with Whisper") { app.engine.retry(video, withWhisper: true) }

@@ -4,6 +4,7 @@ import SwiftUI
 enum DetailTab: String, CaseIterable, Identifiable {
     case transcript = "Transcript"
     case summary = "Summary"
+    case screen = "On screen"
     case skills = "Skills"
     case info = "Info"
 
@@ -18,6 +19,7 @@ struct VideoDetailView: View {
     @State private var paragraphs: [TranscriptParagraph] = []
     @State private var polishedParagraphs: [TranscriptParagraph] = []
     @State private var showOriginal = false
+    @State private var highlight: Int?
 
     init(videoID: String) {
         _matches = Query(filter: #Predicate<Video> { $0.videoID == videoID })
@@ -38,8 +40,28 @@ struct VideoDetailView: View {
         app.initialTab = nil
     }
 
+    /// youtubezeus://open?video=…&t=… (a key point, a search hit, an Ask source): show the transcript at that moment.
+    private func handleJump(_ proxy: ScrollViewProxy, _ video: Video) {
+        guard let jump = app.jump, jump.videoID == video.videoID, video.status.hasText else { return }
+        tab = .transcript
+        find = ""
+        let shown = polishedParagraphs.isEmpty || showOriginal ? paragraphs : polishedParagraphs
+        // Not loaded yet: `.task(id: paragraphs.count)` calls again once the transcript is there.
+        guard !shown.isEmpty else { return }
+        app.jump = nil
+        guard let target = shown.last(where: { $0.start <= jump.seconds + 0.5 }) ?? shown.first else { return }
+        highlight = target.id
+        Task {
+            try? await Task.sleep(for: .milliseconds(120))
+            withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo("p\(target.id)", anchor: .center) }
+            try? await Task.sleep(for: .seconds(4))
+            if highlight == target.id { withAnimation { highlight = nil } }
+        }
+    }
+
     @ViewBuilder
     private func content(_ video: Video) -> some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Header(video: video)
@@ -84,8 +106,9 @@ struct VideoDetailView: View {
                     case .transcript:
                         TranscriptBody(video: video,
                                        paragraphs: polishedParagraphs.isEmpty || showOriginal ? paragraphs : polishedParagraphs,
-                                       find: find, isPolished: !polishedParagraphs.isEmpty && !showOriginal)
+                                       find: find, isPolished: !polishedParagraphs.isEmpty && !showOriginal, highlight: highlight)
                     case .summary: SummaryBody(video: video)
+                    case .screen: ScreenBody(video: video)
                     case .skills: SkillsBody(video: video)
                     case .info: InfoBody(video: video)
                     }
@@ -98,11 +121,22 @@ struct VideoDetailView: View {
             .frame(maxWidth: 900, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
+        .onChange(of: app.jump) { handleJump(proxy, video) }
+        .onAppear { handleJump(proxy, video) }
+        .task(id: paragraphs.count) { handleJump(proxy, video) }
+        }
+        .environment(\.openURL, OpenURLAction { url in
+            guard url.scheme == BrainLinks.scheme else { return .systemAction }
+            app.handle(url)
+            return .handled
+        })
         .navigationTitle(video.displayTitle)
         .toolbar {
             ToolbarItemGroup {
-                Button { NSWorkspace.shared.open(video.url) } label: { Label("Open on YouTube", systemImage: "play.rectangle") }
-                    .help("Open on YouTube")
+                Button { app.playMoment(video, at: 0) } label: {
+                    Label(video.kind == .youtube ? "Open on YouTube" : "Play", systemImage: video.kind == .youtube ? "play.rectangle" : "play.fill")
+                }
+                .help(video.kind == .youtube ? "Open on YouTube" : "Play in YouTube Zeus")
                 if video.status.hasText {
                     Button { app.copyForAI(video) } label: { Label("Copy for AI", systemImage: "sparkles") }
                         .help("Copy a knowledge pack for Claude, ChatGPT, Gemini, Grok, GLM…")
@@ -141,7 +175,7 @@ private struct Header: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 18) {
-                Button { NSWorkspace.shared.open(video.url) } label: {
+                Button { app.playMoment(video, at: 0) } label: {
                     ZStack {
                         Thumbnail(url: video.thumbnailURL, width: 220, radius: 16)
                         Image(systemName: "play.fill")
@@ -153,7 +187,7 @@ private struct Header: View {
                 }
                 .buttonStyle(.plain)
                 .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
-                .help("Play on YouTube")
+                .help(video.kind == .youtube ? "Play on YouTube" : "Play in YouTube Zeus")
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text(video.displayTitle)
@@ -249,6 +283,16 @@ private struct Header: View {
                             .disabled(app.engine.isPolishing(video.videoID))
                             .help("Fix punctuation, capitals and misheard words with \(app.settings.polishModel), on this Mac")
                         }
+                        if video.kind != .podcast || video.mediaURL.map(MediaFiles.isVideo) == true {
+                            Button {
+                                app.readScreen(video)
+                            } label: {
+                                Label(video.screenReadAt == nil ? "Read the screen" : "Read the screen again", systemImage: "text.viewfinder")
+                            }
+                            .buttonStyle(.glass)
+                            .disabled(app.engine.isReadingScreen(video.videoID))
+                            .help("Read slide titles, code and commands shown in the video, with Apple's Vision on this Mac")
+                        }
                         if video.source == .autoCaptions {
                             Button {
                                 app.engine.retry(video, withWhisper: true)
@@ -263,7 +307,8 @@ private struct Header: View {
                 if let error = video.polishError {
                     Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
                 }
-                if app.engine.isSummarizing(video.videoID) || app.compiler.compiling.contains(video.videoID) || app.engine.isPolishing(video.videoID) {
+                if app.engine.isSummarizing(video.videoID) || app.compiler.compiling.contains(video.videoID) || app.engine.isPolishing(video.videoID)
+                    || app.engine.isReadingScreen(video.videoID) {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
                         Text(app.compiler.compiling.contains(video.videoID)
@@ -378,10 +423,12 @@ private struct ProgressCard: View {
 }
 
 struct TranscriptBody: View {
+    @Environment(AppModel.self) private var app
     let video: Video
     let paragraphs: [TranscriptParagraph]
     let find: String
     var isPolished = false
+    var highlight: Int? = nil
 
     var body: some View {
         let query = find.trimmingCharacters(in: .whitespaces)
@@ -402,7 +449,7 @@ struct TranscriptBody: View {
                 ForEach(visible) { paragraph in
                     HStack(alignment: .firstTextBaseline, spacing: 14) {
                         Button {
-                            NSWorkspace.shared.open(video.url(at: paragraph.start))
+                            app.playMoment(video, at: paragraph.start)
                         } label: {
                             Text(paragraph.start.timestamp)
                                 .font(.callout.monospacedDigit().weight(.semibold))
@@ -410,13 +457,17 @@ struct TranscriptBody: View {
                                 .frame(width: 62, alignment: .trailing)
                         }
                         .buttonStyle(.plain)
-                        .help("Play from here on YouTube")
+                        .help(video.kind == .youtube ? "Play from here on YouTube" : "Play from here")
                         Text(highlighted(paragraph.text, query))
                             .font(.system(size: 14.5))
                             .lineSpacing(4)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .padding(.vertical, highlight == paragraph.id ? 6 : 0)
+                    .padding(.horizontal, highlight == paragraph.id ? 8 : 0)
+                    .background(highlight == paragraph.id ? Color.zeusGold.opacity(0.22) : .clear, in: .rect(cornerRadius: 10))
+                    .id("p\(paragraph.id)")
                 }
             }
         }
@@ -444,7 +495,7 @@ struct SummaryBody: View {
             VStack(alignment: .leading, spacing: 22) {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("Summary", systemImage: "apple.intelligence").font(.headline).foregroundStyle(.tint)
-                    Text(digest.summary).font(.system(size: 15)).lineSpacing(4).textSelection(.enabled)
+                    Text(timedSummary(digest)).font(.system(size: 15)).lineSpacing(4).textSelection(.enabled)
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -461,6 +512,9 @@ struct SummaryBody: View {
                                     .frame(width: 20, height: 20)
                                     .background(Color.zeus, in: .circle)
                                 Text(point).textSelection(.enabled)
+                                if let seconds = digest.keyPointTime(index) {
+                                    MomentButton(video: video, seconds: seconds)
+                                }
                             }
                         }
                     }
@@ -470,7 +524,7 @@ struct SummaryBody: View {
                         Text("Chapters").font(.headline)
                         ForEach(digest.chapters, id: \.self) { chapter in
                             Button {
-                                NSWorkspace.shared.open(video.url(at: chapter.start))
+                                app.open(video: video.videoID, at: chapter.start)
                             } label: {
                                 HStack(spacing: 12) {
                                     Text(chapter.start.timestamp).monospacedDigit().foregroundStyle(.tint).frame(width: 62, alignment: .trailing)
@@ -512,6 +566,120 @@ struct SummaryBody: View {
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
             .glassEffect(.regular, in: .rect(cornerRadius: 22))
+        }
+    }
+}
+
+extension SummaryBody {
+    /// The summary with a small link after each sentence placed in the video (opens the transcript at that moment).
+    func timedSummary(_ digest: VideoDigest) -> AttributedString {
+        guard let lines = digest.summaryLines, !lines.isEmpty else { return AttributedString(digest.summary) }
+        var result = AttributedString()
+        for (index, line) in lines.enumerated() {
+            if index > 0 { result += AttributedString(" ") }
+            result += AttributedString(line.text)
+            if let seconds = line.seconds, let url = URL(string: BrainLinks.zeus(video: video.videoID, t: seconds)) {
+                var moment = AttributedString(" \(seconds.timestamp)")
+                moment.link = url
+                moment.font = .system(size: 12, weight: .semibold).monospacedDigit()
+                moment.foregroundColor = .zeus
+                result += moment
+            }
+        }
+        return result
+    }
+}
+
+/// "12:34 ▶": the moment of a key point or a source. Click: the transcript at that moment; ▶: play it.
+struct MomentButton: View {
+    @Environment(AppModel.self) private var app
+    let video: Video
+    let seconds: Double
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Button {
+                app.open(video: video.videoID, at: seconds)
+            } label: {
+                Text(seconds.timestamp).font(.caption.monospacedDigit().weight(.semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.tint)
+            .help("Show this moment in the transcript")
+            Button {
+                app.playMoment(video, at: seconds)
+            } label: {
+                Image(systemName: "play.fill").font(.system(size: 9))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help(video.kind == .youtube ? "Play on YouTube from \(seconds.timestamp)" : "Play from \(seconds.timestamp)")
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Color.zeus.opacity(0.1), in: .capsule)
+        .fixedSize()
+    }
+}
+
+/// Text read on screen: slide titles, commands and code, each with its moment.
+struct ScreenBody: View {
+    @Environment(AppModel.self) private var app
+    let video: Video
+
+    var body: some View {
+        let items = video.screen
+        VStack(alignment: .leading, spacing: 14) {
+            if items.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    if app.engine.isReadingScreen(video.videoID) {
+                        HStack { ProgressView().controlSize(.small); Text(app.engine.state(for: video.videoID)?.step ?? "Reading the screen…") }
+                    } else {
+                        Text(video.screenError ?? (video.screenReadAt == nil
+                             ? "Zeus has not read this video's screen yet."
+                             : "Nothing readable was found on screen (no slides, code or commands)."))
+                            .foregroundStyle(video.screenError == nil ? Color.secondary : Color.red)
+                        Text("Frames are taken every \(app.settings.screenInterval) seconds and read by Apple's Vision on this Mac. For YouTube videos the picture is downloaded without sound (up to 1080p), then deleted.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Button { app.readScreen(video) } label: { Label("Read the screen", systemImage: "text.viewfinder") }
+                            .buttonStyle(.glassProminent)
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassEffect(.regular, in: .rect(cornerRadius: 22))
+            } else {
+                Text("\(items.count) things read on screen by Apple's Vision on this Mac. OCR can misread characters: check a command before running it.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        MomentButton(video: video, seconds: item.start)
+                        Image(systemName: item.kind.symbol).foregroundStyle(.secondary).frame(width: 18)
+                        if item.kind == .code || item.text.contains("\n") {
+                            Text(item.text)
+                                .font(.system(size: 12, design: .monospaced))
+                                .textSelection(.enabled)
+                                .padding(10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 10))
+                        } else if item.kind == .command {
+                            Text(item.text).font(.system(size: 13, design: .monospaced)).textSelection(.enabled)
+                        } else {
+                            Text(item.text).font(item.kind == .title ? .headline : .body).textSelection(.enabled)
+                        }
+                        Spacer(minLength: 0)
+                        if item.kind == .code || item.kind == .command {
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(item.text, forType: .string)
+                                app.show("Copied. Check it before running it: OCR can misread characters.")
+                            } label: { Image(systemName: "doc.on.doc") }
+                                .buttonStyle(.borderless)
+                                .help("Copy")
+                        }
+                    }
+                }
+            }
         }
     }
 }

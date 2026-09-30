@@ -23,17 +23,17 @@ final class EatEngine {
         var progress: Double?
     }
 
-    private(set) var jobs: [String: JobState] = [:]
+    var jobs: [String: JobState] = [:]
     private(set) var queue: [String] = []
-    private var tasks: [String: Task<Void, Never>] = [:]
-    private var whisperBusy = false
+    private(set) var tasks: [String: Task<Void, Never>] = [:]
+    var whisperBusy = false
     private var summarizing: Set<String> = []
     private var forceWhisper: Set<String> = []
     /// After eating, two lanes run side by side: the local AI polishes, Codex/Apple Intelligence summarizes.
     private(set) var polishQueue: [String] = []
     private(set) var summaryQueue: [String] = []
-    private var polishRunning = false
-    private var summaryRunning = false
+    private(set) var polishRunning = false
+    private(set) var summaryRunning = false
     private(set) var polishCurrent: String?
     private(set) var summaryCurrent: String?
 
@@ -48,6 +48,15 @@ final class EatEngine {
     }
     private(set) var polishing: Set<String> = []
     private var forcePolish: Set<String> = []
+    // People, tools and companies (3.0)
+    var entityQueue: [String] = []
+    var entityRunning = false
+    var entityCurrent: String?
+    @ObservationIgnored var onNames: ((String) -> Void)?
+    // Text on screen (3.0)
+    var screenQueue: [String] = []
+    var screenRunning = false
+    var screenCurrent: String?
     private(set) var githubQueue: [String] = []
     private var githubRunning = false
     private(set) var githubChecking: String?
@@ -203,7 +212,7 @@ final class EatEngine {
         }
     }
 
-    private func update(_ id: String, _ step: String, _ progress: Double? = nil) {
+    func update(_ id: String, _ step: String, _ progress: Double? = nil) {
         jobs[id] = JobState(step: step, progress: progress)
         video(id)?.statusDetail = step
     }
@@ -212,6 +221,10 @@ final class EatEngine {
 
     private func run(_ id: String) async {
         guard let video = video(id) else { return }
+        if video.kind != .youtube {
+            await runMedia(video)
+            return
+        }
         guard let ytdlp = settings.makeYTDLP(withComments: settings.commentsCount > 0) else {
             video.status = .failed
             video.statusDetail = EatError.missing("yt-dlp").localizedDescription
@@ -263,21 +276,7 @@ final class EatEngine {
             }
 
             guard let result else { throw EatError.noCaptions }
-            video.segments = result.segments
-            video.transcriptText = Paragrapher.paragraphs(from: result.segments).map(\.text).joined(separator: "\n\n")
-            video.source = result.source
-            video.language = result.language.isEmpty ? (info.language ?? "") : result.language
-            video.eatenAt = .now
-            video.status = .done
-            video.statusDetail = ""
-            AppLog.write("EATEN \(id) [\(result.source.rawValue), \(video.language)] \(video.displayTitle)")
-            video.polished = []
-            video.polishError = nil
-            try? context.save()
-            exporter.export(video)
-            try? context.save()
-            scheduleGitHub(id)
-            schedulePost(id)
+            finishEating(video, result: result, fallbackLanguage: info.language ?? "")
         } catch {
             let cancelled = Self.isCancellation(error)
             video.status = .failed
@@ -287,7 +286,30 @@ final class EatEngine {
         try? context.save()
     }
 
-    static func isCancellation(_ error: Error) -> Bool {
+    /// The text is in: save it, write the note, then GitHub checks, polishing and the summary follow.
+    func finishEating(_ video: Video, result: TranscriptResult, fallbackLanguage: String) {
+        let id = video.videoID
+        video.segments = result.segments
+        video.transcriptText = Paragrapher.paragraphs(from: result.segments).map(\.text).joined(separator: "\n\n")
+        video.source = result.source
+        video.language = result.language.isEmpty ? fallbackLanguage : result.language
+        if video.duration == 0 { video.duration = result.segments.last?.end ?? 0 }
+        video.eatenAt = .now
+        video.status = .done
+        video.statusDetail = ""
+        AppLog.write("EATEN \(id) [\(result.source.rawValue), \(video.language)] \(video.displayTitle)")
+        video.polished = []
+        video.polishError = nil
+        try? context.save()
+        exporter.export(video)
+        try? context.save()
+        onChanged?(id)
+        scheduleGitHub(id)
+        schedulePost(id)
+        onEaten?(id)
+    }
+
+    nonisolated static func isCancellation(_ error: Error) -> Bool {
         if error is CancellationError { return true }
         if let failure = error as? ProcessFailure, case .cancelled = failure { return true }
         return false
@@ -374,6 +396,7 @@ final class EatEngine {
         exporter.scheduleIndexes(in: context)
         try? context.save()
         onProcessed?(video.videoID)
+        scheduleEntities(video.videoID)
         if video.fromChannelWatch, settings.notifyWhenEaten {
             Notifier.post(title: "Eaten: \(video.displayTitle)", body: video.channelTitle)
         }
@@ -381,6 +404,10 @@ final class EatEngine {
 
     /// Called when a video has finished all its after-eating work (used to refresh Claude packs).
     @ObservationIgnored var onProcessed: ((String) -> Void)?
+    /// Called whenever an item's searchable content changes (eaten, polished, summarized, screen read…).
+    @ObservationIgnored var onChanged: ((String) -> Void)?
+    /// Called once the text of an item is in (used to read the screen of your own videos).
+    @ObservationIgnored var onEaten: ((String) -> Void)?
 
     // MARK: GitHub links (fast, beside polishing and summaries)
 
@@ -440,7 +467,7 @@ final class EatEngine {
         guard settings.polishEnabled, polisher.isInstalled else { return false }
         switch video.source {
         case .autoCaptions, .whisper: return true
-        case .captions: return settings.polishCaptionsToo
+        case .captions, .published: return settings.polishCaptionsToo
         case .none: return false
         }
     }
@@ -474,9 +501,12 @@ final class EatEngine {
         video.status = previous == .polishing ? .done : previous
         if video.status != .failed { video.status = .done }
         if tasks[id] == nil { jobs[id] = nil }
+        // The moments of the summary follow the polished text.
+        if let digest = video.digest { video.digest = Grounder.ground(digest, paragraphs: video.displayParagraphs) }
         try? context.save()
         exporter.export(video)
         try? context.save()
+        onChanged?(id)
     }
 
     /// Polish a video by hand (from the detail view or the menu).
@@ -488,31 +518,55 @@ final class EatEngine {
     private func transcribeWithWhisper(id: String, ytdlp: YTDLP, workDir: URL) async throws -> TranscriptResult {
         guard let whisperPath = ToolLocator.find("whisper-cli", override: settings.whisperPath) else { throw EatError.missing("whisper-cli") }
         guard let ffmpegPath = ToolLocator.find("ffmpeg", override: settings.ffmpegPath) else { throw EatError.missing("ffmpeg") }
-        let model = WhisperModel(rawValue: settings.whisperModel) ?? .turbo
-        let whisper = WhisperTranscriber(whisperPath: whisperPath, ffmpegPath: ffmpegPath, model: model)
+        let whisper = makeWhisper(whisperPath: whisperPath, ffmpegPath: ffmpegPath)
+        try await waitForWhisper(id)
+        defer { whisperBusy = false }
+        try await prepareWhisper(whisper, id: id)
+        update(id, "No captions — downloading audio", 0)
+        let audio = try await ytdlp.downloadAudio(videoID: id, workDir: workDir.appendingPathComponent("audio")) { value in
+            Task { @MainActor in self.update(id, "No captions — downloading audio", value) }
+        }
+        return try await listen(whisper, audio: audio, id: id, workDir: workDir)
+    }
 
+    func makeWhisper(whisperPath: String, ffmpegPath: String) -> WhisperTranscriber {
+        WhisperTranscriber(whisperPath: whisperPath, ffmpegPath: ffmpegPath,
+                           model: WhisperModel(rawValue: settings.whisperModel) ?? .turbo,
+                           engine: SpeechEngine(rawValue: settings.speechEngine) ?? .auto)
+    }
+
+    /// One item listens at a time (the recognizer uses the whole GPU).
+    func waitForWhisper(_ id: String) async throws {
         video(id)?.status = .transcribing
-        if whisperBusy { update(id, "Waiting for Whisper (another video is being listened to)") }
+        if whisperBusy { update(id, "Waiting to listen (another item is being listened to)") }
         while whisperBusy {
             try await Task.sleep(for: .seconds(1))
         }
         whisperBusy = true
-        defer { whisperBusy = false }
+    }
 
-        if !whisper.hasModel {
+    func prepareWhisper(_ whisper: WhisperTranscriber, id: String) async throws {
+        if whisper.resolvedEngine == .whisperCpp, !whisper.hasModel {
             update(id, "Downloading the Whisper model (once)", 0)
             try await whisper.ensureModel { value in
                 Task { @MainActor in self.update(id, "Downloading the Whisper model (once)", value) }
             }
         }
-        update(id, "No captions — downloading audio", 0)
-        let audio = try await ytdlp.downloadAudio(videoID: id, workDir: workDir.appendingPathComponent("audio")) { value in
-            Task { @MainActor in self.update(id, "No captions — downloading audio", value) }
+    }
+
+    func listen(_ whisper: WhisperTranscriber, audio: URL, id: String, workDir: URL) async throws -> TranscriptResult {
+        let step = "Listening with \(whisper.engineLabel)"
+        update(id, step, 0)
+        let started = Date.now
+        let result = try await offMain(.userInitiated) {
+            try await whisper.transcribe(audio: audio, workDir: workDir) { value in
+                Task { @MainActor in self.update(id, step, value) }
+            }
         }
-        update(id, "Listening with Whisper", 0)
-        return try await whisper.transcribe(audio: audio, workDir: workDir) { value in
-            Task { @MainActor in self.update(id, "Listening with Whisper", value) }
-        }
+        let seconds = Date.now.timeIntervalSince(started)
+        let length = result.segments.last?.end ?? 0
+        AppLog.write("WHISPER \(id) \(whisper.engineLabel): \(Int(length))s of audio in \(Int(seconds))s")
+        return result
     }
 
     // MARK: Summary
@@ -651,8 +705,10 @@ final class EatEngine {
                     }
             }
             guard let digest = result else { throw SummaryError.unavailable(summaryUnavailableMessage) }
-            video.digest = digest
-            AppLog.write("SUMMARY \(id) ok (\(digest.engine))")
+            // Every key point and summary sentence gets the moment of the video it comes from.
+            video.digest = Grounder.ground(digest, paragraphs: video.displayParagraphs)
+            let found = (video.digest?.keyPointTimes ?? []).compactMap { $0 }.count
+            AppLog.write("SUMMARY \(id) ok (\(digest.engine)), \(found)/\(digest.keyPoints.count) key points placed in the video")
         } catch {
             if Self.isUsageLimit(error) {
                 // Not the video's fault: it is summarized again when Codex is back.
@@ -670,7 +726,15 @@ final class EatEngine {
         exporter.export(video)
         exporter.scheduleIndexes(in: context)
         try? context.save()
+        onChanged?(id)
     }
+}
+
+/// Runs heavy work off the main thread; cancelling the caller cancels the work (and the processes it runs).
+nonisolated func offMain<T: Sendable>(_ priority: TaskPriority = .utility,
+                                      _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
+    let work = Task.detached(priority: priority) { try await operation() }
+    return try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
 }
 
 enum Notifier {

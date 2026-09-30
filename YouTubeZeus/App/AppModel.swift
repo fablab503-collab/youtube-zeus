@@ -14,6 +14,16 @@ enum SidebarItem: Hashable {
     case channel(String)
     case collection(String)
     case topic(String)
+    case podcast(String)
+    case entities
+    case digests
+}
+
+/// "Show this item at that moment": the detail view opens the transcript there and highlights the paragraph.
+struct JumpRequest: Equatable {
+    let id = UUID()
+    let videoID: String
+    let seconds: Double
 }
 
 struct Toast: Identifiable, Equatable {
@@ -26,6 +36,15 @@ struct PlaylistOffer: Identifiable {
     var id: String { listID }
     let videoID: String
     let listID: String
+}
+
+struct PodcastOffer: Identifiable {
+    let id = UUID()
+    let channelID: String
+    let title: String
+    let feed: URL
+    let episodes: [PodcastEpisode]
+    let language: String?
 }
 
 struct ChannelOffer: Identifiable {
@@ -45,6 +64,8 @@ final class AppModel {
     let watcher: ChannelWatcher
     let compiler: SkillCompiler
     let polisher: Polisher
+    let indexer: SearchIndexer
+    let player = MediaPlayer()
     let account = YouTubeAccount()
     private var browserStorage: BrowserModel?
 
@@ -61,6 +82,7 @@ final class AppModel {
     var selectedSkillID: UUID?
     var toast: Toast?
     var channelOffer: ChannelOffer?
+    var podcastOffer: PodcastOffer?
     var playlistOffer: PlaylistOffer?
     var importingPlaylists: String?
     var packResults: [String: PackResult] = [:]
@@ -68,6 +90,17 @@ final class AppModel {
     var isResolvingLink = false
     var focusEatBar = 0
     var initialTab: String?
+    var jump: JumpRequest?
+    /// The library's search field (also set by youtubezeus://search?q=…).
+    var librarySearch = ""
+    var selectedEntity: String?
+    var selectedDigest: String?
+    /// 3.0 background work
+    @ObservationIgnored var entityRebuildTask: Task<Void, Never>?
+    @ObservationIgnored var v3Loop: Task<Void, Never>?
+    var entityVersion = 0
+    var digestVersion = 0
+    var phoneLinksEaten = 0
     private var started = false
 
     static func makeContainer() -> ModelContainer {
@@ -97,21 +130,26 @@ final class AppModel {
         self.engine = engine
         self.watcher = ChannelWatcher(context: context, settings: settings, engine: engine, exporter: exporter)
         self.compiler = SkillCompiler(settings: settings)
+        self.indexer = SearchIndexer(context: context)
     }
 
     func start() {
         guard !started else { return }
         started = true
         engine.onProcessed = { [weak self] id in self?.videoProcessed(id) }
+        engine.onChanged = { [weak self] id in self?.itemChanged(id) }
         engine.resumeInterrupted()
         watcher.start()
         Task {
             await account.refresh()
             HandOff.writeToBrain(root: settings.secondBrainURL)
             AgentGuide.writeToBrain(settings: settings)
+            groundOlderSummaries()
             rewriteNotesIfFormatChanged()
             exporter.scheduleIndexes(in: context)
+            await indexer.catchUp()
             await refreshClaudePacks()
+            startV3()
         }
         if settings.notifyWhenEaten { Notifier.requestPermission() }
         // Launch arguments for scripting and tests: -eat <link>, -selectVideo <id>
@@ -228,7 +266,18 @@ final class AppModel {
 
     func eat(_ raw: String) async {
         guard let link = YouTubeLink.parse(raw) else {
-            show("That doesn't look like a YouTube link.", error: true)
+            let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if PodcastFeed.looksLikePodcast(text) {
+                await followPodcast(text)
+            } else if text.hasPrefix("/") || text.hasPrefix("~") || text.hasPrefix("file://") {
+                let url = text.hasPrefix("file://") ? URL(string: text) : URL(fileURLWithPath: (text as NSString).expandingTildeInPath)
+                if let url { await eatFiles([url]) }
+            } else if text.lowercased().hasPrefix("http") {
+                // Maybe a feed without a telltale address: try it as a podcast.
+                await followPodcast(text)
+            } else {
+                show("That doesn't look like a YouTube link, a podcast feed or a file.", error: true)
+            }
             return
         }
         // A channel's Playlists tab: import every playlist as a collection.
@@ -399,13 +448,33 @@ final class AppModel {
         case .eat(let link):
             Task { await eat(link) }
             return
-        case .video(let id, let tab):
-            if engine.video(id) == nil {
+        case .video(let id, let tab, let seconds):
+            if engine.video(id) == nil, MediaKind.of(id: id) == .youtube {
                 Task { await eat("https://www.youtube.com/watch?v=\(id)") }
             }
             if selection != .library, selection != .github { selection = .library }
-            initialTab = tab
+            initialTab = seconds == nil ? tab : "Transcript"
             selectedVideoID = id
+            if let seconds { jump = JumpRequest(videoID: id, seconds: seconds) }
+        case .eatFile(let path):
+            Task { await eatFiles([URL(fileURLWithPath: (path as NSString).expandingTildeInPath)]) }
+        case .podcast(let feed, let latest):
+            Task { await followPodcast(feed, latest: latest) }
+        case .search(let query):
+            selection = .library
+            librarySearch = query
+        case .entity(let name):
+            selection = .entities
+            selectedEntity = name
+        case .screen(let id):
+            if let video = engine.video(id) {
+                selection = .library
+                selectedVideoID = id
+                readScreen(video)
+            }
+        case .digest(let week):
+            selection = .digests
+            Task { await openDigest(week: week) }
         case .collection(let id):
             selection = .collection(id)
         case .channel(let id):
@@ -435,6 +504,8 @@ final class AppModel {
             case "skills": selection = .skills
             case "eating", "queue": selection = .eating
             case "youtube", "browser": selection = .browser
+            case "entities", "people", "tools", "companies": selection = .entities
+            case "digests", "digest": selection = .digests
             default: selection = .library
             }
         case .ask(let question):
@@ -454,8 +525,40 @@ final class AppModel {
         NSApp.activate()
     }
 
-    /// Notes written by an older version get the current format once (links back to Zeus, GitHub section…).
-    static let noteFormat = 3
+    /// Notes written by an older version get the current format once (links back to Zeus, GitHub section,
+    /// 3.0: moments after key points and summary sentences, on-screen text, people/tools/companies).
+    static let noteFormat = 4
+
+    /// Summaries made before 3.0 get their moments once (no AI: the key points are matched to the transcript).
+    func groundOlderSummaries() {
+        let videos = ((try? context.fetch(FetchDescriptor<Video>())) ?? []).filter { $0.digestData != nil }
+        var count = 0
+        for video in videos {
+            guard let digest = video.digest, digest.keyPointTimes == nil else { continue }
+            video.digest = Grounder.ground(digest, paragraphs: video.displayParagraphs)
+            count += 1
+        }
+        guard count > 0 else { return }
+        try? context.save()
+        AppLog.write("CITATIONS placed the key points and summary sentences of \(count) older summaries")
+    }
+
+    /// Something searchable changed (eaten, polished, summarized, screen read, names found).
+    func itemChanged(_ id: String) {
+        indexer.schedule(id)
+        entityChanged(id)
+    }
+
+    /// Opens an item in the library, at a moment when given.
+    func open(video id: String, at seconds: Double? = nil) {
+        if selection != .library, selection != .github, selection != .ask { selection = .library }
+        if selection == .ask { selection = .library }
+        selectedVideoID = id
+        if let seconds {
+            initialTab = "Transcript"
+            jump = JumpRequest(videoID: id, seconds: seconds)
+        }
+    }
 
     func rewriteNotesIfFormatChanged() {
         let defaults = UserDefaults.standard
@@ -525,16 +628,26 @@ final class AppModel {
         }
         isAsking = true
         defer { isAsking = false }
-        let done = [EatStatus.done, .summarizing, .polishing].map(\.rawValue)
-        let videos = ((try? context.fetch(FetchDescriptor<Video>(predicate: #Predicate { done.contains($0.statusRaw) })))) ?? []
-        let passages = AskBrain.retrieve(question: question, videos: videos.map(\.snapshot))
+        var passages: [BrainPassage] = []
+        if let index = indexer.index {
+            let found = await Task.detached(priority: .userInitiated) { AskBrain.retrieve(question: question, index: index) }.value
+            var snapshots: [String: VideoSnapshot] = [:]
+            for id in Set(found.map(\.videoID)) { snapshots[id] = self.engine.video(id)?.snapshot }
+            passages = AskBrain.withContext(found, videos: snapshots)
+        }
+        if passages.isEmpty {
+            let done = [EatStatus.done, .summarizing, .polishing].map(\.rawValue)
+            let videos = ((try? context.fetch(FetchDescriptor<Video>(predicate: #Predicate { done.contains($0.statusRaw) })))) ?? []
+            passages = AskBrain.retrieve(question: question, videos: videos.map(\.snapshot))
+        }
         askPassages = passages
         guard !passages.isEmpty else {
             askError = "Nothing in your library talks about that yet. Eat a few videos about it first."
             return
         }
         do {
-            askAnswer = try await AskBrain.ask(question: question, passages: passages, engine: engine)
+            let answer = try await AskBrain.ask(question: question, passages: passages, engine: engine)
+            askAnswer = AskBrain.verified(answer) { id in self.engine.video(id)?.displayParagraphs ?? [] }
             AppLog.write("ASK ok: \(question)")
         } catch {
             askError = error.localizedDescription
@@ -707,6 +820,7 @@ final class AppModel {
     func delete(_ video: Video) {
         engine.cancel(video.videoID)
         if selectedVideoID == video.videoID { selectedVideoID = nil }
+        indexer.remove(video.videoID)
         context.delete(video)
         try? context.save()
     }

@@ -65,6 +65,7 @@ final class AppModel {
     let compiler: SkillCompiler
     let polisher: Polisher
     let indexer: SearchIndexer
+    let setup: SetupAssistant
     let player = MediaPlayer()
     let account = YouTubeAccount()
     private var browserStorage: BrowserModel?
@@ -101,6 +102,8 @@ final class AppModel {
     var entityVersion = 0
     var digestVersion = 0
     var phoneLinksEaten = 0
+    /// The setup page (first launch, Settings › Tools, youtubezeus://setup, zeus setup).
+    var showSetup = false
     private var started = false
 
     static func makeContainer() -> ModelContainer {
@@ -131,6 +134,7 @@ final class AppModel {
         self.watcher = ChannelWatcher(context: context, settings: settings, engine: engine, exporter: exporter)
         self.compiler = SkillCompiler(settings: settings)
         self.indexer = SearchIndexer(context: context)
+        self.setup = SetupAssistant(settings: settings)
     }
 
     func start() {
@@ -140,6 +144,7 @@ final class AppModel {
         engine.onChanged = { [weak self] id in self?.itemChanged(id) }
         engine.resumeInterrupted()
         watcher.start()
+        Task { await openSetupIfNeeded() }
         Task {
             await account.refresh()
             HandOff.writeToBrain(root: settings.secondBrainURL)
@@ -441,6 +446,18 @@ final class AppModel {
 
     /// youtubezeus://eat?url=…  (used by the zeus command and by scripts)
     /// `youtubezeus://…` links: from the zeus command, from notes in the Second Brain, from other apps and agents.
+    /// The setup page opens by itself when Zeus cannot eat videos yet (no yt-dlp), and once on a Mac where tools
+    /// are missing. Afterwards it is in Settings › Tools, `youtubezeus://setup` and `zeus setup`.
+    func openSetupIfNeeded() async {
+        await setup.quickCheck()
+        let firstTime = !UserDefaults.standard.bool(forKey: "setupSeen")
+        UserDefaults.standard.set(true, forKey: "setupSeen")
+        if setup.essentialsMissing || (firstTime && !setup.everythingReady) {
+            AppLog.write("SETUP page opened: " + (setup.essentialsMissing ? "yt-dlp is missing" : "first launch with tools missing"))
+            showSetup = true
+        }
+    }
+
     func handle(_ url: URL) {
         guard let target = BrainLinks.parse(url) else { return }
         AppLog.write("LINK \(url.absoluteString)")
@@ -475,6 +492,8 @@ final class AppModel {
         case .digest(let week):
             selection = .digests
             Task { await openDigest(week: week) }
+        case .setup:
+            showSetup = true
         case .collection(let id):
             selection = .collection(id)
         case .channel(let id):

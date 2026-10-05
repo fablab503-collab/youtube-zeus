@@ -42,7 +42,13 @@ Paste a YouTube or podcast link, or drop a recording on the window. Zeus eats it
 
 ## Install and build
 
-Needs macOS 27, Xcode 27 and a few free tools:
+**Using the app:** open YouTube Zeus and its setup page does the rest. It checks this Mac and installs what is
+missing: Homebrew (Apple's installer asks for your password once), yt-dlp, Deno, ffmpeg, whisper.cpp, Ollama, and the
+local AI model that suits your Mac (it reads the chip, memory and free disk, and preselects the strongest model that
+runs comfortably). It opens by itself the first time, and any time from Settings › Tools, `youtubezeus://setup` or
+`zeus setup --install`.
+
+**Building it** needs macOS 27, Xcode 27 and the same free tools:
 
 ```bash
 brew install xcodegen yt-dlp ffmpeg whisper-cpp deno   # required
@@ -73,6 +79,7 @@ zeus eat ~/Movies/lecture.mp4       # your own recording, eaten by the app
 zeus podcast "<feed or Apple Podcasts link>" --follow --latest 3
 zeus screen "<link|id>"             # text on screen: slide titles, code, commands
 zeus entities [name] / zeus entity "<name>"   # people, tools and companies
+zeus setup [--install] [--json]     # check this Mac and install what is missing
 zeus digest [--last] [--save]       # the weekly digest
 zeus mcp                            # MCP server (stdio) for Claude, Codex, Cursor, LM Studio…
 zeus list "<playlist|channel>" --limit 50

@@ -60,6 +60,9 @@ enum ZeusCLI {
                                 the weekly digest: what was eaten, best ideas, open questions, new repositories
       zeus mcp                  run YouTube Zeus as an MCP server (stdio) for Claude, Codex, Cursor, LM Studio…
       zeus shortcut [--no-open] make the "Eat with Zeus" shortcut for the iPhone/iPad share sheet (opens Shortcuts)
+      zeus setup [--install] [--model <tag>] [--json]
+                                check this Mac: yt-dlp, Deno, ffmpeg, whisper.cpp, Ollama and the local AI model that
+                                suits it (--install installs what is missing with Homebrew and downloads the model)
       zeus where                show where notes are saved
       zeus install-skills       install the youtube-zeus skill for Claude Code, Codex, Gemini CLI, ~/.agents
       zeus instructions         print instructions to paste into any AI
@@ -236,6 +239,37 @@ enum ZeusCLI {
                 print(EntityNotes.factsBlock(record).replacingOccurrences(of: EntityNotes.factsStart, with: "# \(record.name)")
                         .replacingOccurrences(of: EntityNotes.factsEnd, with: ""))
                 return 0
+            case "setup":
+                let setup = SetupAssistant(settings: settings)
+                log("Checking this Mac…")
+                await setup.refresh()
+                if let index = raw.firstIndex(of: "--model"), index + 1 < raw.count {
+                    setup.chosenModel = raw[index + 1]
+                    await setup.checkModel()
+                    // Already downloaded: Zeus uses it now (else --install downloads it).
+                    if setup.isInstalled(setup.chosenModel), settings.polishModel != setup.chosenModel {
+                        setup.useChosenModel()
+                        await setup.checkModel()
+                        log("Zeus now uses \(setup.chosenModel)")
+                    }
+                }
+                if flags.contains("--json") {
+                    print(setupJSON(setup))
+                    return setup.essentialsMissing ? 1 : 0
+                }
+                printSetup(setup)
+                guard flags.contains("--install") else {
+                    if !setup.everythingReady {
+                        print("\nInstall what is missing: zeus setup --install (or open YouTube Zeus: its setup page also installs Homebrew).")
+                    }
+                    return setup.essentialsMissing ? 1 : 0
+                }
+                setup.onNote = { print("  " + $0) }
+                setup.onProgress = { print("    " + $0) }
+                await setup.runAll(withHomebrew: false)
+                print("")
+                printSetup(setup)
+                return setup.everythingReady ? 0 : 1
             case "digest":
                 var key = WeeklyDigest.key(for: .now)
                 if let index = raw.firstIndex(of: "--week"), index + 1 < raw.count { key = raw[index + 1] }
@@ -771,6 +805,71 @@ enum ZeusCLI {
 
     static func log(_ message: String) {
         FileHandle.standardError.write(Data(("zeus: " + message + "\n").utf8))
+    }
+
+    static func printSetup(_ setup: SetupAssistant) {
+        if let hardware = setup.hardware { print("\(hardware.name): \(hardware.summary)") }
+        for item in SetupItem.installOrder {
+            let mark: String
+            let detail: String
+            switch setup.state(item) {
+            case .ready(let text): mark = "✓"; detail = text
+            case .missing(let text): mark = "✗"; detail = text
+            case .failed(let text): mark = "!"; detail = text
+            case .working(let text, _), .waiting(let text): mark = "…"; detail = text
+            case .checking: mark = "?"; detail = ""
+            }
+            print("  \(mark) \(item.title.padding(toLength: 28, withPad: " ", startingAt: 0)) \(detail)")
+        }
+        if let best = setup.recommended {
+            print("  Best local AI for this Mac: \(best.name) (\(best.tag), \(best.sizeText)). In use: \(setup.settings.polishModel)")
+        }
+    }
+
+    static func setupJSON(_ setup: SetupAssistant) -> String {
+        var items: [[String: Any]] = []
+        for item in SetupItem.installOrder {
+            let state = setup.state(item)
+            var detail = ""
+            switch state {
+            case .ready(let text), .missing(let text), .failed(let text), .waiting(let text), .working(let text, _): detail = text
+            case .checking: break
+            }
+            items.append(["item": item.rawValue, "title": item.title, "ready": state.isReady, "detail": detail])
+        }
+        var models: [[String: Any]] = []
+        for option in setup.models where option.available != false {
+            var fit = "unknown"
+            if let hardware = setup.hardware {
+                switch ModelCatalog.fit(option, on: hardware) {
+                case .comfortable: fit = "comfortable"
+                case .heavy: fit = "heavy"
+                case .tooBig: fit = "too big"
+                }
+            }
+            let size: Double = (option.sizeGB * 10).rounded() / 10
+            var model: [String: Any] = ["name": option.name, "tag": option.tag, "sizeGB": size, "fit": fit,
+                                        "downloaded": setup.isInstalled(option.tag)]
+            if let hardware = setup.hardware, let speed = ModelCatalog.wordsPerSecond(option, on: hardware) {
+                model["wordsPerSecond"] = Int(speed.rounded())
+            }
+            models.append(model)
+        }
+        var json: [String: Any] = ["everythingReady": setup.everythingReady, "modelInUse": setup.settings.polishModel,
+                                   "items": items, "models": models]
+        if let hardware = setup.hardware {
+            var mac: [String: Any] = ["name": hardware.name, "chip": hardware.chip, "memoryGB": hardware.memoryGB,
+                                      "freeDiskGB": hardware.freeDiskGB]
+            if let cores = hardware.gpuCores { mac["gpuCores"] = cores }
+            json["mac"] = mac
+        }
+        if let best = setup.recommended {
+            let size: Double = (best.sizeGB * 10).rounded() / 10
+            json["recommendedModel"] = ["name": best.name, "tag": best.tag, "sizeGB": size] as [String: Any]
+        }
+        let data = (try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]))
+            ?? Data("{}".utf8)
+        return String(decoding: data, as: UTF8.self)
     }
 
     @discardableResult

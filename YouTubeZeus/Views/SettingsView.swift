@@ -352,12 +352,24 @@ private struct CodexSettings: View {
 private struct ToolSettings: View {
     @Environment(AppSettings.self) private var settings
     @Environment(AppModel.self) private var app
+    @Environment(\.openWindow) private var openWindow
     @State private var versions: [String: String] = [:]
     @State private var updating = false
 
     var body: some View {
         @Bindable var settings = settings
         Form {
+            Section("Setup assistant") {
+                HStack {
+                    Text("Checks and installs everything Zeus uses: Homebrew, yt-dlp, Deno, ffmpeg, whisper.cpp, Ollama and the local AI model that suits this Mac.")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Open…") {
+                        app.showSetup = true
+                        openWindow(id: "main")
+                    }
+                }
+            }
             Section("Command-line tools") {
                 toolRow("yt-dlp", path: $settings.ytdlpPath)
                 toolRow("ffmpeg", path: $settings.ffmpegPath)
@@ -428,6 +440,7 @@ private struct ToolSettings: View {
 private struct LocalAISettings: View {
     @Environment(AppSettings.self) private var settings
     @Environment(AppModel.self) private var app
+    @Environment(\.openWindow) private var openWindow
     @State private var models: [String] = []
     @State private var running = false
     @State private var working = false
@@ -479,6 +492,10 @@ private struct LocalAISettings: View {
                 .font(.callout)
                 if !app.polisher.isInstalled {
                     Link("Get Ollama", destination: URL(string: "https://ollama.com/download")!)
+                }
+                Button("Choose the best model for this Mac…") {
+                    app.showSetup = true
+                    openWindow(id: "main")
                 }
             }
         }

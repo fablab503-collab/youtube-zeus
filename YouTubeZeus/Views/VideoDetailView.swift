@@ -395,6 +395,11 @@ private struct ProgressCard: View {
                 case .failed, .discovered, .waiting:
                     Button { app.engine.retry(video) } label: { Label("Eat now", systemImage: "fork.knife") }
                         .buttonStyle(.glassProminent)
+                    if video.status == .failed,
+                       video.statusDetail.contains("was not found") || video.statusDetail.contains("is not installed") {
+                        Button { app.showSetup = true } label: { Label("Set up tools", systemImage: "wrench.and.screwdriver") }
+                            .buttonStyle(.glass)
+                    }
                 case .queued, .fetching, .transcribing:
                     Button(role: .cancel) { app.engine.cancel(video.videoID) } label: { Label("Cancel", systemImage: "xmark") }
                         .buttonStyle(.glass)

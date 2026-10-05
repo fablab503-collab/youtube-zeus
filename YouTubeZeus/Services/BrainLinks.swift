@@ -87,6 +87,7 @@ nonisolated enum BrainLinks {
         case entity(String)
         case screen(String)
         case digest(String?)
+        case setup
     }
 
     static func parse(_ url: URL) -> Target? {
@@ -106,6 +107,7 @@ nonisolated enum BrainLinks {
         case "search": return value("q").map { .search($0) }
         case "screen": return value("video").map { .screen($0) }
         case "digest": return .digest(value("week"))
+        case "setup": return .setup
         case "open", "show":
             if let id = value("video") { return .video(id, tab: value("tab"), t: value("t").flatMap(Self.seconds)) }
             if let name = value("entity") { return .entity(name) }

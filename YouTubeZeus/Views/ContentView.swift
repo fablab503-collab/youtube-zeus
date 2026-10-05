@@ -76,6 +76,11 @@ struct ContentView: View {
         .sheet(item: $app.podcastOffer) { offer in
             PodcastOfferSheet(offer: offer)
         }
+        .sheet(isPresented: $app.showSetup) {
+            SetupView()
+                .environment(app)
+                .environment(app.settings)
+        }
         .alert("This video is part of a playlist", isPresented: Binding(get: { app.playlistOffer != nil },
                                                                         set: { if !$0 { app.playlistOffer = nil } }),
                presenting: app.playlistOffer) { offer in

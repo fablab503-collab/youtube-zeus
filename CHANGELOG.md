@@ -3,6 +3,21 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 3.1 — 2026-10-05
+
+- **Setup assistant**: a new Mac no longer needs Terminal. The first time Zeus opens (and whenever yt-dlp is missing),
+  a setup page checks everything and installs what is missing, with live progress for each step: Apple's command-line
+  tools, Homebrew (its official installer; Apple asks for the password once, or "Use Terminal instead"), yt-dlp and
+  Deno, ffmpeg, whisper.cpp, Ollama (installed, started as a service, and waited for) and Whisper's speech model.
+  "Set up everything" runs it all in order; each step also has its own button and the details show every line.
+- **The local AI model for this Mac**: Zeus reads the chip, memory, GPU cores and free disk, checks Ollama's library
+  for each model (real download size) and preselects the strongest one that runs comfortably: from Qwen3 1.7B on
+  small Macs to Qwen3 14B, Gemma 3 27B or Qwen3 30B (MoE) on big ones. Heavier models are marked, models that do not
+  fit are disabled, and the chosen one becomes the model of every local AI feature.
+- Also from Settings › Tools ("Setup assistant"), Settings › Local AI ("Choose the best model for this Mac"), a
+  "Set up tools" button on a video that failed because a tool is missing, `youtubezeus://setup` and
+  `zeus setup [--install] [--model <tag>] [--json]` for agents.
+
 ## 3.0 — 2026-09-28
 
 The ten ideas starred on the 3.0 board. Everything stays free and on the Mac.

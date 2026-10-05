@@ -31,6 +31,8 @@ enum HandOff {
     5c. Text on screen of a video (slide titles, code, commands): `zeus screen "<link or id>"`.
        People, tools and companies: `zeus entities [name]`, `zeus entity "<name>"`. The week: `zeus digest --last`.
     5d. MCP: `zeus mcp` is an MCP server (search, get_transcript, get_note, ask, eat, entities, weekly_digest…).
+    5e. If a tool is missing ("yt-dlp was not found"): `zeus setup` shows what this Mac lacks; `zeus setup --install`
+       installs it with Homebrew and downloads the local AI model that suits the Mac (the app's setup page installs Homebrew).
     6. GitHub repos in a video: `zeus github "<link>"` checks each linked repository through the GitHub API
        (exists, activity, license, security advisories, links back to the video); `--save` writes a note per
        repository in `Sources/GitHub/`. Eaten videos get this automatically ("## GitHub" in the note).

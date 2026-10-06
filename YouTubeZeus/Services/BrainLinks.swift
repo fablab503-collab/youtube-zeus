@@ -94,6 +94,8 @@ nonisolated enum BrainLinks {
         case screen(String)
         case digest(String?)
         case setup
+        /// Pause or resume eating (3.3).
+        case eating(paused: Bool)
         case playbook(String, make: Bool, force: Bool, run: String?)
     }
 
@@ -115,6 +117,8 @@ nonisolated enum BrainLinks {
         case "screen": return value("video").map { .screen($0) }
         case "digest": return .digest(value("week"))
         case "setup": return .setup
+        case "pause": return .eating(paused: true)
+        case "resume": return .eating(paused: false)
         case "playbook":
             let make = ["1", "true", "yes"].contains(value("make")?.lowercased() ?? "")
             let force = ["1", "true", "yes"].contains(value("force")?.lowercased() ?? "")

@@ -348,9 +348,14 @@ struct QueueView: View {
         Array(videos.filter { $0.status == .done }.sorted { ($0.eatenAt ?? .distantPast) > ($1.eatenAt ?? .distantPast) }.prefix(12))
     }
 
+    /// Several rows can be selected (⌘-click, ⇧-click) for Cancel, Retry and Delete; one row opens the video.
+    @State private var selection: Set<String> = []
+    @State private var confirmDelete = false
+
+    private var selected: [Video] { videos.filter { selection.contains($0.videoID) } }
+
     var body: some View {
-        @Bindable var app = app
-        List(selection: $app.selectedVideoID) {
+        List(selection: $selection) {
             if !active.isEmpty {
                 Section("Eating") {
                     ForEach(active) { video in
@@ -407,7 +412,51 @@ struct QueueView: View {
             }
         }
         .navigationTitle("Eating now")
-        .navigationSubtitle(active.isEmpty ? "Idle" : "\(active.count) in progress")
+        .navigationSubtitle(app.engine.eatingPaused ? "Paused" : (active.isEmpty ? "Idle" : "\(active.count) in progress"))
+        .toolbar {
+            ToolbarItemGroup {
+                if !selection.isEmpty {
+                    let busy = selected.filter { $0.status.isBusy || $0.status == .queued }
+                    let stopped = selected.filter { $0.status == .failed || $0.status == .waiting }
+                    if !busy.isEmpty {
+                        Button { busy.forEach { app.engine.cancel($0.videoID) } } label: {
+                            Label("Cancel \(busy.count)", systemImage: "stop.circle")
+                        }
+                        .help("Stop eating the selected videos")
+                    }
+                    if !stopped.isEmpty {
+                        Button { stopped.forEach { app.engine.retry($0) } } label: {
+                            Label("Retry \(stopped.count)", systemImage: "arrow.clockwise")
+                        }
+                    }
+                    Button(role: .destructive) { confirmDelete = true } label: {
+                        Label("Delete \(selection.count)", systemImage: "trash")
+                    }
+                    .help("Remove the selected videos from the library (their notes stay in the Second Brain)")
+                    Button("Select none") { selection.removeAll() }
+                }
+                Button {
+                    if app.engine.eatingPaused { app.engine.resumeEating() } else { app.engine.pauseEating() }
+                } label: {
+                    Label(app.engine.eatingPaused ? "Resume" : "Pause",
+                          systemImage: app.engine.eatingPaused ? "play.fill" : "pause.fill")
+                }
+                .help(app.engine.eatingPaused ? "Start eating again" : "Pause eating: what is running waits at the front of the line")
+            }
+        }
+        .confirmationDialog("Delete \(selection.count) video\(selection.count == 1 ? "" : "s") from the library?",
+                            isPresented: $confirmDelete) {
+            Button("Delete", role: .destructive) {
+                selected.forEach { app.delete($0) }
+                selection.removeAll()
+            }
+        } message: {
+            Text("Eating stops. The notes already written stay in the Second Brain.")
+        }
+        .onChange(of: selection) { _, ids in
+            if ids.count == 1, let id = ids.first { app.selectedVideoID = id }
+        }
+        .onAppear { if let id = app.selectedVideoID { selection = [id] } }
     }
 }
 
@@ -435,10 +484,17 @@ struct JobRow: View {
             Button {
                 app.engine.cancel(video.videoID)
             } label: {
-                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                Image(systemName: "stop.circle.fill").foregroundStyle(.secondary)
             }
             .buttonStyle(.borderless)
-            .help("Cancel")
+            .help("Cancel: stop eating this video")
+            Button {
+                app.delete(video)
+            } label: {
+                Image(systemName: "trash.circle.fill").foregroundStyle(.red.opacity(0.8))
+            }
+            .buttonStyle(.borderless)
+            .help("Delete: stop and remove it from the library")
         }
         .padding(.vertical, 4)
     }

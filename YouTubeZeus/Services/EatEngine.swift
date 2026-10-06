@@ -26,6 +26,9 @@ final class EatEngine {
     var jobs: [String: JobState] = [:]
     private(set) var queue: [String] = []
     private(set) var tasks: [String: Task<Void, Never>] = [:]
+    /// Eating paused (3.3): nothing new starts; what was running goes back to the front of the line.
+    private(set) var eatingPaused = false
+    private var pausedRunning: Set<String> = []
     var whisperBusy = false
     private var summarizing: Set<String> = []
     private var forceWhisper: Set<String> = []
@@ -136,7 +139,29 @@ final class EatEngine {
         enqueue([(id: id, title: "", channel: "", channelID: "")], force: true)
     }
 
+    /// Pauses eating: what is running stops and waits at the front of the line, nothing new starts.
+    func pauseEating() {
+        guard !eatingPaused else { return }
+        eatingPaused = true
+        for (id, task) in tasks {
+            pausedRunning.insert(id)
+            task.cancel()
+        }
+        for id in queue { video(id)?.statusDetail = "Paused" }
+        try? context.save()
+        AppLog.write("EAT paused (\(tasks.count) stopped, \(queue.count) waiting)")
+    }
+
+    func resumeEating() {
+        guard eatingPaused else { return }
+        eatingPaused = false
+        for id in queue { video(id)?.statusDetail = "" }
+        AppLog.write("EAT resumed")
+        pump()
+    }
+
     func cancel(_ id: String) {
+        pausedRunning.remove(id)
         queue.removeAll { $0 == id }
         tasks[id]?.cancel()
         if let video = video(id), video.status == .queued {
@@ -208,6 +233,7 @@ final class EatEngine {
     }
 
     private func pump() {
+        guard !eatingPaused else { return }
         // Only eating tasks count here: polishing and summaries run in their own queue.
         while tasks.count < max(1, settings.maxParallel), !queue.isEmpty {
             let id = queue.removeFirst()
@@ -216,6 +242,13 @@ final class EatEngine {
                 await self.run(id)
                 self.jobs[id] = nil
                 self.tasks[id] = nil
+                if self.pausedRunning.remove(id) != nil, let video = self.video(id), video.status != .done {
+                    // Stopped by Pause: back to the front of the line, eaten again from the start on Resume.
+                    video.status = .queued
+                    video.statusDetail = "Paused"
+                    if !self.queue.contains(id) { self.queue.insert(id, at: 0) }
+                    try? self.context.save()
+                }
                 self.pump()
             }
         }

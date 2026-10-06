@@ -1,0 +1,43 @@
+{
+  "_comment": "Bouclier's own YouTube element hiding, applied when 'YouTube ads' is on. #player-ads is deliberately NOT hidden: YouTube uses it to detect ad blockers.",
+  "specific": {
+    "youtube.com": [
+      "#masthead-ad",
+      "ytd-ad-slot-renderer",
+      "ytd-in-feed-ad-layout-renderer",
+      "ytd-banner-promo-renderer",
+      "ytd-statement-banner-renderer",
+      "ytd-promoted-sparkles-web-renderer",
+      "ytd-promoted-sparkles-text-search-renderer",
+      "ytd-promoted-video-renderer",
+      "ytd-display-ad-renderer",
+      "ytd-compact-promoted-video-renderer",
+      "ytd-action-companion-ad-renderer",
+      "ytd-companion-slot-renderer",
+      "ytd-player-legacy-desktop-watch-ads-renderer",
+      "ytd-search-pyv-renderer",
+      "ytd-merch-shelf-renderer",
+      "ytd-engagement-panel-section-list-renderer[target-id=\"engagement-panel-ads\"]",
+      "ytd-rich-item-renderer:has(ytd-ad-slot-renderer)",
+      "ytd-rich-section-renderer:has(ytd-statement-banner-renderer)",
+      "ytd-rich-section-renderer:has(ytd-ad-slot-renderer)",
+      "ytd-reel-video-renderer:has(.ytd-ad-slot-renderer)",
+      "ytd-item-section-renderer:has(> #contents > ytd-ad-slot-renderer:only-child)",
+      ".ytp-ad-overlay-container",
+      ".ytp-ad-overlay-slot",
+      ".ytp-ad-image-overlay",
+      "ytm-promoted-sparkles-web-renderer",
+      "ytm-companion-ad-renderer",
+      "ytm-promoted-video-renderer",
+      "ad-slot-renderer",
+      "ytm-rich-item-renderer:has(ad-slot-renderer)",
+      "tp-yt-paper-dialog:has(ytd-enforcement-message-view-model)",
+      "ytd-enforcement-message-view-model"
+    ]
+  },
+  "exceptions": {
+    "youtube.com": [
+      "#player-ads"
+    ]
+  }
+}

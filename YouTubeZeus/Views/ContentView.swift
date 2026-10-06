@@ -76,6 +76,7 @@ struct ContentView: View {
         .sheet(item: $app.podcastOffer) { offer in
             PodcastOfferSheet(offer: offer)
         }
+        .sheet(isPresented: $app.showMiniBrowser) { MiniBrowserSheet() }
         .sheet(isPresented: $app.showSetup) {
             SetupView()
                 .environment(app)
@@ -337,9 +338,69 @@ struct SidebarView: View {
 struct EatBar: View {
     @Environment(AppModel.self) private var app
     @State private var text = ""
+    @State private var dismissedID: String?
     @FocusState private var focused: Bool
 
     var body: some View {
+        VStack(spacing: 6) {
+            if let video = browserVideo { suggestion(video) }
+            bar
+        }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 14)
+        .padding(.top, 6)
+        .animation(.spring(duration: 0.3), value: browserVideo?.id)
+        .onChange(of: app.focusEatBar) { _, _ in focused = true }
+        .onChange(of: app.eatBarFill) { _, link in
+            guard let link else { return }
+            text = link
+            focused = true
+            app.eatBarFill = nil
+        }
+    }
+
+    /// The video open in the YouTube browser, offered above the bar (until it is used or dismissed).
+    private var browserVideo: BrowserVideo? {
+        guard let browser = app.openedBrowser, let video = BrowserVideo(browser),
+              video.id != dismissedID, !text.contains(video.id) else { return nil }
+        return video
+    }
+
+    private func suggestion(_ video: BrowserVideo) -> some View {
+        HStack(spacing: 10) {
+            AsyncImage(url: video.thumbnail) { image in
+                image.resizable().aspectRatio(16 / 9, contentMode: .fill)
+            } placeholder: {
+                Color.secondary.opacity(0.15)
+            }
+            .frame(width: 64, height: 36)
+            .clipShape(.rect(cornerRadius: 6))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Open in the YouTube browser").font(.caption2).foregroundStyle(.secondary)
+                Text(video.title).font(.callout.weight(.medium)).lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            Button("Use") {
+                text = video.url
+                focused = true
+            }
+            .buttonStyle(.glassProminent)
+            .help("Put this video's link in the Eat bar")
+            Button { BrowserVideo.copy(video.url) } label: { Image(systemName: "link") }
+                .buttonStyle(.glass)
+                .help("Copy the link")
+            Button { dismissedID = video.id } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("Hide")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    private var bar: some View {
         HStack(spacing: 10) {
             Image(systemName: "bolt.fill")
                 .foregroundStyle(Color.zeusGold)
@@ -348,6 +409,13 @@ struct EatBar: View {
                 .textFieldStyle(.plain)
                 .focused($focused)
                 .onSubmit(eat)
+            Button {
+                app.openMiniBrowser()
+            } label: {
+                Image(systemName: "play.rectangle.fill").foregroundStyle(.red)
+            }
+            .buttonStyle(.borderless)
+            .help("Open YouTube in a small browser: sign in, pick a video, copy its link")
             Button {
                 app.chooseFiles()
             } label: {
@@ -379,10 +447,6 @@ struct EatBar: View {
         .padding(.trailing, 8)
         .padding(.vertical, 8)
         .glassEffect(.regular.interactive(), in: .capsule)
-        .padding(.horizontal, 14)
-        .padding(.bottom, 14)
-        .padding(.top, 6)
-        .onChange(of: app.focusEatBar) { _, _ in focused = true }
     }
 
     private func eat() {

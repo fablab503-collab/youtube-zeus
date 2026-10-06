@@ -3,6 +3,21 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 3.3 — 2026-10-06
+
+- **A small YouTube browser in the Eat bar.** The red ▶ button next to the link field opens YouTube in a window
+  over the app (the same signed-in browser as the YouTube page): sign in, search, open a video, then **Copy URL**,
+  **Put in the Eat bar** or **Eat now**, with the video's thumbnail and title.
+- **Eating now: Pause, Cancel, Delete, several at once.** A Pause / Resume button stops eating (what was running
+  waits at the front of the line and starts again on Resume); each row has Cancel and Delete; ⌘-click or ⇧-click
+  selects several rows to cancel, retry or delete them together. Agents: `youtubezeus://pause` and `…://resume`.
+- **Bouclier inside**: the YouTube browser (the mini one and the YouTube page) has Bouclier's YouTube protection
+  built in: its script that strips ads from the player and skips the ones that slip through, its hiding of ad
+  banners and promoted videos, and blocked ad and tracking servers. A "Bouclier on / off" switch sits in both
+  browsers.
+- **The video you have open is offered above the Eat bar**: its thumbnail and title, with **Use** (puts its link in
+  the field), copy, and hide.
+
 ## 3.2.1 — 2026-10-06
 
 Playbooks that are closer to what the video really does, and more detailed (from the first real playbook, "I Built

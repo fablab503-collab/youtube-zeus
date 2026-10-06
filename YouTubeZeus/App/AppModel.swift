@@ -78,6 +78,13 @@ final class AppModel {
         return created
     }
 
+    /// The YouTube browser when it was opened (nil before: it is not loaded just to show suggestions).
+    var openedBrowser: BrowserModel? { browserStorage }
+    /// The small YouTube window opened from the Eat bar (3.3).
+    var showMiniBrowser = false
+    /// A link the mini browser puts in the Eat bar.
+    var eatBarFill: String?
+
     var selection: SidebarItem? = .library
     var selectedVideoID: String?
     var selectedSkillID: UUID?
@@ -495,6 +502,8 @@ final class AppModel {
             Task { await openDigest(week: week) }
         case .setup:
             showSetup = true
+        case .eating(let paused):
+            if paused { engine.pauseEating() } else { engine.resumeEating() }
         case .playbook(let id, let make, let force, let run):
             if selection != .library, selection != .github { selection = .library }
             selectedVideoID = id

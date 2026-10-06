@@ -445,12 +445,10 @@ private struct LocalAISettings: View {
     @State private var running = false
     @State private var working = false
 
-    private let suggestions = [
-        ("qwen3:4b-instruct", "Qwen3 4B Instruct — best balance, multilingual (2.5 GB)"),
-        ("gemma3:4b", "Gemma 3 4B — good in European languages (3.3 GB)"),
-        ("qwen3:8b", "Qwen3 8B — best quality, needs 8 GB free (5.2 GB)"),
-        ("llama3.2:3b", "Llama 3.2 3B — fast, English first (2 GB)"),
-    ]
+    /// The models of the setup page (strongest first), then any other model already downloaded.
+    private var suggestions: [(String, String)] {
+        ModelCatalog.options.map { ($0.tag, "\($0.name) (\($0.sizeText))") }
+    }
 
     var body: some View {
         @Bindable var settings = settings
@@ -464,7 +462,7 @@ private struct LocalAISettings: View {
             Section("Model") {
                 Picker("Model", selection: $settings.polishModel) {
                     ForEach(suggestions, id: \.0) { Text($0.1).tag($0.0) }
-                    ForEach(models.filter { m in !suggestions.contains(where: { $0.0 == m }) }, id: \.self) { Text($0).tag($0) }
+                    ForEach(extraModels, id: \.self) { Text($0).tag($0) }
                 }
                 HStack {
                     Label(running ? "Ollama is running" : (app.polisher.isInstalled ? "Ollama is installed (starts when needed)" : "Ollama is not installed"),
@@ -498,9 +496,54 @@ private struct LocalAISettings: View {
                     openWindow(id: "main")
                 }
             }
+            Section("Playbooks (a tutorial as steps for an AI agent)") {
+                Toggle("Look at the frames with a vision model", isOn: $settings.playbookVision)
+                Picker("Vision model", selection: $settings.visionModel) {
+                    Text("Automatic — the best one for this Mac").tag("")
+                    ForEach(ModelCatalog.visionOptions) { option in
+                        Text("\(option.name) (\(option.sizeText))").tag(option.key)
+                    }
+                    if !settings.visionModel.isEmpty, !ModelCatalog.visionOptions.contains(where: { $0.key == settings.visionModel }) {
+                        Text(settings.visionModel).tag(settings.visionModel)
+                    }
+                }
+                .disabled(!settings.playbookVision)
+                Stepper("Look at up to \(settings.playbookFrames) key frames", value: $settings.playbookFrames, in: 20...150, step: 10)
+                    .disabled(!settings.playbookVision)
+                HStack {
+                    Text("Agents work in")
+                    Text(settings.playbookFolder).font(.callout.monospaced()).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Button("Choose…") { choosePlaybookFolder() }
+                }
+                Text("Zeus describes the frames where the screen changes with a vision model (when the text model is Gemma 3, it reads them itself), then the local AI writes the steps. Gemma 3 and the Qwen-VL models run in Ollama on this Mac; the one you choose downloads the first time you make a playbook.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .task { await reload() }
+    }
+
+    /// Downloaded models that are not in the list (and the model in use, even when Ollama is not running).
+    private var extraModels: [String] {
+        var extra = models.filter { m in !suggestions.contains(where: { $0.0 == m }) }
+        if !suggestions.contains(where: { $0.0 == settings.polishModel }), !extra.contains(settings.polishModel) {
+            extra.insert(settings.polishModel, at: 0)
+        }
+        return extra
+    }
+
+    private func choosePlaybookFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Use this folder"
+        panel.message = "Choose where Claude Code and Codex work on playbooks (one folder per playbook)."
+        if panel.runModal() == .OK, let url = panel.url {
+            settings.playbookFolder = url.path.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
+        }
     }
 
     private func reload() async {

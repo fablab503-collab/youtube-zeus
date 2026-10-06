@@ -129,6 +129,46 @@ nonisolated enum ModelCatalog {
     ]
 
     /// Memory decides what fits (Apple silicon shares it between the CPU and the GPU); the GPU decides the speed.
+    /// Models that can look at pictures (the frames of playbooks), strongest first.
+    static let visionOptions: [LocalModelOption] = [
+        .init("qwen3-vl-30b", "Qwen3-VL 30B (MoE)", ["qwen3-vl:30b-a3b-instruct", "qwen3-vl:30b"], gb: 19.6, active: 2, rank: 90,
+              note: "The best at reading screens, and fast for its size."),
+        .init("qwen3-vl-8b", "Qwen3-VL 8B", ["qwen3-vl:8b-instruct", "qwen3-vl:8b"], gb: 6.1, rank: 75,
+              note: "Reads screens, buttons and code very well."),
+        .init("qwen2.5vl-7b", "Qwen2.5-VL 7B", ["qwen2.5vl:7b"], gb: 6.0, rank: 65,
+              note: "Good at screens and documents."),
+        .init("gemma3-12b-vision", "Gemma 3 12B", ["gemma3:12b"], gb: 8.1, rank: 60,
+              note: "Sees pictures and writes well (also a text model)."),
+        .init("qwen3-vl-4b", "Qwen3-VL 4B", ["qwen3-vl:4b-instruct", "qwen3-vl:4b"], gb: 3.3, rank: 55,
+              note: "Light, and reads screens well."),
+        .init("qwen2.5vl-3b", "Qwen2.5-VL 3B", ["qwen2.5vl:3b"], gb: 3.2, rank: 45,
+              note: "Light."),
+        .init("gemma3-4b-vision", "Gemma 3 4B", ["gemma3:4b"], gb: 3.3, rank: 40,
+              note: "Light (also a text model)."),
+        .init("qwen3-vl-2b", "Qwen3-VL 2B", ["qwen3-vl:2b-instruct", "qwen3-vl:2b"], gb: 1.9, rank: 25,
+              note: "Basic, for Macs with little memory."),
+    ]
+
+    /// Whether a model also looks at pictures (Gemma 3 from 4B, the VL models, LLaVA…).
+    static func canSee(_ tag: String) -> Bool {
+        let name = tag.lowercased()
+        if name.hasPrefix("gemma3") { return !name.contains(":1b") && !name.contains("270m") }
+        return name.contains("-vl") || name.contains("vl:") || name.hasPrefix("llava") || name.contains("vision")
+            || name.hasPrefix("minicpm-v") || name.hasPrefix("mistral-small3")
+    }
+
+    /// The first tag of an option that Ollama's library has (the first one when the library does not answer).
+    static func firstAvailable(_ option: LocalModelOption) async -> String {
+        for tag in option.candidates {
+            switch await registry(tag) {
+            case .found: return tag
+            case .missing: continue
+            case .unknown: return tag
+            }
+        }
+        return option.candidates[0]
+    }
+
     static func fit(_ option: LocalModelOption, on mac: MacHardware) -> ModelFit {
         let memory = Double(mac.memoryGB)
         if option.sizeGB + 2 > Double(mac.freeDiskGB) || option.sizeGB > memory * 0.65 { return .tooBig }
@@ -285,6 +325,13 @@ enum SetupState: Equatable {
     case failed(String)
 
     var isReady: Bool { if case .ready = self { true } else { false } }
+    /// The text shown with the state ("" while checking).
+    var detail: String {
+        switch self {
+        case .checking: ""
+        case .ready(let text), .missing(let text), .working(let text, _), .waiting(let text), .failed(let text): text
+        }
+    }
     var isBusy: Bool {
         switch self {
         case .working, .waiting, .checking: true
@@ -327,6 +374,9 @@ final class SetupAssistant {
     private(set) var refreshing = false
     /// The Ollama tag the model step downloads and Zeus then uses.
     var chosenModel: String
+    /// The vision model of playbooks (3.2): optional, downloaded the first time a playbook is made.
+    private(set) var visionModels: [LocalModelOption] = ModelCatalog.visionOptions
+    private(set) var visionState: SetupState = .checking
     @ObservationIgnored var onNote: ((String) -> Void)?
     /// The command line prints download progress (every 10 %).
     @ObservationIgnored var onProgress: ((String) -> Void)?
@@ -350,7 +400,10 @@ final class SetupAssistant {
     var essentialsMissing: Bool { checked && !state(.youtube).isReady }
 
     /// Everything Zeus uses is there (the speech model downloads by itself when first needed).
-    var everythingReady: Bool { [.youtube, .ffmpeg, .whisper, .ollama, .model].allSatisfy { state($0).isReady } }
+    var everythingReady: Bool {
+        let needed: [SetupItem] = [.youtube, .ffmpeg, .whisper, .ollama, .model]
+        return needed.allSatisfy { state($0).isReady }
+    }
 
     var recommended: LocalModelOption? { hardware.flatMap { ModelCatalog.recommended(models, on: $0) } }
 
@@ -381,7 +434,58 @@ final class SetupAssistant {
             models = await ModelCatalog.resolve(models)
         }
         await checkModel(choosing: true)
+        if visionModels.allSatisfy({ $0.available == nil }) {
+            visionModels = await ModelCatalog.resolve(visionModels)
+        }
+        checkVision()
         checked = true
+    }
+
+    /// The model that reads the frames of playbooks: the one chosen in Settings, else the best one for this Mac.
+    var visionChoice: LocalModelOption? {
+        let setting = settings.visionModel
+        if let option = visionModels.first(where: { $0.key == setting || $0.candidates.contains(setting) }) { return option }
+        guard setting.isEmpty, let hardware else { return nil }
+        return ModelCatalog.recommended(visionModels, on: hardware)
+    }
+
+    /// The text model already sees pictures (Gemma 3): nothing more to download.
+    var visionUsesTextModel: Bool { settings.visionModel.isEmpty && ModelCatalog.canSee(settings.polishModel) }
+
+    func checkVision() {
+        if !settings.playbookVision {
+            visionState = .ready("Off (Settings › Local AI)")
+        } else if visionUsesTextModel {
+            visionState = .ready("\(displayName(settings.polishModel)) also reads the frames")
+        } else if let option = visionChoice {
+            visionState = isInstalled(option.tag)
+                ? .ready(option.name)
+                : .missing("\(option.name) (\(option.sizeText)) downloads the first time you make a playbook")
+        } else {
+            visionState = .missing("No vision model fits this Mac: playbooks use the transcript and the text on screen")
+        }
+    }
+
+    func downloadVision() {
+        guard !running, let option = visionChoice else { return }
+        runTask = Task {
+            running = true
+            defer { running = false }
+            visionState = .working("Downloading \(option.name)…", 0)
+            note("$ ollama pull \(option.tag)")
+            do {
+                try await ollama.ensureRunning()
+                try await ollama.pull(option.tag) { value in
+                    Task { @MainActor in self.visionState = .working("Downloading \(option.name)…", value) }
+                }
+                note("✓ \(option.name) is ready for playbooks")
+                await checkModel()
+                checkVision()
+            } catch {
+                visionState = .failed(error.localizedDescription)
+                note("✗ \(option.name): \(error.localizedDescription)")
+            }
+        }
     }
 
     func checkTools() async {
@@ -397,7 +501,10 @@ final class SetupAssistant {
         if let ytdlp, deno != nil {
             update(.youtube, .ready(ytdlp))
         } else {
-            update(.youtube, .missing([ytdlp == nil ? "yt-dlp" : nil, deno == nil ? "Deno" : nil].compactMap { $0 }.joined(separator: " and ") + " missing"))
+            var missing: [String] = []
+            if ytdlp == nil { missing.append("yt-dlp") }
+            if deno == nil { missing.append("Deno") }
+            update(.youtube, .missing(missing.joined(separator: " and ") + " missing"))
         }
         update(.ffmpeg, ToolLocator.find("ffmpeg", override: settings.ffmpegPath).map { SetupState.ready($0) } ?? .missing("Not installed"))
         update(.whisper, ToolLocator.find("whisper-cli", override: settings.whisperPath).map { SetupState.ready($0) } ?? .missing("Not installed"))

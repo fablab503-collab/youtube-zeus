@@ -273,6 +273,10 @@ final class Video {
     var entitiesAt: Date? = nil
     /// Podcast episodes: transcripts published with the episode ("type|url").
     var transcriptLinks: [String] = []
+    // 3.2: the playbook (steps for an AI agent, written from the video)
+    @Attribute(.externalStorage) var playbookData: Data? = nil
+    var playbookAt: Date? = nil
+    var playbookError: String? = nil
     @Relationship(deleteRule: .cascade, inverse: \SkillDraft.video) var skills: [SkillDraft] = []
 
     init(videoID: String, title: String = "", channelTitle: String = "", channelID: String = "",
@@ -341,6 +345,15 @@ final class Video {
         set { entitiesData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
     }
 
+    /// Steps for an AI agent (and the person), written from the video on this Mac (3.2).
+    var playbook: Playbook? {
+        get {
+            guard let playbookData else { return nil }
+            return try? JSONDecoder.iso.decode(Playbook.self, from: playbookData)
+        }
+        set { playbookData = newValue.flatMap { try? JSONEncoder.iso.encode($0) } }
+    }
+
     var thumbnailURL: URL? { thumbnailURLString.flatMap(URL.init(string:)) }
 
     var segments: [TranscriptSegment] {
@@ -404,12 +417,14 @@ final class Video {
     }
 
     var snapshot: VideoSnapshot {
-        VideoSnapshot(videoID: videoID, title: displayTitle, channelTitle: channelTitle, channelID: channelID,
-                      publishedAt: publishedAt, duration: duration, language: language, source: source,
-                      eatenAt: eatenAt ?? .now, description: videoDescription, tags: tags, viewCount: viewCount,
-                      likeCount: likeCount, chapters: chapters, digest: digest, paragraphs: displayParagraphs,
-                      comments: comments, polishedBy: polished.isEmpty ? nil : polishModel, repos: repos,
-                      kind: kind, mediaURL: mediaURLString, pageURL: pageURLString, screen: screen, entities: entities)
+        var value = VideoSnapshot(videoID: videoID, title: displayTitle, channelTitle: channelTitle, channelID: channelID,
+                                  publishedAt: publishedAt, duration: duration, language: language, source: source,
+                                  eatenAt: eatenAt ?? .now, description: videoDescription, tags: tags, viewCount: viewCount,
+                                  likeCount: likeCount, chapters: chapters, digest: digest, paragraphs: displayParagraphs,
+                                  comments: comments, polishedBy: polished.isEmpty ? nil : polishModel, repos: repos,
+                                  kind: kind, mediaURL: mediaURLString, pageURL: pageURLString, screen: screen, entities: entities)
+        value.hasPlaybook = playbookData != nil
+        return value
     }
 
     var wordCount: Int { transcriptText.split(whereSeparator: \.isWhitespace).count }
@@ -585,6 +600,8 @@ nonisolated struct VideoSnapshot: Sendable {
     var pageURL: String? = nil
     var screen: [ScreenItem] = []
     var entities: [EntityMention] = []
+    /// A playbook was written from it (the note links to it).
+    var hasPlaybook = false
 
     var url: URL { MediaLinks.url(kind: kind, id: videoID, page: pageURL, media: mediaURL) }
     func url(at seconds: Double) -> URL { MediaLinks.url(kind: kind, id: videoID, at: seconds) }

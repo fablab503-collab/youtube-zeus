@@ -57,6 +57,15 @@ final class EatEngine {
     var screenQueue: [String] = []
     var screenRunning = false
     var screenCurrent: String?
+    // Playbooks (3.2)
+    var playbookQueue: [String] = []
+    var playbookRunning = false
+    var playbookCurrent: String?
+    @ObservationIgnored var playbookTask: Task<Void, Never>?
+    /// Made even when the video does not look like a tutorial.
+    @ObservationIgnored var playbookForced: Set<String> = []
+    /// The last step written for `zeus playbook` and the MCP server (`PlaybookFiles.setMaking`).
+    @ObservationIgnored var playbookMarks: [String: String] = [:]
     private(set) var githubQueue: [String] = []
     private var githubRunning = false
     private(set) var githubChecking: String?

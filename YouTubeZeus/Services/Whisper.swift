@@ -25,6 +25,8 @@ nonisolated enum AppFolders {
     /// Podcast artwork and frames of your own videos (shown in the app and copied next to notes).
     static var thumbnails: URL { sub("Thumbnails") }
     static var skillHistory: URL { sub("Skill History") }
+    /// The key frames of each playbook (small JPEGs, one folder per video).
+    static var playbooks: URL { sub("Playbooks") }
 
     private static func sub(_ name: String) -> URL {
         let url = support.appendingPathComponent(name, isDirectory: true)

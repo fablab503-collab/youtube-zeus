@@ -5,3 +5,6 @@ xcuserdata/
 scripts/ship.local
 # Code maps made by graphify on this Mac (local, not part of the app)
 graphify-out/
+
+# Local helper scripts
+*.command

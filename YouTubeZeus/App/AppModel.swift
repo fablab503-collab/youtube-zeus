@@ -143,6 +143,7 @@ final class AppModel {
         engine.onProcessed = { [weak self] id in self?.videoProcessed(id) }
         engine.onChanged = { [weak self] id in self?.itemChanged(id) }
         engine.resumeInterrupted()
+        PlaybookFiles.clearMaking()
         watcher.start()
         Task { await openSetupIfNeeded() }
         Task {
@@ -494,6 +495,18 @@ final class AppModel {
             Task { await openDigest(week: week) }
         case .setup:
             showSetup = true
+        case .playbook(let id, let make, let force, let run):
+            if selection != .library, selection != .github { selection = .library }
+            selectedVideoID = id
+            initialTab = DetailTab.playbook.rawValue
+            if let video = engine.video(id) {
+                if let run, let agent = PlaybookRunner.Agent(rawValue: run.lowercased()), video.playbook != nil, !make {
+                    runPlaybook(video, with: agent)
+                } else if make || (video.playbook == nil && video.playbookError == nil) {
+                    // Missing: written now; after a failed try, only on request (the tab shows why).
+                    makePlaybook(video, force: force)
+                }
+            }
         case .collection(let id):
             selection = .collection(id)
         case .channel(let id):

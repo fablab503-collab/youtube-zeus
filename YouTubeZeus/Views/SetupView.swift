@@ -22,6 +22,7 @@ struct SetupView: View {
                                  items: [.ffmpeg, .whisper, .speech])
                     SetupSection(title: "Local AI", note: "Free and private: nothing leaves this Mac.", items: [.ollama])
                     ModelPicker()
+                    VisionCard()
                     AppleIntelligenceCard()
                     NotesFolderCard()
                     if showDetails { SetupLog(lines: setup.log) }
@@ -58,7 +59,7 @@ struct SetupView: View {
             }
             Button(setup.everythingReady ? "Done" : "Later") { dismiss() }
                 .buttonStyle(.glass)
-                .keyboardShortcut(setup.everythingReady ? .defaultAction : .cancelAction)
+                .keyboardShortcut(setup.everythingReady ? KeyboardShortcut.defaultAction : KeyboardShortcut.cancelAction)
             if !setup.everythingReady {
                 Button { setup.setUpEverything() } label: {
                     Label("Set up everything", systemImage: "wand.and.sparkles")
@@ -350,6 +351,52 @@ private struct ModelPicker: View {
                 }
             }
         }
+    }
+}
+
+/// The vision model of playbooks (3.2): optional, downloaded the first time a playbook is made, or here.
+private struct VisionCard: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let setup = app.setup
+        let state = setup.visionState
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "eye")
+                .font(.title3)
+                .foregroundStyle(.tint)
+                .frame(width: 40, height: 40)
+                .background(Color.accentColor.opacity(0.12), in: .circle)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Vision model (for playbooks)").font(.headline)
+                    Spacer()
+                    SetupBadge(state: state)
+                }
+                Text("Playbooks turn a tutorial into steps for an AI agent: a vision model looks at the frames where the screen changes, on this Mac.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                switch state {
+                case .working(let text, let progress):
+                    if let progress { ProgressView(value: progress) } else { ProgressView().progressViewStyle(.linear) }
+                    Text(text).font(.caption).foregroundStyle(.secondary)
+                case .failed(let message):
+                    Text(message).font(.caption).foregroundStyle(.red).textSelection(.enabled)
+                case .ready(let detail), .missing(let detail):
+                    Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                case .waiting, .checking:
+                    EmptyView()
+                }
+                if case .missing = state, setup.visionChoice != nil {
+                    Button("Download now") { setup.downloadVision() }
+                        .buttonStyle(.glass)
+                        .disabled(setup.running || !SetupAssistant.ollamaInstalled)
+                }
+            }
+        }
+        .padding(16)
+        .glassEffect(.regular, in: .rect(cornerRadius: 22))
     }
 }
 

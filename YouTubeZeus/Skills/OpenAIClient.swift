@@ -151,7 +151,7 @@ nonisolated struct CodexCLIClient: Sendable {
         }
         // The last message may wrap the JSON in a code fence.
         let text = String(decoding: data, as: UTF8.self)
-        if let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}") {
+        if let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}"), start < end {
             return Data(text[start...end].utf8)
         }
         return data

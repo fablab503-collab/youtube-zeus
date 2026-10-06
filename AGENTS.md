@@ -49,8 +49,10 @@ For any AI agent (Codex, Claude Code, Gemini CLI, Cursor, Kimi…) working **on*
   (`SearchIndex`, `SearchIndexer`), moments (`Grounder`), podcasts (`Podcasts`), your files (`MediaFiles`, `MediaPlayer`),
   text on screen (`ScreenReader`), people/tools/companies (`Entities`), weekly digest (`WeeklyDigest`), iPhone inbox
   (`PhoneInbox`), MCP connections (`MCPConnect`), first-run setup and the model picker (`Setup`, `Views/SetupView`),
-  GitHub checks (`GitHubLinks.swift`), links (`BrainLinks.swift`), agent guide, AI packs, Ask your brain, local AI
-  polishing, summaries, channel and podcast watching.
+  playbooks for agents (`Playbook` model, rules and Markdown, `PlaybookMaker` frames → vision → steps,
+  `EatEngine+Playbook` lane, `App/AppModel+Playbook`, `Views/PlaybookView`), GitHub checks (`GitHubLinks.swift`),
+  links (`BrainLinks.swift`), agent guide, AI packs, Ask your brain, local AI polishing, summaries, channel and podcast
+  watching.
 - `YouTubeZeus/Skills` — skill compiler (local AI by default; Codex / OpenAI API optional).
 - `YouTubeZeus/Views` — SwiftUI (Liquid Glass).
 

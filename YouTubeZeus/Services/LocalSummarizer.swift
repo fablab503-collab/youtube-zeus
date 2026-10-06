@@ -35,7 +35,7 @@ nonisolated struct LocalSummarizer: Sendable {
 
     private static func decode<T: Decodable>(_ type: T.Type, _ text: String) throws -> T {
         var body = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let start = body.firstIndex(of: "{"), let end = body.lastIndex(of: "}") { body = String(body[start...end]) }
+        if let start = body.firstIndex(of: "{"), let end = body.lastIndex(of: "}"), start < end { body = String(body[start...end]) }
         return try JSONDecoder().decode(T.self, from: Data(body.utf8))
     }
 
@@ -124,7 +124,7 @@ nonisolated struct LocalLLM: Sendable {
         let format = String(decoding: try JSONSerialization.data(withJSONObject: schema, options: [.sortedKeys]), as: UTF8.self)
         let text = try await client.chat(model: model, system: system, user: user, format: format, context: context)
         var body = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let start = body.firstIndex(of: "{"), let end = body.lastIndex(of: "}") { body = String(body[start...end]) }
+        if let start = body.firstIndex(of: "{"), let end = body.lastIndex(of: "}"), start < end { body = String(body[start...end]) }
         guard !body.isEmpty else { throw SummaryError.model("The local AI gave an empty answer.") }
         return Data(body.utf8)
     }

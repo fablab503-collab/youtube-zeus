@@ -103,6 +103,37 @@ nonisolated struct OllamaClient: Sendable {
         return (message?["content"] as? String ?? "").replacingOccurrences(
             of: #"(?s)<think>.*?</think>"#, with: "", options: .regularExpression)
     }
+
+    /// The same with pictures (JPEG or PNG data), for a vision model. `keepAlive` short: the vision model leaves the
+    /// memory soon after, for the text model that writes next.
+    func chat(model: String, system: String, user: String, images: [Data], format: String? = nil, context: Int = 8192,
+              keepAlive: String = "2m") async throws -> String {
+        var request = URLRequest(url: base.appendingPathComponent("api/chat"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 600
+        var body: [String: Any] = [
+            "model": model,
+            "stream": false,
+            "think": false,
+            "keep_alive": keepAlive,
+            "options": ["temperature": 0.1, "num_ctx": context],
+            "messages": [
+                ["role": "system", "content": system],
+                ["role": "user", "content": user, "images": images.map { $0.base64EncodedString() }],
+            ] as [[String: Any]],
+        ]
+        if let format, let schema = try? JSONSerialization.jsonObject(with: Data(format.utf8)) { body["format"] = schema }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw PolishError.http("unreadable answer")
+        }
+        if let error = json["error"] as? String { throw PolishError.http(error) }
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 { throw PolishError.http("HTTP \(http.statusCode)") }
+        let message = json["message"] as? [String: Any]
+        return (message?["content"] as? String ?? "").replacingOccurrences(
+            of: #"(?s)<think>.*?</think>"#, with: "", options: .regularExpression)
+    }
 }
 
 /// Fixes punctuation, capitals and misheard words of auto-captions and Whisper text with a small local model.

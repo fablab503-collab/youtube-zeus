@@ -53,6 +53,12 @@ enum ZeusCLI {
           the GitHub repositories linked in a video, checked through the GitHub API (exists, activity,
           license, security advisories, links back to the video); --save writes a note per repository
       zeus screen <link|id>     read the text on screen of an eaten video (slide titles, code, commands) with Vision
+      zeus playbook <link|id> [--make] [--force] [--json] [--skill] [--run claude|codex]
+                                the playbook of a tutorial: steps for an AI agent (who does what, commands, links,
+                                what to expect, what it asks first), written on this Mac from the transcript and the
+                                frames; --make writes it (again) in the app, --force even when the video does not
+                                look like a tutorial, --skill installs it for Claude Code, --run opens Terminal with
+                                Claude Code or Codex on it. While it is made, it prints the step the app is on
       zeus entities [name] [--people|--tools|--companies] [--json]
                                 people, tools and companies named in the library, most named first
       zeus entity <name>        every item that names someone or something, with the moments
@@ -294,6 +300,59 @@ enum ZeusCLI {
                 if case .video(let videoID) = YouTubeLink.parse(link) { id = videoID }
                 openInApp(URL(string: BrainLinks.zeusScreen(video: id))!, raw: true)
                 print("YouTube Zeus is reading the screen of \(id) (slide titles, code, commands). The note gets an \"On screen\" section.")
+                return 0
+            case "playbook":
+                guard let link = rest.first else {
+                    return fail("zeus playbook <video link or id> [--make] [--force] [--json] [--skill] [--run claude|codex]")
+                }
+                let (_, context) = try Library.open()
+                guard let video = Library.video(link, in: context) else {
+                    return fail("Not in the library: \(link). Eat it first: zeus eat \"\(link)\"")
+                }
+                let id = video.videoID
+                let force = flags.contains("--force")
+                let making = "It takes a few minutes: run `zeus playbook \(id)` again to follow it and read it."
+                if flags.contains("--make") || force {
+                    openInApp(URL(string: BrainLinks.zeusPlaybook(video: id, make: true, force: force))!, raw: true)
+                    print("YouTube Zeus is making the playbook of \(id) on this Mac (frames, vision model, local AI). \(making)")
+                    return 0
+                }
+                guard let playbook = video.playbook else {
+                    if let step = playbookBeingMade(id) {
+                        print("Being made on this Mac: \(step). Run `zeus playbook \(id)` again in a minute or two.")
+                        return 0
+                    }
+                    if let error = video.playbookError {
+                        print("No playbook: \(error)")
+                        print(PlaybookError.isNotTutorial(error)
+                              ? "To make it anyway: zeus playbook \(id) --force"
+                              : "To try again: zeus playbook \(id) --make")
+                        return 1
+                    }
+                    openInApp(URL(string: BrainLinks.zeusPlaybook(video: id, make: true))!, raw: true)
+                    print("YouTube Zeus is making the playbook of \(id) on this Mac (frames, vision model, local AI). \(making)")
+                    return 0
+                }
+                let snapshot = video.snapshot
+                if flags.contains("--skill") {
+                    print(try PlaybookRunner.installSkill(playbook, video: snapshot).path)
+                    return 0
+                }
+                if flags.contains("--run") {
+                    let name = raw.firstIndex(of: "--run").flatMap { $0 + 1 < raw.count ? raw[$0 + 1] : nil } ?? "claude"
+                    guard let agent = PlaybookRunner.Agent(rawValue: name.lowercased()) else { return fail("--run claude or --run codex") }
+                    openInApp(URL(string: BrainLinks.zeusPlaybook(video: id, run: agent.rawValue))!, raw: true)
+                    print("Terminal opens with \(agent.label) on the playbook, in \(settings.playbookFolder).")
+                    return 0
+                }
+                if flags.contains("--json") {
+                    let encoder = JSONEncoder()
+                    encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+                    encoder.dateEncodingStrategy = .iso8601
+                    print(String(decoding: try encoder.encode(playbook), as: UTF8.self))
+                    return 0
+                }
+                print(PlaybookRender.markdown(playbook, video: snapshot, style: .clipboard))
                 return 0
             case "shortcut":
                 // The "Eat with Zeus" shortcut for the iPhone and iPad share sheet (signed by Shortcuts).
@@ -824,18 +883,16 @@ enum ZeusCLI {
         if let best = setup.recommended {
             print("  Best local AI for this Mac: \(best.name) (\(best.tag), \(best.sizeText)). In use: \(setup.settings.polishModel)")
         }
+        if !setup.visionState.detail.isEmpty {
+            print("  Vision model for playbooks: \(setup.visionState.detail)")
+        }
     }
 
     static func setupJSON(_ setup: SetupAssistant) -> String {
         var items: [[String: Any]] = []
         for item in SetupItem.installOrder {
             let state = setup.state(item)
-            var detail = ""
-            switch state {
-            case .ready(let text), .missing(let text), .failed(let text), .waiting(let text), .working(let text, _): detail = text
-            case .checking: break
-            }
-            items.append(["item": item.rawValue, "title": item.title, "ready": state.isReady, "detail": detail])
+            items.append(["item": item.rawValue, "title": item.title, "ready": state.isReady, "detail": state.detail])
         }
         var models: [[String: Any]] = []
         for option in setup.models where option.available != false {
@@ -847,8 +904,7 @@ enum ZeusCLI {
                 case .tooBig: fit = "too big"
                 }
             }
-            let size: Double = (option.sizeGB * 10).rounded() / 10
-            var model: [String: Any] = ["name": option.name, "tag": option.tag, "sizeGB": size, "fit": fit,
+            var model: [String: Any] = ["name": option.name, "tag": option.tag, "sizeGB": oneDecimal(option.sizeGB), "fit": fit,
                                         "downloaded": setup.isInstalled(option.tag)]
             if let hardware = setup.hardware, let speed = ModelCatalog.wordsPerSecond(option, on: hardware) {
                 model["wordsPerSecond"] = Int(speed.rounded())
@@ -864,12 +920,36 @@ enum ZeusCLI {
             json["mac"] = mac
         }
         if let best = setup.recommended {
-            let size: Double = (best.sizeGB * 10).rounded() / 10
-            json["recommendedModel"] = ["name": best.name, "tag": best.tag, "sizeGB": size] as [String: Any]
+            json["recommendedModel"] = ["name": best.name, "tag": best.tag, "sizeGB": oneDecimal(best.sizeGB)] as [String: Any]
         }
+        // The model that reads the frames of playbooks (downloaded the first time a playbook is made).
+        var vision: [String: Any] = ["on": setup.settings.playbookVision, "ready": setup.visionState.isReady,
+                                     "detail": setup.visionState.detail]
+        if setup.visionUsesTextModel {
+            vision["tag"] = setup.settings.polishModel
+        } else if let option = setup.visionChoice {
+            vision["name"] = option.name
+            vision["tag"] = option.tag
+            vision["sizeGB"] = oneDecimal(option.sizeGB)
+        }
+        json["visionModel"] = vision
         let data = (try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]))
             ?? Data("{}".utf8)
         return String(decoding: data, as: UTF8.self)
+    }
+
+    /// The step the app is on while it makes the playbook of an item (nil: not being made, or the app is not running).
+    static func playbookBeingMade(_ id: String) -> String? {
+        guard let step = PlaybookFiles.making(id) else { return nil }
+        let me = ProcessInfo.processInfo.processIdentifier
+        let appRunning = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+            .contains { $0.processIdentifier != me }
+        return appRunning ? step : nil
+    }
+
+    /// 18.6 in JSON, not 18.600000000000001 (a Double rounded to one decimal is still printed in binary).
+    static func oneDecimal(_ value: Double) -> NSDecimalNumber {
+        NSDecimalNumber(string: String(format: "%.1f", value))
     }
 
     @discardableResult

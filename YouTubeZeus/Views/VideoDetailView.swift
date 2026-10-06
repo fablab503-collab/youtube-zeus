@@ -5,6 +5,7 @@ enum DetailTab: String, CaseIterable, Identifiable {
     case transcript = "Transcript"
     case summary = "Summary"
     case screen = "On screen"
+    case playbook = "Playbook"
     case skills = "Skills"
     case info = "Info"
 
@@ -72,7 +73,7 @@ struct VideoDetailView: View {
                         }
                         .pickerStyle(.segmented)
                         .labelsHidden()
-                        .frame(maxWidth: 400)
+                        .frame(maxWidth: 480)
                         Spacer()
                         if tab == .transcript, !polishedParagraphs.isEmpty {
                             Picker("Text", selection: $showOriginal) {
@@ -109,6 +110,7 @@ struct VideoDetailView: View {
                                        find: find, isPolished: !polishedParagraphs.isEmpty && !showOriginal, highlight: highlight)
                     case .summary: SummaryBody(video: video)
                     case .screen: ScreenBody(video: video)
+                    case .playbook: PlaybookBody(video: video)
                     case .skills: SkillsBody(video: video)
                     case .info: InfoBody(video: video)
                     }

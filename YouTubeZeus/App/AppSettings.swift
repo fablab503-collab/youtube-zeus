@@ -62,6 +62,16 @@ final class AppSettings {
     var digestHour: Int { didSet { save("digestHour", digestHour) } }
     var phoneInboxEnabled: Bool { didSet { save("phoneInboxEnabled", phoneInboxEnabled) } }
 
+    // 3.2: playbooks
+    /// Look at the key frames with a vision model (else the transcript and the text on screen only).
+    var playbookVision: Bool { didSet { save("playbookVision", playbookVision) } }
+    /// A vision model key of `ModelCatalog.visionOptions`, an Ollama tag, or "" for the best one for this Mac.
+    var visionModel: String { didSet { save("visionModel", visionModel) } }
+    /// At most this many key frames are looked at.
+    var playbookFrames: Int { didSet { save("playbookFrames", playbookFrames) } }
+    /// Where agents work on a playbook (one folder per playbook).
+    var playbookFolder: String { didSet { save("playbookFolder", playbookFolder) } }
+
     // Tools (empty = find automatically)
     var ytdlpPath: String { didSet { save("ytdlpPath", ytdlpPath) } }
     var ffmpegPath: String { didSet { save("ffmpegPath", ffmpegPath) } }
@@ -120,6 +130,10 @@ final class AppSettings {
             "digestWeekday": 1,
             "digestHour": 19,
             "phoneInboxEnabled": true,
+            "playbookVision": true,
+            "visionModel": "",
+            "playbookFrames": 60,
+            "playbookFolder": "~/Zeus Playbooks",
             "ytdlpPath": "",
             "ffmpegPath": "",
             "whisperPath": "",
@@ -171,6 +185,10 @@ final class AppSettings {
         digestWeekday = min(7, max(1, d.integer(forKey: "digestWeekday")))
         digestHour = min(23, max(0, d.integer(forKey: "digestHour")))
         phoneInboxEnabled = d.bool(forKey: "phoneInboxEnabled")
+        playbookVision = d.bool(forKey: "playbookVision")
+        visionModel = d.string(forKey: "visionModel") ?? ""
+        playbookFrames = min(150, max(10, d.integer(forKey: "playbookFrames")))
+        playbookFolder = d.string(forKey: "playbookFolder") ?? "~/Zeus Playbooks"
         ytdlpPath = d.string(forKey: "ytdlpPath") ?? ""
         ffmpegPath = d.string(forKey: "ffmpegPath") ?? ""
         whisperPath = d.string(forKey: "whisperPath") ?? ""
@@ -217,6 +235,14 @@ final class AppSettings {
 
     /// Weekly digest notes: Sources/YouTube/Digests.
     var digestFolder: URL { secondBrainURL.appendingPathComponent("Digests", isDirectory: true) }
+
+    /// Playbook notes: Sources/YouTube/Playbooks (frames in Playbooks/attachments).
+    var playbookNotesFolder: URL { secondBrainURL.appendingPathComponent("Playbooks", isDirectory: true) }
+
+    /// Where agents work on playbooks (~/Zeus Playbooks by default).
+    var playbookWorkURL: URL {
+        URL(fileURLWithPath: (playbookFolder as NSString).expandingTildeInPath, isDirectory: true)
+    }
 
     /// Where notes about GitHub repositories found in videos live (next to Sources/YouTube by default).
     var githubURL: URL {

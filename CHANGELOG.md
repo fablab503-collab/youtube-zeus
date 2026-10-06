@@ -3,6 +3,66 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 3.2.1 — 2026-10-06
+
+Playbooks that are closer to what the video really does, and more detailed (from the first real playbook, "I Built
+Another Andrej Karpathy Using Claude", where 9 of 39 steps were the intro and some links were made up):
+
+- **Prompts are steps of their own (💬).** When the presenter asks their AI agent something (Claude Code, Codex…), the
+  step carries the prompt word for word, the agent following the playbook does that task itself, and it is no longer
+  read as a command (`claudocode run "…"`, `claudie -p …` become prompts).
+- **No more intro steps.** The teaser at the start (the finished result, "look at this") and steps that only look at
+  something are dropped: the review names them (`not_actions`) and a rule removes "look at" steps before the first
+  real action. Small "check this" steps at the same moment are merged into one step.
+- **No made-up links.** A link is kept only when the video says or shows it (screen text, what is said, description,
+  repositories); otherwise the step says what to look for. `file://` and relative links go.
+- **Claude Code knowledge**: sub-agents, skills, hooks, `CLAUDE.md` and MCP servers are files the agent writes in the
+  project (`.claude/…`, `.mcp.json`), never a web page.
+- **More detail in each step**: the words said at that moment (🎙 quote), 1–3 sentences of detail, and the stages of the
+  job (Set up, Collect, Build, Test…) shown first in "Plan at a glance" and as headers in the steps.
+- **`TRANSCRIPT.md`** next to `PLAYBOOK.md` (Run with Claude Code / Codex, and the Claude Code skill): what is said,
+  with moments and chapters, for the agent to read around a step.
+- **Tools**: browsers, Terminal and text editors are no longer listed; web services (TwitterAPI.io…) move to "Only
+  you"; known tools always use the right check and install (`claude --version`, `brew install --cask notion`,
+  `uv tool install youtube-transcript-api`…); apps are found in Applications ("on this Mac").
+- Frames described by the vision model no longer repeat the same fact ("Graph view; Graph view; …").
+- Playbook format 2 (older playbooks still open; "Make it again" gives them the new parts).
+
+## 3.2 — 2026-10-05
+
+- **Playbooks: a tutorial as steps for an AI agent.** A new Playbook tab (and `zeus playbook`) turns a video into
+  instructions that Claude Code, Codex, ChatGPT or Mistral can follow from zero to a working result, in three passes on
+  this Mac: the summary; video to text (the frames where the screen changes, found with ffmpeg and a fingerprint of
+  each frame, are described by a local vision model — Qwen-VL or Gemma 3 in Ollama, chosen for the Mac and downloaded
+  the first time — helped by the text Apple's Vision reads on them and the words said at that moment); then the local
+  AI writes the steps part by part and reviews them. Each step says who does it (🤖 the agent or 🙋 you), the exact
+  command, link, file or code, what it downloads, what to expect, its moment and frame, and how careful to be (⚠️ asks
+  first for `sudo`, scripts piped to a shell, deleting, spending money, publishing; rules catch what the model missed).
+  GitHub repositories in the steps carry Zeus's check.
+- **The agent shows you the plan first.** Every playbook starts with "For the agent": present a visual overview (the
+  steps, what will be downloaded and installed, what only you can do), wait for an OK, install missing tools itself
+  (Homebrew, releases, official instructions), do everything it can, stop only at your steps with exact directions,
+  never ask for a password or key in the chat, check each step, end with a report.
+- **Infographic in the app**: goal, counts (steps, by the agent, by you, downloads, asked first), tools already on this
+  Mac, accounts only you can provide, and the steps as a timeline with the video's frame, badges, commands to copy and
+  the moment to play.
+- **Hand it over**: Run with Claude Code (or Codex) opens Terminal in a work folder (`~/Zeus Playbooks/<date> <title>/`
+  with `PLAYBOOK.md` and `frames/`); Install Claude Code with Homebrew when it is missing; Copy for any AI; install as a
+  Claude Code skill; the note `Sources/YouTube/Playbooks/Playbook - <date> - <title>.md` (frames in `attachments/`),
+  linked from the video's note.
+- **Only for tutorials, quickly.** A check with the local AI comes first (seconds): a talk, an opinion or news has
+  nothing to follow and stops there ("Not a tutorial.", with the reason), before minutes of downloading and looking at
+  frames; "Make it anyway" (`--force`, `force: true`) skips it. Frames of the presenter on camera (no text on them) say
+  little: at most 8 of them are described; screens, slides and code always are.
+- Agents: `zeus playbook <id> [--make] [--force] [--json] [--skill] [--run claude|codex]`,
+  `youtubezeus://playbook?video=<id>` (`&make=1`, `&force=1`, `&run=claude`), MCP tools `get_playbook` and
+  `make_playbook`, `playbook:` in `item_status`. While a playbook is made, `zeus playbook`, `get_playbook` and
+  `item_status` say the step the app is on; after a failed try they say why instead of starting again.
+- Settings › Local AI › Playbooks (vision model, frames to look at, the agents' folder); the setup page and
+  `zeus setup` show the vision model. The local AI model list in Settings is the setup page's list.
+- Fixed: a model answer with a `}` before its first `{` could crash the app while reading it (summaries, Ask, skills).
+- Fixed: `zeus setup --json` printed sizes like 18.600000000000001.
+
 ## 3.1 — 2026-10-05
 
 - **Setup assistant**: a new Mac no longer needs Terminal. The first time Zeus opens (and whenever yt-dlp is missing),

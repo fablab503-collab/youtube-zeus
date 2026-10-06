@@ -1,4 +1,4 @@
-# YouTube Zeus 3.0 — the YouTube eater, native on macOS 27
+# YouTube Zeus 3.2 — the YouTube eater, native on macOS 27
 
 Open source (MIT). A native macOS app that turns YouTube videos, playlists and whole channels, podcasts and your own
 recordings into organised, searchable Markdown notes in your Second Brain (an Obsidian-style vault), and hands that
@@ -7,6 +7,17 @@ knowledge to any AI agent (command line, MCP server, links, skills).
 **Free and open by default:** every step runs on the Mac with free tools — yt-dlp, ffmpeg, MLX Whisper or whisper.cpp, Apple's Vision and NaturalLanguage, SQLite, Ollama with an open model (Qwen3, Apache 2.0) and Apple Intelligence. No paid AI is needed. Codex / OpenAI are optional and off (Settings › Skills & cloud AI).
 
 Paste a YouTube or podcast link, or drop a recording on the window. Zeus eats it and keeps its text.
+
+## New in 3.2 and 3.1
+
+- **Playbooks**: a tutorial becomes steps for an AI agent. Zeus finds the frames where the screen changes, a local
+  vision model describes them, and the local AI writes every step — who does it (the agent or you), the command, link,
+  file or code, what it downloads, what to expect, the moment and frame of the video, and what the agent must ask you
+  first. The agent starts by showing you a visual plan, installs what is missing, does the rest and stops only at your
+  steps. Run with Claude Code (Terminal opens on it), Codex, Copy for any AI, or install it as a Claude Code skill.
+  `zeus playbook`, MCP `get_playbook`.
+- **Setup assistant** (3.1): the first launch installs everything Zeus uses — Homebrew, yt-dlp, Deno, ffmpeg,
+  whisper.cpp, Ollama — and the local AI model that suits your Mac's memory, GPU and disk, with live progress.
 
 ## New in 3.0
 
@@ -80,6 +91,7 @@ zeus podcast "<feed or Apple Podcasts link>" --follow --latest 3
 zeus screen "<link|id>"             # text on screen: slide titles, code, commands
 zeus entities [name] / zeus entity "<name>"   # people, tools and companies
 zeus setup [--install] [--json]     # check this Mac and install what is missing
+zeus playbook "<link|id>" [--make] [--run claude]   # a tutorial as steps for an AI agent
 zeus digest [--last] [--save]       # the weekly digest
 zeus mcp                            # MCP server (stdio) for Claude, Codex, Cursor, LM Studio…
 zeus list "<playlist|channel>" --limit 50

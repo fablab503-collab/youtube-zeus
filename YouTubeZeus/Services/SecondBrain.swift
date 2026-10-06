@@ -68,7 +68,9 @@ final class SecondBrainExporter {
             "",
         ]
         if hasThumbnail(video) { lines += ["![[\(video.videoID).jpg|480]]", ""] }
-        lines += [openLine(video), "", "## For future agent", "", forFutureAgent(video), ""]
+        lines += [openLine(video), ""]
+        if video.hasPlaybook { lines += ["Playbook for agents (step by step): [[\(PlaybookFiles.noteName(video))]]", ""] }
+        lines += ["## For future agent", "", forFutureAgent(video), ""]
 
         if let digest = video.digest {
             lines += ["## Summary", "", timedSummary(digest, video), ""]
@@ -304,6 +306,34 @@ final class SecondBrainExporter {
         } catch {
             video.exportPending = true
             return false
+        }
+    }
+
+    /// The playbook note (`Playbooks/Playbook - <date> - <title>.md`) with the frames of its steps in
+    /// `Playbooks/attachments/<id>-<seconds>.jpg`.
+    @discardableResult
+    func exportPlaybook(_ video: Video) -> URL? {
+        guard settings.secondBrainEnabled, folderReachable, let playbook = video.playbook else { return nil }
+        let snapshot = video.snapshot
+        let folder = settings.playbookNotesFolder
+        let attachments = folder.appendingPathComponent("attachments", isDirectory: true)
+        let fm = FileManager.default
+        do {
+            try fm.createDirectory(at: attachments, withIntermediateDirectories: true)
+            // The frames of an earlier playbook of this video are replaced.
+            let old = ((try? fm.contentsOfDirectory(atPath: attachments.path)) ?? []).filter { $0.hasPrefix(video.videoID + "-") }
+            for name in old { try? fm.removeItem(at: attachments.appendingPathComponent(name)) }
+            for seconds in Set(playbook.steps.compactMap(\.frame)) {
+                let source = PlaybookFiles.frameURL(video.videoID, seconds)
+                guard fm.fileExists(atPath: source.path) else { continue }
+                try? fm.copyItem(at: source, to: attachments.appendingPathComponent(PlaybookFiles.vaultFrameName(video.videoID, seconds)))
+            }
+            let file = folder.appendingPathComponent(PlaybookFiles.noteName(snapshot) + ".md")
+            try PlaybookRender.markdown(playbook, video: snapshot, style: .vault).write(to: file, atomically: true, encoding: .utf8)
+            return file
+        } catch {
+            AppLog.write("PLAYBOOK note of \(video.videoID) failed: \(error.localizedDescription)")
+            return nil
         }
     }
 

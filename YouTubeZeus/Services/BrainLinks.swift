@@ -31,6 +31,12 @@ nonisolated enum BrainLinks {
     static func zeusEatFile(_ path: String) -> String { "youtubezeus://eat?file=\(encode(path))" }
     static func zeusScreen(video id: String) -> String { "youtubezeus://screen?video=\(encode(id))" }
     static func zeusDigest(week: String) -> String { "youtubezeus://digest?week=\(encode(week))" }
+    /// The Playbook tab of an item; `make` writes it (again), `force` even when it does not look like a tutorial,
+    /// `run` hands it to Claude Code or Codex.
+    static func zeusPlaybook(video id: String, make: Bool = false, force: Bool = false, run: String? = nil) -> String {
+        "youtubezeus://playbook?video=\(encode(id))" + (make ? "&make=1" : "") + (force ? "&force=1" : "")
+            + (run.map { "&run=\(encode($0))" } ?? "")
+    }
 
     /// Markdown link to a Zeus page, for notes.
     static func markdown(_ title: String, _ link: String) -> String { "[\(title)](\(link))" }
@@ -88,6 +94,7 @@ nonisolated enum BrainLinks {
         case screen(String)
         case digest(String?)
         case setup
+        case playbook(String, make: Bool, force: Bool, run: String?)
     }
 
     static func parse(_ url: URL) -> Target? {
@@ -108,6 +115,10 @@ nonisolated enum BrainLinks {
         case "screen": return value("video").map { .screen($0) }
         case "digest": return .digest(value("week"))
         case "setup": return .setup
+        case "playbook":
+            let make = ["1", "true", "yes"].contains(value("make")?.lowercased() ?? "")
+            let force = ["1", "true", "yes"].contains(value("force")?.lowercased() ?? "")
+            return value("video").map { .playbook($0, make: make || force, force: force, run: value("run")) }
         case "open", "show":
             if let id = value("video") { return .video(id, tab: value("tab"), t: value("t").flatMap(Self.seconds)) }
             if let name = value("entity") { return .entity(name) }

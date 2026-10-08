@@ -23,6 +23,7 @@ struct ContentView: View {
                 case .ask: AskSourcesList()
                 case .github: GitHubView()
                 case .browser: AccountPanel()
+                case .trash: TrashView()
                 case .library, nil: LibraryView()
                 }
             }
@@ -116,6 +117,7 @@ struct SidebarView: View {
     @Query(filter: #Predicate<Video> { $0.statusRaw == "discovered" }) private var discovered: [Video]
     @Query(sort: \VideoList.updatedAt, order: .reverse) private var lists: [VideoList]
     @Query private var allVideos: [Video]
+    @Query(filter: #Predicate<Video> { $0.statusRaw == "trashed" }) private var trashed: [Video]
 
     private var repoCount: Int {
         Set(allVideos.filter(\.status.hasText).flatMap { $0.repos.map(\.id) }).count
@@ -159,6 +161,17 @@ struct SidebarView: View {
                     }
                 } icon: { Image(systemName: "books.vertical.fill") }
                 .tag(SidebarItem.library)
+
+                Label {
+                    HStack {
+                        Text("Trash")
+                        Spacer()
+                        if !trashed.isEmpty {
+                            Text("\(trashed.count)").foregroundStyle(.secondary).monospacedDigit()
+                        }
+                    }
+                } icon: { Image(systemName: trashed.isEmpty ? "trash" : "trash.fill") }
+                .tag(SidebarItem.trash)
 
                 Label {
                     HStack {

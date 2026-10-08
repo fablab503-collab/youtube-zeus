@@ -192,6 +192,7 @@ enum AgentGuide {
         | `youtubezeus://playbook?video=<id>` (optional `&make=1`, `&force=1`, `&run=claude\\|codex`) | the Playbook tab (written when missing); `make` writes it again, `force` even when the video does not look like a tutorial, `run` starts Claude Code or Codex on it |
         | `youtubezeus://open?entity=<name>` | a person, tool or company |
         | `youtubezeus://digest?week=<2026-W39>` | a weekly digest (written first if needed) |
+        | `youtubezeus://trash` (optional `?all=1`) | the Trash; `all=1` first moves every video of the library there (restorable) |
         | `youtubezeus://pause`, `youtubezeus://resume` | pause eating (what is running waits at the front of the line) or start again |
         | `youtubezeus://setup` | the setup page: installs Homebrew, the tools and the local AI model for this Mac |
         | `youtubezeus://open?collection=<playlist or list id>` | a collection |

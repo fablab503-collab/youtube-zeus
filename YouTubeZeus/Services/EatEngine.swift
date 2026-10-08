@@ -108,6 +108,13 @@ final class EatEngine {
             let video: Video
             if let existing = self.video(entry.id) {
                 video = existing
+                if existing.status == .trashed {
+                    // A watched channel does not bring back what you threw away; eating it yourself does.
+                    if fromWatch { continue }
+                    existing.trashedAt = nil
+                    existing.trashedFromRaw = nil
+                    existing.status = .failed
+                }
                 if !force, existing.status == .done || existing.status.isBusy || existing.status == .queued { added.append(existing); continue }
             } else {
                 video = Video(videoID: entry.id, title: entry.title, channelTitle: entry.channel,

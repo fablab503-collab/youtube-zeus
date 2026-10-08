@@ -424,6 +424,7 @@ private struct ProgressCard: View {
         case .polishing: "Polishing the text…"
         case .waiting: "Waiting"
         case .failed: "Could not eat this video"
+        case .trashed: "In the Trash"
         case .done: "Eaten"
         }
     }

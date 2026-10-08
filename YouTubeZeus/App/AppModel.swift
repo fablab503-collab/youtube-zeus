@@ -17,6 +17,8 @@ enum SidebarItem: Hashable {
     case podcast(String)
     case entities
     case digests
+    /// Videos moved out of the library (3.4).
+    case trash
 }
 
 /// "Show this item at that moment": the detail view opens the transcript there and highlights the paragraph.
@@ -502,6 +504,9 @@ final class AppModel {
             Task { await openDigest(week: week) }
         case .setup:
             showSetup = true
+        case .trash(let all):
+            if all { trashLibrary() }
+            selection = .trash
         case .eating(let paused):
             if paused { engine.pauseEating() } else { engine.resumeEating() }
         case .playbook(let id, let make, let force, let run):
@@ -858,6 +863,7 @@ final class AppModel {
 
     // MARK: Library actions
 
+    /// Delete forever (from the Trash). The notes already written in the Second Brain stay.
     func delete(_ video: Video) {
         engine.forget(video.videoID)
         if selectedVideoID == video.videoID { selectedVideoID = nil }

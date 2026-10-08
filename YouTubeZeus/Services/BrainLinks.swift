@@ -96,6 +96,8 @@ nonisolated enum BrainLinks {
         case setup
         /// Pause or resume eating (3.3).
         case eating(paused: Bool)
+        /// The Trash; `all` first moves the whole library there (3.4).
+        case trash(all: Bool)
         case playbook(String, make: Bool, force: Bool, run: String?)
     }
 
@@ -118,6 +120,7 @@ nonisolated enum BrainLinks {
         case "digest": return .digest(value("week"))
         case "setup": return .setup
         case "pause": return .eating(paused: true)
+        case "trash": return .trash(all: ["1", "true", "yes"].contains(value("all")?.lowercased() ?? ""))
         case "resume": return .eating(paused: false)
         case "playbook":
             let make = ["1", "true", "yes"].contains(value("make")?.lowercased() ?? "")

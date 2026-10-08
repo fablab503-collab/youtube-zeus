@@ -35,7 +35,7 @@ struct ChannelView: View {
                     }
                 }
                 Section("In the library") {
-                    ForEach(videos.filter { $0.status != .discovered }) { video in
+                    ForEach(videos.filter { $0.status != .discovered && $0.status != .trashed }) { video in
                         VideoRow(video: video).tag(video.videoID).contextMenu { VideoMenu(video: video) }
                     }
                 }

@@ -15,7 +15,7 @@ struct CollectionView: View {
     var body: some View {
         @Bindable var app = app
         if let list = lists.first {
-            let byID = Dictionary(videos.map { ($0.videoID, $0) }, uniquingKeysWith: { first, _ in first })
+            let byID = Dictionary(videos.filter { $0.status != .trashed }.map { ($0.videoID, $0) }, uniquingKeysWith: { first, _ in first })
             let eaten = list.videoIDs.filter { byID[$0]?.status.hasText == true }.count
             List(selection: $app.selectedVideoID) {
                 Section {

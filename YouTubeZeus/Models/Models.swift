@@ -13,6 +13,8 @@ nonisolated enum EatStatus: String, Codable, CaseIterable, Sendable {
     case waiting        // live / premiere / captions not ready: retried later
     case done
     case failed
+    /// In the Trash (3.4): out of the library until restored or deleted for good.
+    case trashed
 
     var label: String {
         switch self {
@@ -25,6 +27,7 @@ nonisolated enum EatStatus: String, Codable, CaseIterable, Sendable {
         case .waiting: "Waiting"
         case .done: "Eaten"
         case .failed: "Failed"
+        case .trashed: "In the Trash"
         }
     }
 
@@ -39,6 +42,7 @@ nonisolated enum EatStatus: String, Codable, CaseIterable, Sendable {
         case .waiting: "hourglass"
         case .done: "checkmark.circle.fill"
         case .failed: "exclamationmark.triangle.fill"
+        case .trashed: "trash"
         }
     }
 
@@ -277,6 +281,9 @@ final class Video {
     @Attribute(.externalStorage) var playbookData: Data? = nil
     var playbookAt: Date? = nil
     var playbookError: String? = nil
+    /// Trash (3.4): when it was moved there, and the status to give back on Restore.
+    var trashedAt: Date? = nil
+    var trashedFromRaw: String? = nil
     @Relationship(deleteRule: .cascade, inverse: \SkillDraft.video) var skills: [SkillDraft] = []
 
     init(videoID: String, title: String = "", channelTitle: String = "", channelID: String = "",

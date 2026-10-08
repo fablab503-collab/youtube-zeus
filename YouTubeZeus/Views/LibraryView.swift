@@ -15,6 +15,7 @@ struct LibraryView: View {
     @Environment(AppModel.self) private var app
     @Query(sort: \Video.addedAt, order: .reverse) private var videos: [Video]
     @State private var filter: LibraryFilter = .all
+    @State private var confirmTrashAll = false
     @State private var hits: [SearchHit] = []
     @State private var searching = false
 
@@ -25,7 +26,7 @@ struct LibraryView: View {
 
     private var shown: [Video] {
         videos.filter { video in
-            guard video.status != .discovered else { return false }
+            guard video.status != .discovered, video.status != .trashed else { return false }
             switch filter {
             case .all: break
             case .captions: if !(video.source == .captions || video.source == .autoCaptions) { return false }
@@ -93,6 +94,11 @@ struct LibraryView: View {
                 .help("Copy the videos shown (summaries; full transcripts when 5 or fewer match a search) for any AI")
             }
             ToolbarItem {
+                Button { confirmTrashAll = true } label: { Label("Move all to the Trash", systemImage: "trash") }
+                    .help("A clean library: every video goes to the Trash (restore them from there)")
+                    .disabled(videos.allSatisfy { $0.status == .trashed })
+            }
+            ToolbarItem {
                 Picker("Show", selection: $filter) {
                     ForEach(LibraryFilter.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -100,8 +106,13 @@ struct LibraryView: View {
                 .disabled(usesIndex)
             }
         }
+        .confirmationDialog("Move every video of the library to the Trash?", isPresented: $confirmTrashAll) {
+            Button("Move all to the Trash", role: .destructive) { app.trashLibrary() }
+        } message: {
+            Text("The library starts empty. Everything can be restored from the Trash until you empty it; the notes in the Second Brain stay.")
+        }
         .onDeleteCommand {
-            if let id = app.selectedVideoID, let video = videos.first(where: { $0.videoID == id }) { app.delete(video) }
+            if let id = app.selectedVideoID, let video = videos.first(where: { $0.videoID == id }) { app.trash(video) }
         }
     }
 
@@ -333,7 +344,12 @@ struct VideoMenu: View {
             Button("Cancel") { app.engine.cancel(video.videoID) }
         }
         Divider()
-        Button("Delete", role: .destructive) { app.delete(video) }
+        if video.status == .trashed {
+            Button("Restore") { app.restore([video]) }
+            Button("Delete Forever", role: .destructive) { app.delete(video) }
+        } else {
+            Button("Move to Trash", role: .destructive) { app.trash(video) }
+        }
     }
 }
 
@@ -430,9 +446,9 @@ struct QueueView: View {
                         }
                     }
                     Button(role: .destructive) { confirmDelete = true } label: {
-                        Label("Delete \(selection.count)", systemImage: "trash")
+                        Label("Trash \(selection.count)", systemImage: "trash")
                     }
-                    .help("Remove the selected videos from the library (their notes stay in the Second Brain)")
+                    .help("Move the selected videos to the Trash (restore them from there)")
                     Button("Select none") { selection.removeAll() }
                 }
                 Button {
@@ -444,14 +460,14 @@ struct QueueView: View {
                 .help(app.engine.eatingPaused ? "Start eating again" : "Pause eating: what is running waits at the front of the line")
             }
         }
-        .confirmationDialog("Delete \(selection.count) video\(selection.count == 1 ? "" : "s") from the library?",
+        .confirmationDialog("Move \(selection.count) video\(selection.count == 1 ? "" : "s") to the Trash?",
                             isPresented: $confirmDelete) {
-            Button("Delete", role: .destructive) {
-                selected.forEach { app.delete($0) }
+            Button("Move to Trash", role: .destructive) {
+                app.trash(selected)
                 selection.removeAll()
             }
         } message: {
-            Text("Eating stops. The notes already written stay in the Second Brain.")
+            Text("Eating stops. Restore them from the Trash; the notes already written stay in the Second Brain.")
         }
         .onChange(of: selection) { _, ids in
             if ids.count == 1, let id = ids.first { app.selectedVideoID = id }
@@ -489,12 +505,12 @@ struct JobRow: View {
             .buttonStyle(.borderless)
             .help("Cancel: stop eating this video")
             Button {
-                app.delete(video)
+                app.trash(video)
             } label: {
                 Image(systemName: "trash.circle.fill").foregroundStyle(.red.opacity(0.8))
             }
             .buttonStyle(.borderless)
-            .help("Delete: stop and remove it from the library")
+            .help("Move to Trash: stop and take it out of the library (restore it from the Trash)")
         }
         .padding(.vertical, 4)
     }

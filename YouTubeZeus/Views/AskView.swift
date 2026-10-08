@@ -147,7 +147,7 @@ struct TopicView: View {
     var body: some View {
         @Bindable var app = app
         let matching = videos.filter { video in
-            video.digest?.topics.contains { $0.caseInsensitiveCompare(topic) == .orderedSame } == true
+            video.status != .trashed && video.digest?.topics.contains { $0.caseInsensitiveCompare(topic) == .orderedSame } == true
         }
         List(selection: $app.selectedVideoID) {
             ForEach(matching) { video in

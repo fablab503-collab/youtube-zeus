@@ -17,6 +17,7 @@ extension EatStatus {
         case .waiting: .teal
         case .done: .green
         case .failed: .red
+        case .trashed: .secondary
         }
     }
 }

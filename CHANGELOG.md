@@ -3,6 +3,13 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 3.4 — 2026-10-08
+
+- **A Trash.** Delete (menu, ⌫, the trash button in Eating now, several at once) moves videos to the Trash in the
+  sidebar instead of erasing them: their work stops and they leave the library, search and lists. In the Trash:
+  Restore, Delete Forever, Empty Trash. A watched channel does not bring a trashed video back; eating it yourself does.
+- **Move all to the Trash** (Library toolbar, `youtubezeus://trash?all=1`): a clean, empty library that can be undone.
+
 ## 3.3.1 — 2026-10-08
 
 - Fixed: deleting a video while it was being summarized, polished, eaten, read on screen or made into a playbook

@@ -694,3 +694,9 @@ nonisolated extension Double {
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%02d:%02d", m, s)
     }
 }
+
+
+extension Video {
+    /// Still in the library: a video deleted while a lane was working on it must not be read or written again.
+    var isAlive: Bool { modelContext != nil && !isDeleted }
+}

@@ -54,6 +54,7 @@ extension EatEngine {
             }
             finishEating(video, result: result, fallbackLanguage: video.language)
         } catch {
+            guard video.isAlive else { return }   // deleted while it was eaten
             let cancelled = Self.isCancellation(error)
             video.status = .failed
             video.statusDetail = cancelled ? "Cancelled" : error.localizedDescription
@@ -175,10 +176,12 @@ extension EatEngine {
                     Task { @MainActor in self.jobs[id] = JobState(step: step, progress: value) }
                 }
             }
+            guard video.isAlive else { return }   // deleted while its screen was read
             video.screen = items
             video.screenReadAt = .now
             AppLog.write("SCREEN \(id): \(items.filter { $0.kind == .title }.count) titles, \(items.filter { $0.kind == .command }.count) commands, \(items.filter { $0.kind == .code }.count) code blocks")
         } catch {
+            guard video.isAlive else { return }
             video.screenError = Self.isCancellation(error) ? "Cancelled" : error.localizedDescription
             AppLog.write("SCREEN \(id) failed: \(video.screenError ?? "")")
         }
@@ -222,6 +225,7 @@ extension EatEngine {
             let found = try await offMain {
                 try await EntityExtractor(model: model).extract(snapshot)
             }.filter { !Self.isPlainWords($0.name) }
+            guard video.isAlive else { return }
             video.entities = found
             video.entitiesAt = .now
             AppLog.write("NAMES \(id): \(found.map(\.name).joined(separator: ", "))")

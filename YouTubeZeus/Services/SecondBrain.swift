@@ -282,7 +282,8 @@ final class SecondBrainExporter {
 
     @discardableResult
     func export(_ video: Video) -> Bool {
-        guard settings.secondBrainEnabled, video.status.hasText else { return false }
+        // A video deleted while a lane was working on it: nothing to write (reading it would crash).
+        guard video.isAlive, settings.secondBrainEnabled, video.status.hasText else { return false }
         guard folderReachable else {
             video.exportPending = true
             return false
@@ -313,7 +314,7 @@ final class SecondBrainExporter {
     /// `Playbooks/attachments/<id>-<seconds>.jpg`.
     @discardableResult
     func exportPlaybook(_ video: Video) -> URL? {
-        guard settings.secondBrainEnabled, folderReachable, let playbook = video.playbook else { return nil }
+        guard video.isAlive, settings.secondBrainEnabled, folderReachable, let playbook = video.playbook else { return nil }
         let snapshot = video.snapshot
         let folder = settings.playbookNotesFolder
         let attachments = folder.appendingPathComponent("attachments", isDirectory: true)

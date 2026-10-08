@@ -160,6 +160,17 @@ final class EatEngine {
         pump()
     }
 
+    /// A video leaves the library: it is taken out of every lane (what is running stops at its next step).
+    func forget(_ id: String) {
+        cancel(id)
+        polishQueue.removeAll { $0 == id }
+        summaryQueue.removeAll { $0 == id }
+        screenQueue.removeAll { $0 == id }
+        entityQueue.removeAll { $0 == id }
+        playbookQueue.removeAll { $0 == id }
+        jobs[id] = nil
+    }
+
     func cancel(_ id: String) {
         pausedRunning.remove(id)
         queue.removeAll { $0 == id }
@@ -320,6 +331,7 @@ final class EatEngine {
             guard let result else { throw EatError.noCaptions }
             finishEating(video, result: result, fallbackLanguage: info.language ?? "")
         } catch {
+            guard video.isAlive else { return }   // deleted while it was eaten
             let cancelled = Self.isCancellation(error)
             video.status = .failed
             video.statusDetail = cancelled ? "Cancelled" : error.localizedDescription
@@ -330,6 +342,7 @@ final class EatEngine {
 
     /// The text is in: save it, write the note, then GitHub checks, polishing and the summary follow.
     func finishEating(_ video: Video, result: TranscriptResult, fallbackLanguage: String) {
+        guard video.isAlive else { return }
         let id = video.videoID
         video.segments = result.segments
         video.transcriptText = Paragrapher.paragraphs(from: result.segments).map(\.text).joined(separator: "\n\n")
@@ -434,6 +447,7 @@ final class EatEngine {
     }
 
     private func finish(_ video: Video) {
+        guard video.isAlive else { return }
         exporter.export(video)
         exporter.scheduleIndexes(in: context)
         try? context.save()
@@ -532,11 +546,13 @@ final class EatEngine {
                 self.jobs[id] = JobState(step: "Polishing with \(self.settings.polishModel) — \(done)/\(total)",
                                          progress: total > 0 ? Double(done) / Double(total) : nil)
             }
+            guard video.isAlive else { return }   // deleted while it was polished
             video.polished = texts
             video.polishModel = settings.polishModel
             video.transcriptText = video.displayParagraphs.map(\.text).joined(separator: "\n\n")
             AppLog.write("POLISHED \(id) with \(settings.polishModel)")
         } catch {
+            guard video.isAlive else { return }
             video.polishError = error.localizedDescription
             AppLog.write("POLISH \(id) failed: \(error.localizedDescription)")
         }
@@ -746,12 +762,14 @@ final class EatEngine {
                         Task { @MainActor in self.jobs[id] = JobState(step: step) }
                     }
             }
+            guard video.isAlive else { return }   // deleted while it was summarized
             guard let digest = result else { throw SummaryError.unavailable(summaryUnavailableMessage) }
             // Every key point and summary sentence gets the moment of the video it comes from.
             video.digest = Grounder.ground(digest, paragraphs: video.displayParagraphs)
             let found = (video.digest?.keyPointTimes ?? []).compactMap { $0 }.count
             AppLog.write("SUMMARY \(id) ok (\(digest.engine)), \(found)/\(digest.keyPoints.count) key points placed in the video")
         } catch {
+            guard video.isAlive else { return }
             if Self.isUsageLimit(error) {
                 // Not the video's fault: it is summarized again when Codex is back.
                 video.digestError = nil
@@ -761,6 +779,7 @@ final class EatEngine {
                 AppLog.write("SUMMARY \(id) failed: \(error.localizedDescription)")
             }
         }
+        guard video.isAlive else { return }
         video.status = previous == .summarizing ? .done : (previous == .failed ? .failed : .done)
         video.statusDetail = ""
         if tasks[id] == nil { jobs[id] = nil }

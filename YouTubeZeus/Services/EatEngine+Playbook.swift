@@ -97,10 +97,12 @@ extension EatEngine {
                     Task { @MainActor in self.playbookProgress(id, step, value) }
                 }
             }
+            guard video.isAlive else { playbookDone(id); return }   // deleted while it was made
             video.playbook = playbook
             video.playbookAt = .now
             AppLog.write("PLAYBOOK \(id): \(playbook.steps.count) steps (\(playbook.agentSteps) agent, \(playbook.yourSteps) you), model \(model), vision \(playbook.visionModel ?? "none")")
         } catch {
+            guard video.isAlive else { playbookDone(id); return }
             video.playbookError = Self.isCancellation(error) ? "Cancelled" : error.localizedDescription
             AppLog.write("PLAYBOOK \(id) failed: \(video.playbookError ?? "")")
         }

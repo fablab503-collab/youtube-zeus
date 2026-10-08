@@ -3,6 +3,14 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 3.3.1 — 2026-10-08
+
+- Fixed: deleting a video while it was being summarized, polished, eaten, read on screen or made into a playbook
+  crashed the app (the lane wrote to the deleted video). Delete now takes the video out of every lane, and each lane
+  checks the video is still there before saving.
+- When Safari's cookies are chosen for yt-dlp, macOS refuses them unless YouTube Zeus has Full Disk Access; the
+  YouTube page's "Cookies from" should stay on "Zeus's YouTube window" (signed in inside Zeus).
+
 ## 3.3 — 2026-10-06
 
 - **A small YouTube browser in the Eat bar.** The red ▶ button next to the link field opens YouTube in a window

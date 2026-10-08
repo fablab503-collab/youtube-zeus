@@ -859,7 +859,7 @@ final class AppModel {
     // MARK: Library actions
 
     func delete(_ video: Video) {
-        engine.cancel(video.videoID)
+        engine.forget(video.videoID)
         if selectedVideoID == video.videoID { selectedVideoID = nil }
         indexer.remove(video.videoID)
         context.delete(video)

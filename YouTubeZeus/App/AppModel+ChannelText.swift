@@ -58,6 +58,23 @@ extension AppModel {
         }
     }
 
+    /// Stops getting the text of a channel: the videos still waiting leave the line (they had nothing yet, so they
+    /// are simply forgotten; “Get all the text” lists them again). What is already in stays, files included.
+    func stopChannelText(_ channelTitle: String) {
+        let doneRaw = EatStatus.done.rawValue
+        let descriptor = FetchDescriptor<Video>(predicate: #Predicate { $0.channelTitle == channelTitle && $0.statusRaw != doneRaw })
+        let waiting = ((try? context.fetch(descriptor)) ?? []).filter {
+            $0.textOnly && $0.transcriptText.isEmpty && ($0.status == .queued || $0.status.isBusy || $0.status == .failed)
+        }
+        for video in waiting {
+            engine.forget(video.videoID)
+            context.delete(video)
+        }
+        try? context.save()
+        AppLog.write("ALL CHANNEL \(channelTitle): stopped, \(waiting.count) waiting videos left the line")
+        show(waiting.isEmpty ? "Nothing of \(channelTitle) was waiting." : "Stopped: \(waiting.count) videos of \(channelTitle) left the line. The text files already made stay.")
+    }
+
     /// Where the text files of a channel live.
     func channelTextFolder(_ channelTitle: String) -> URL {
         let folder = SecondBrainExporter.channelFolderName(channelTitle)

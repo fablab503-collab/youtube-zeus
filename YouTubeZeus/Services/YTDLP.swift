@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 
 nonisolated struct CaptionTrack: Sendable, Equatable {
     let language: String
@@ -232,6 +233,15 @@ nonisolated struct YTDLP: Sendable {
             if !dub.isEmpty, dub.count < originals.count {
                 originals.removeAll { dub.contains($0) }
                 reported = nil
+            }
+        }
+        // Still several speech tracks and no sure sign of the original: the language of the title and description
+        // decides (an Italian title with "en-orig" and "it-orig" is an Italian talk with an English dub).
+        if info.spokenLanguage == nil, originals.count > 1 {
+            let recognizer = NLLanguageRecognizer()
+            recognizer.processString(info.title + "\n" + String(info.description.prefix(600)))
+            if let guess = recognizer.dominantLanguage?.rawValue, originals.contains(where: { base($0) == guess }) {
+                reported = guess
             }
         }
         let videoLanguage = (info.spokenLanguage ?? reported).map(base)

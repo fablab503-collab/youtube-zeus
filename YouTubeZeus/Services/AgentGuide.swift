@@ -194,7 +194,7 @@ enum AgentGuide {
         | `youtubezeus://digest?week=<2026-W39>` | a weekly digest (written first if needed) |
         | `youtubezeus://trash` (optional `?all=1`) | the Trash; `all=1` first moves every video of the library there (restorable) |
         | `youtubezeus://open?view=favorites` | the starred videos (Library › Favorites) |
-        | `youtubezeus://allchannel?url=<channel link>` | "All channel": the words of every video of the channel (captions first, no polishing or summary), one text file per video in `<Channel>/Text files/` (numbered from the first upload) plus `000 - <Channel> - ALL VIDEOS.txt` with all of them, rewritten when new videos come |
+        | `youtubezeus://allchannel?url=<channel link>` | "All channel": the words of every video of the channel (captions first, no polishing or summary), one text file per video in `<Channel>/Text files/` (numbered from the first upload) plus `000 - <Channel> - ALL VIDEOS.txt` with all of them, rewritten when new videos come; `&again=1` eats its text-only videos again, `&stop=1` (or `channel=<name>&stop=1`) takes the waiting ones out of the line |
         | `youtubezeus://pause`, `youtubezeus://resume` | pause eating (what is running waits at the front of the line) or start again |
         | `youtubezeus://setup` | the setup page: installs Homebrew, the tools and the local AI model for this Mac |
         | `youtubezeus://open?collection=<playlist or list id>` | a collection |

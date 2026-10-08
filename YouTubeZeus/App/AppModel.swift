@@ -513,7 +513,15 @@ final class AppModel {
         case .trash(let all):
             if all { trashLibrary() }
             selection = .trash
-        case .allChannel(let link, let again):
+        case .allChannel(let link, let again, let stop):
+            if stop {
+                // By name, or by the channel of a link: the channel's name as the videos carry it.
+                let descriptor = FetchDescriptor<Video>()
+                let names = Set(((try? context.fetch(descriptor)) ?? []).filter(\.textOnly).map(\.channelTitle))
+                let match = names.first { $0 == link } ?? (names.count == 1 ? names.first : nil)
+                if let match { stopChannelText(match) } else { show("Which channel? Use its name: allchannel?channel=<name>&stop=1", error: true) }
+                return
+            }
             let text = link.hasPrefix("http") ? link : (link.hasPrefix("@") ? "https://www.youtube.com/" + link : link)
             if let url = URL(string: text), url.host?.contains("youtube.com") == true {
                 Task { await eatAllChannelText(name: "", url: url, again: again) }

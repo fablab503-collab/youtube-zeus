@@ -8,8 +8,10 @@ Newest first.
 - **The words as spoken, not a translation.** When YouTube lists the original speech track (`it-orig`), Zeus now
   always takes it: before, an Italian video marked as English could come in as YouTube's English machine
   translation. AI-dubbed videos (YouTube reports the dub as "en-us" and lists "en-US-orig" next to "it-orig")
-  now come in as what was really said.
+  now come in as what was really said (the language of the title and description picks the speech track when
+  YouTube lists several).
   `youtubezeus://allchannel?url=…&again=1` eats a channel's text-only videos again.
+- **Stop getting the text** (channel page, or `&stop=1`): the videos still waiting leave the line; the files made stay.
 
 ## 3.6 — 2026-10-08
 

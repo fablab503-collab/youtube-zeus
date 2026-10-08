@@ -217,6 +217,11 @@ struct ChannelTextBox: View {
                             .buttonStyle(.glass)
                         Button { app.openChannelTextFolder(channelTitle) } label: { Label("Show the folder", systemImage: "folder") }
                             .buttonStyle(.glass)
+                        if busy > 0 {
+                            Button { app.stopChannelText(channelTitle) } label: { Label("Stop getting the text", systemImage: "stop.circle") }
+                                .buttonStyle(.glass)
+                                .help("The \(busy) videos still waiting leave the line; the text files already made stay")
+                        }
                         Button { app.setKeepsTextFiles(channelTitle, false) } label: { Label("Stop updating", systemImage: "pause.circle") }
                             .buttonStyle(.glass)
                             .help("The files stay; new videos are no longer added to them")

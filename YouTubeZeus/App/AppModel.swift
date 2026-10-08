@@ -101,6 +101,10 @@ final class AppModel {
     /// Channels whose videos are kept as text files (3.6, "All channel").
     var textChannelNames: Set<String> = Set(UserDefaults.standard.stringArray(forKey: AppModel.textChannelsKey) ?? [])
     @ObservationIgnored var textRebuilds: [String: Task<Void, Never>] = [:]
+    /// Translations being made ("<video id>|<language>") and the language each channel is also kept in (3.7).
+    var translating: Set<String> = []
+    var channelLanguages: [String: String] = (UserDefaults.standard.dictionary(forKey: AppModel.channelLanguagesKey) as? [String: String]) ?? [:]
+    @ObservationIgnored var channelTranslateTasks: [String: Task<Void, Never>] = [:]
     var packResults: [String: PackResult] = [:]
     var buildingPacks: Set<String> = []
     var isResolvingLink = false
@@ -513,7 +517,25 @@ final class AppModel {
         case .trash(let all):
             if all { trashLibrary() }
             selection = .trash
-        case .allChannel(let link, let again, let stop):
+        case .translate(let id, let language):
+            guard let video = engine.video(id) else { show("No video \(id) in the library.", error: true); return }
+            Task {
+                if await translate(video, to: language) != nil {
+                    show("“\(video.displayTitle)” is now also in \(TranslationLanguages.name(language)).")
+                }
+            }
+        case .allChannel(let link, let again, let stop, let language):
+            if let language {
+                let descriptor = FetchDescriptor<Video>()
+                let names = Set(((try? context.fetch(descriptor)) ?? []).map(\.channelTitle)).intersection(textChannelNames)
+                if let match = names.first(where: { $0 == link }) ?? (names.count == 1 ? names.first : nil) {
+                    setChannelTextLanguage(match, ["none", "off", "original"].contains(language.lowercased()) ? nil : language)
+                    show("The text files of \(match) are now also in \(TranslationLanguages.name(language)).")
+                } else {
+                    show("Which channel? Use its name: allchannel?channel=<name>&lang=fr", error: true)
+                }
+                return
+            }
             if stop {
                 // By name, or by the channel of a link: the channel's name as the videos carry it.
                 let descriptor = FetchDescriptor<Video>()

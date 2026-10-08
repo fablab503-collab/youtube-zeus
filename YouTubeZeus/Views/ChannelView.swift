@@ -217,6 +217,25 @@ struct ChannelTextBox: View {
                             .buttonStyle(.glass)
                         Button { app.openChannelTextFolder(channelTitle) } label: { Label("Show the folder", systemImage: "folder") }
                             .buttonStyle(.glass)
+                        Menu {
+                            Button("Only as spoken") { app.setChannelTextLanguage(channelTitle, nil) }
+                            Divider()
+                            ForEach(TranslationLanguages.suggested) { language in
+                                Button(language.name) { app.setChannelTextLanguage(channelTitle, language.code) }
+                            }
+                            Menu("All languages") {
+                                ForEach(TranslationLanguages.all) { language in
+                                    Button(language.name) { app.setChannelTextLanguage(channelTitle, language.code) }
+                                }
+                            }
+                        } label: {
+                            Label(app.channelTextLanguage(channelTitle).map { "Also in \(TranslationLanguages.name($0))" } ?? "Also in another language",
+                                  systemImage: "character.bubble")
+                        }
+                        .menuStyle(.button)
+                        .buttonStyle(.glass)
+                        .fixedSize()
+                        .help("Every text file also in another language, in “Text files - <Language>”, plus its own file with all of them")
                         if busy > 0 {
                             Button { app.stopChannelText(channelTitle) } label: { Label("Stop getting the text", systemImage: "stop.circle") }
                                 .buttonStyle(.glass)

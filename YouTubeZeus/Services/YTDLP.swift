@@ -283,6 +283,12 @@ nonisolated struct YTDLP: Sendable {
         return nil
     }
 
+    /// YouTube's translation of the spoken captions into `language` (3.7). YouTube translates from the original
+    /// speech track, so `source` (the track the video was eaten with) is asked for with `tlang`.
+    func downloadTranslation(videoID: String, language: String, workDir: URL) async throws -> TranscriptResult {
+        try await downloadCaptions(videoID: videoID, track: CaptionTrack(language: language, isAuto: true), workDir: workDir)
+    }
+
     func downloadCaptions(videoID: String, track: CaptionTrack, workDir: URL) async throws -> TranscriptResult {
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         _ = try await ProcessRunner.check(executable, cookieArguments + [

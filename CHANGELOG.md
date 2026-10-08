@@ -3,6 +3,15 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 3.7 — 2026-10-08
+
+- **Translate.** The new Translate button of a video shows its text in another language: pick one of every language
+  your Mac knows (searchable list, suggestions first). YouTube translates the spoken words in seconds, for free, in
+  about 160 languages; podcasts, your own files, or a language YouTube lacks are translated by the local AI. Each
+  translation is kept with the video: Copy it, or Save as text file. Link: `youtubezeus://translate?video=<id>&lang=fr`.
+- **All channel in another language.** On a channel, *Also in…* keeps every text file in a second language too
+  (`Text files - French/`, same numbers, plus its own file with all of them); new videos are translated as they come.
+
 ## 3.6.1 — 2026-10-08
 
 - **The words as spoken, not a translation.** When YouTube lists the original speech track (`it-orig`), Zeus now

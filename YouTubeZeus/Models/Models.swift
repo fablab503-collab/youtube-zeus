@@ -288,6 +288,8 @@ final class Video {
     var isFavorite: Bool = false
     /// "All channel" (3.6): eaten for its words only (no polishing, no summary).
     var textOnly: Bool = false
+    /// Translations (3.7): language code → the text in that language (YouTube's translation of the spoken captions).
+    @Attribute(.externalStorage) var translationsData: Data? = nil
     @Relationship(deleteRule: .cascade, inverse: \SkillDraft.video) var skills: [SkillDraft] = []
 
     init(videoID: String, title: String = "", channelTitle: String = "", channelID: String = "",
@@ -402,6 +404,15 @@ final class Video {
     }
 
     /// Polished paragraph texts (same order as `paragraphs`), made by the local AI.
+    /// Translations (3.7), by language code ("fr", "zh-Hans"…).
+    var translations: [String: String] {
+        get {
+            guard let translationsData else { return [:] }
+            return (try? JSONDecoder().decode([String: String].self, from: translationsData)) ?? [:]
+        }
+        set { translationsData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
+    }
+
     var polished: [String] {
         get {
             guard let polishedData else { return [] }

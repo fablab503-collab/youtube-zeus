@@ -21,6 +21,7 @@ struct VideoDetailView: View {
     @State private var polishedParagraphs: [TranscriptParagraph] = []
     @State private var showOriginal = false
     @State private var highlight: Int?
+    @State private var translateVideo: Video?
 
     init(videoID: String) {
         _matches = Query(filter: #Predicate<Video> { $0.videoID == videoID })
@@ -152,6 +153,8 @@ struct VideoDetailView: View {
                         .help("Copy a knowledge pack for Claude, ChatGPT, Gemini, Grok, GLM…")
                     Button { app.copyTranscript(video) } label: { Label("Copy transcript", systemImage: "doc.on.doc") }
                         .help("Copy the transcript")
+                    Button { translateVideo = video } label: { Label("Translate", systemImage: "character.bubble") }
+                        .help("The text in another language (YouTube translates into about 160; the local AI does the rest)")
                     Menu {
                         Button("Export Markdown…") { app.exportMarkdown(video) }
                         Button("Copy as Markdown Note") { app.copyMarkdown(video) }
@@ -171,6 +174,7 @@ struct VideoDetailView: View {
             let polished = video.displayParagraphs
             polishedParagraphs = video.polished.isEmpty ? [] : polished
         }
+        .sheet(item: $translateVideo) { video in TranslateSheet(video: video) }
         .onAppear { applyInitialTab() }
         .onChange(of: app.initialTab) { applyInitialTab() }
     }

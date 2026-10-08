@@ -97,6 +97,8 @@ extension AppModel {
         guard !textChannelNames.isEmpty, let video = engine.video(id), video.isAlive,
               keepsTextFiles(video.channelTitle) else { return }
         scheduleChannelText(video.channelTitle)
+        // The channel is also kept in another language: the new video is translated too.
+        if channelLanguages[video.channelTitle] != nil, video.status == .done { translateChannel(video.channelTitle) }
     }
 
     func scheduleChannelText(_ channelTitle: String, delay: Duration = .seconds(4)) {
@@ -125,52 +127,73 @@ extension AppModel {
     }
 
     /// Rewrites the folder: one file per video, numbered from the first upload, and the file with all of them.
+    /// With a translation language (3.7), the same again in `Text files - <Language>/` for the videos translated so far.
     @discardableResult
     func writeChannelText(_ channelTitle: String) -> Int {
         let videos = channelTextVideos(channelTitle)
         guard !videos.isEmpty else { return 0 }
         let folder = channelTextFolder(channelTitle)
+        guard writeTextSet(channelTitle, videos: videos, folder: folder, allURL: channelAllTextURL(channelTitle),
+                           heading: "every video, from the first to the newest", text: { $0.transcriptText }) else { return 0 }
+        if let language = channelLanguages[channelTitle] {
+            let name = TranslationLanguages.name(language)
+            let translated = folder.deletingLastPathComponent().appendingPathComponent("Text files - \(name)", isDirectory: true)
+            let allURL = translated.appendingPathComponent("000 - \(SecondBrainExporter.channelFolderName(channelTitle)) - ALL VIDEOS (\(name)).txt")
+            writeTextSet(channelTitle, videos: videos, folder: translated, allURL: allURL,
+                         heading: "every video in \(name), from the first to the newest", text: { $0.translations[language] })
+        }
+        AppLog.write("ALL CHANNEL \(channelTitle): \(videos.count) text files")
+        return videos.count
+    }
+
+    /// One folder: numbered files (the number of each video is its place among all the channel's videos) and the
+    /// file with all of them. Videos without text in this set are skipped (their number stays free).
+    @discardableResult
+    private func writeTextSet(_ channelTitle: String, videos: [Video], folder: URL, allURL: URL, heading: String,
+                              text textOf: (Video) -> String?) -> Bool {
         let fm = FileManager.default
         do {
             try fm.createDirectory(at: folder, withIntermediateDirectories: true)
         } catch {
             AppLog.write("ALL CHANNEL \(channelTitle): cannot create \(folder.path): \(error.localizedDescription)")
-            return 0
+            return false
         }
         let digits = max(3, String(videos.count).count)
         var written = Set<String>()
-        let allName = channelAllTextURL(channelTitle).lastPathComponent
-        var all = """
-        \(channelTitle) — every video, from the first to the newest
-        \(videos.count) videos · written by YouTube Zeus on \(Date.now.formatted(date: .abbreviated, time: .shortened))
-        One file per video sits next to this one (same numbers).
-
-
-        """
+        var count = 0
+        var body = ""
         for (index, video) in videos.enumerated() {
+            guard let words = textOf(video), !words.isEmpty else { continue }
+            count += 1
             let number = String(format: "%0\(digits)d", index + 1)
             let day = video.publishedAt.map { Self.textDay.string(from: $0) } ?? "undated"
             let title = SecondBrainExporter.sanitize(video.displayTitle, limit: 90)
             let name = "\(number) - \(day) - \(title).txt"
             let header = "\(video.displayTitle)\n\(channelTitle) · \(day) · \(video.url.absoluteString)\n"
-            let text = header + "\n" + video.transcriptText + "\n"
+            let text = header + "\n" + words + "\n"
             let file = folder.appendingPathComponent(name)
             if (try? String(contentsOf: file, encoding: .utf8)) != text {
                 try? text.write(to: file, atomically: true, encoding: .utf8)
             }
             written.insert(name)
-            all += "==================== \(number) · \(day) · \(video.displayTitle) ====================\n"
-            all += video.url.absoluteString + "\n\n" + video.transcriptText + "\n\n\n"
+            body += "==================== \(number) · \(day) · \(video.displayTitle) ====================\n"
+            body += video.url.absoluteString + "\n\n" + words + "\n\n\n"
         }
-        try? all.write(to: channelAllTextURL(channelTitle), atomically: true, encoding: .utf8)
-        written.insert(allName)
+        let all = """
+        \(channelTitle) — \(heading)
+        \(count) videos · written by YouTube Zeus on \(Date.now.formatted(date: .abbreviated, time: .shortened))
+        One file per video sits next to this one (same numbers).
+
+
+        """ + body
+        try? all.write(to: allURL, atomically: true, encoding: .utf8)
+        written.insert(allURL.lastPathComponent)
         // Numbers move when an older video comes in later: files with an old number go.
         for name in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? []
         where name.hasSuffix(".txt") && !written.contains(name) && name.first?.isNumber == true && name.contains(" - ") {
             try? fm.removeItem(at: folder.appendingPathComponent(name))
         }
-        AppLog.write("ALL CHANNEL \(channelTitle): \(videos.count) text files")
-        return videos.count
+        return true
     }
 
     func openChannelTextFolder(_ channelTitle: String) {

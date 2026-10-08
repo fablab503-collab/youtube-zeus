@@ -316,6 +316,7 @@ final class EatEngine {
             if whisperOnly {
                 result = try await transcribeWithWhisper(id: id, ytdlp: ytdlp, workDir: workDir)
             } else if let track = YTDLP.chooseTrack(info, preferred: settings.preferredLanguageList) {
+                AppLog.write("TRACKS \(id): picked \(track.language) · language \(info.language ?? "?") · spoken \(info.spokenLanguage ?? "?") · captions \(info.subtitles.joined(separator: ",")) · originals \(info.autoCaptions.filter { $0.hasSuffix("-orig") }.joined(separator: ",")) · \(info.autoCaptions.count) auto")
                 update(id, track.isAuto ? "Downloading auto-captions (\(track.language))" : "Downloading captions (\(track.language))")
                 do {
                     result = try await ytdlp.downloadCaptions(videoID: id, track: track,

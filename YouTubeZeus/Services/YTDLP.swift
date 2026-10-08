@@ -119,9 +119,11 @@ nonisolated struct YTDLP: Sendable {
         // AI dubbing: several audio tracks; the original one says "original" in its note (the video's "language" can
         // then be the dub shown to you, and its captions a translation).
         let formats = json["formats"] as? [[String: Any]] ?? []
-        let spoken = formats.first { format in
-            (format["format_note"] as? String)?.lowercased().contains("original") == true && format["language"] is String
-        }?["language"] as? String
+        // yt-dlp gives the original track language_preference 10 (dubs get -1, the default dub 5).
+        let audio = formats.filter { $0["language"] is String && ($0["acodec"] as? String ?? "none") != "none" }
+        let spoken = (audio.first { ($0["language_preference"] as? Int ?? 0) >= 10 }
+            ?? audio.first { ($0["format_note"] as? String)?.lowercased().contains("original") == true })?["language"] as? String
+        let dubbed = Set(audio.compactMap { $0["language"] as? String }).count > 1
         let comments = (json["comments"] as? [[String: Any]] ?? []).compactMap { item -> VideoComment? in
             guard let text = item["text"] as? String, !text.isEmpty, (item["parent"] as? String ?? "root") == "root" else { return nil }
             return VideoComment(author: item["author"] as? String ?? "", text: text, likes: item["like_count"] as? Int ?? 0)
@@ -145,7 +147,7 @@ nonisolated struct YTDLP: Sendable {
             viewCount: json["view_count"] as? Int ?? 0,
             likeCount: json["like_count"] as? Int ?? 0,
             comments: Array(comments.sorted { $0.likes > $1.likes }.prefix(50)),
-            spokenLanguage: spoken?.lowercased())
+            spokenLanguage: dubbed ? spoken?.lowercased() : nil)
     }
 
     // MARK: Playlists and channels

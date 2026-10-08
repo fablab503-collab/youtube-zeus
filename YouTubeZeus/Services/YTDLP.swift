@@ -24,6 +24,8 @@ nonisolated struct VideoInfo: Sendable {
     var viewCount: Int = 0
     var likeCount: Int = 0
     var comments: [VideoComment] = []
+    /// The language of the original audio track, when the video also has AI-dubbed tracks (3.6.1).
+    var spokenLanguage: String? = nil
 
     var isLiveOrUpcoming: Bool { liveStatus == "is_live" || liveStatus == "is_upcoming" }
 }
@@ -114,6 +116,12 @@ nonisolated struct YTDLP: Sendable {
         let height = json["height"] as? Double ?? 0
         let duration = json["duration"] as? Double ?? 0
         let isShort = webpage.contains("/shorts/") || (height > width && duration > 0 && duration <= 180)
+        // AI dubbing: several audio tracks; the original one says "original" in its note (the video's "language" can
+        // then be the dub shown to you, and its captions a translation).
+        let formats = json["formats"] as? [[String: Any]] ?? []
+        let spoken = formats.first { format in
+            (format["format_note"] as? String)?.lowercased().contains("original") == true && format["language"] is String
+        }?["language"] as? String
         let comments = (json["comments"] as? [[String: Any]] ?? []).compactMap { item -> VideoComment? in
             guard let text = item["text"] as? String, !text.isEmpty, (item["parent"] as? String ?? "root") == "root" else { return nil }
             return VideoComment(author: item["author"] as? String ?? "", text: text, likes: item["like_count"] as? Int ?? 0)
@@ -136,7 +144,8 @@ nonisolated struct YTDLP: Sendable {
             tags: json["tags"] as? [String] ?? [],
             viewCount: json["view_count"] as? Int ?? 0,
             likeCount: json["like_count"] as? Int ?? 0,
-            comments: Array(comments.sorted { $0.likes > $1.likes }.prefix(50)))
+            comments: Array(comments.sorted { $0.likes > $1.likes }.prefix(50)),
+            spokenLanguage: spoken?.lowercased())
     }
 
     // MARK: Playlists and channels
@@ -213,7 +222,7 @@ nonisolated struct YTDLP: Sendable {
         let manual = info.subtitles
         let auto = info.autoCaptions
         let originals = auto.filter { $0.hasSuffix("-orig") }
-        let videoLanguage = info.language.map(base)
+        let videoLanguage = (info.spokenLanguage ?? info.language).map(base)
         var order: [String] = []
         if let videoLanguage { order.append(videoLanguage) }
         order += preferred.map(base).filter { !order.contains($0) }
@@ -224,6 +233,10 @@ nonisolated struct YTDLP: Sendable {
         }
         // 2. The original speech-recognition track in the video's language.
         if let lang = videoLanguage, let match = originals.first(where: { base($0) == lang }) {
+            return CaptionTrack(language: match, isAuto: true)
+        }
+        // 2b. The original audio is known: its auto track (older naming without "-orig").
+        if info.spokenLanguage != nil, let lang = videoLanguage, let match = auto.first(where: { $0.lowercased() == lang }) {
             return CaptionTrack(language: match, isAuto: true)
         }
         // 3. The spoken language wins over translations (3.6): when YouTube lists original speech tracks, a plain auto

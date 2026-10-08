@@ -23,6 +23,19 @@ extension AppModel {
 
     func trash(_ video: Video) { trash([video]) }
 
+    /// Favorites (3.5): stars or un-stars videos (all starred when one of them is not).
+    func toggleFavorite(_ videos: [Video]) {
+        let live = videos.filter(\.isAlive)
+        guard !live.isEmpty else { return }
+        let star = live.contains { !$0.isFavorite }
+        for video in live { video.isFavorite = star }
+        try? context.save()
+        show(star ? (live.count == 1 ? "“\(live[0].displayTitle)” is in your Favorites." : "\(live.count) videos added to Favorites.")
+                  : (live.count == 1 ? "Removed from Favorites." : "\(live.count) videos removed from Favorites."))
+    }
+
+    func toggleFavorite(_ video: Video) { toggleFavorite([video]) }
+
     /// Everything in the library goes to the Trash (a clean start that can be undone).
     func trashLibrary() {
         let all = ((try? context.fetch(FetchDescriptor<Video>())) ?? []).filter { $0.status != .trashed }

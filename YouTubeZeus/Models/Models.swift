@@ -284,6 +284,8 @@ final class Video {
     /// Trash (3.4): when it was moved there, and the status to give back on Restore.
     var trashedAt: Date? = nil
     var trashedFromRaw: String? = nil
+    /// Favorites (3.5): starred videos, a sub-category of the library.
+    var isFavorite: Bool = false
     @Relationship(deleteRule: .cascade, inverse: \SkillDraft.video) var skills: [SkillDraft] = []
 
     init(videoID: String, title: String = "", channelTitle: String = "", channelID: String = "",

@@ -135,6 +135,14 @@ struct VideoDetailView: View {
         .navigationTitle(video.displayTitle)
         .toolbar {
             ToolbarItemGroup {
+                if video.status != .trashed {
+                    Button { app.toggleFavorite(video) } label: {
+                        Label(video.isFavorite ? "Remove from Favorites" : "Add to Favorites",
+                              systemImage: video.isFavorite ? "star.fill" : "star")
+                    }
+                    .tint(video.isFavorite ? Color.yellow : nil)
+                    .help(video.isFavorite ? "Remove from Favorites" : "Add to Favorites")
+                }
                 Button { app.playMoment(video, at: 0) } label: {
                     Label(video.kind == .youtube ? "Open on YouTube" : "Play", systemImage: video.kind == .youtube ? "play.rectangle" : "play.fill")
                 }

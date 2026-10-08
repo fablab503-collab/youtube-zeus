@@ -193,6 +193,7 @@ enum AgentGuide {
         | `youtubezeus://open?entity=<name>` | a person, tool or company |
         | `youtubezeus://digest?week=<2026-W39>` | a weekly digest (written first if needed) |
         | `youtubezeus://trash` (optional `?all=1`) | the Trash; `all=1` first moves every video of the library there (restorable) |
+        | `youtubezeus://open?view=favorites` | the starred videos (Library › Favorites) |
         | `youtubezeus://pause`, `youtubezeus://resume` | pause eating (what is running waits at the front of the line) or start again |
         | `youtubezeus://setup` | the setup page: installs Homebrew, the tools and the local AI model for this Mac |
         | `youtubezeus://open?collection=<playlist or list id>` | a collection |

@@ -3,6 +3,15 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 3.5 — 2026-10-08
+
+- **The Library has sub-categories** in the sidebar (fold it with the arrow): **Videos** (everything), **YouTube
+  channels** (one row per channel of the videos you ate, with its count), **Favorites** and **Deleted videos** (the
+  Trash of 3.4, renamed).
+- **Favorites.** Star a video with the star at the top of a video, or right-click › Add to Favorites; starred videos
+  show a yellow star in every list. `youtubezeus://open?view=favorites` opens them.
+- In a channel or Favorites, the trash button moves only the videos shown there.
+
 ## 3.4 — 2026-10-08
 
 - **A Trash.** Delete (menu, ⌫, the trash button in Eating now, several at once) moves videos to the Trash in the

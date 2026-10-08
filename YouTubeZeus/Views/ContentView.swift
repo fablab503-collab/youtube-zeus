@@ -24,6 +24,8 @@ struct ContentView: View {
                 case .github: GitHubView()
                 case .browser: AccountPanel()
                 case .trash: TrashView()
+                case .favorites: LibraryView(scope: .favorites)
+                case .libraryChannel(let name): LibraryView(scope: .channel(name)).id(name)
                 case .library, nil: LibraryView()
                 }
             }
@@ -112,12 +114,26 @@ struct SidebarView: View {
     @Query(sort: \Channel.title) private var allChannels: [Channel]
     private var channels: [Channel] { allChannels.filter { !$0.isPodcast } }
     private var podcasts: [Channel] { allChannels.filter(\.isPodcast) }
-    @Query(filter: #Predicate<Video> { $0.statusRaw == "done" }) private var eaten: [Video]
     @Query(filter: #Predicate<SkillDraft> { $0.statusRaw == "draft" }) private var drafts: [SkillDraft]
     @Query(filter: #Predicate<Video> { $0.statusRaw == "discovered" }) private var discovered: [Video]
     @Query(sort: \VideoList.updatedAt, order: .reverse) private var lists: [VideoList]
     @Query private var allVideos: [Video]
     @Query(filter: #Predicate<Video> { $0.statusRaw == "trashed" }) private var trashed: [Video]
+
+    @AppStorage("sidebarLibraryOpen") private var libraryOpen = true
+    @AppStorage("sidebarLibraryChannelsOpen") private var libraryChannelsOpen = false
+
+    /// What the Library shows (3.5): everything eaten or being eaten, not discovered, not deleted.
+    private var libraryVideos: [Video] {
+        allVideos.filter { $0.status != .discovered && $0.status != .trashed }
+    }
+
+    /// The YouTube channels of the videos in the library, most videos first.
+    private var libraryChannels: [(name: String, count: Int)] {
+        let groups = Dictionary(grouping: libraryVideos.filter { $0.kind == .youtube }, by: \.channelTitle)
+        return groups.map { (name: $0.key, count: $0.value.count) }
+            .sorted { $0.count == $1.count ? $0.name.localizedStandardCompare($1.name) == .orderedAscending : $0.count > $1.count }
+    }
 
     private var repoCount: Int {
         Set(allVideos.filter(\.status.hasText).flatMap { $0.repos.map(\.id) }).count
@@ -152,27 +168,38 @@ struct SidebarView: View {
                     Image(systemName: "bolt.fill").symbolEffect(.pulse, isActive: app.engine.activeCount > 0)
                 }
                 .tag(SidebarItem.eating)
+            }
 
-                Label {
-                    HStack {
-                        Text("Library")
-                        Spacer()
-                        Text("\(eaten.count)").foregroundStyle(.secondary).monospacedDigit()
+            // Library (3.5): sub-categories — all the videos, by YouTube channel, favorites, deleted.
+            Section(isExpanded: $libraryOpen) {
+                SidebarCountRow(title: "Videos", symbol: "play.rectangle.on.rectangle.fill", count: libraryVideos.count)
+                    .tag(SidebarItem.library)
+
+                DisclosureGroup(isExpanded: $libraryChannelsOpen) {
+                    ForEach(libraryChannels, id: \.name) { channel in
+                        SidebarCountRow(title: channel.name.isEmpty ? "Unknown channel" : channel.name,
+                                        symbol: "person.crop.square", count: channel.count)
+                            .tag(SidebarItem.libraryChannel(channel.name))
                     }
-                } icon: { Image(systemName: "books.vertical.fill") }
-                .tag(SidebarItem.library)
-
-                Label {
-                    HStack {
-                        Text("Trash")
-                        Spacer()
-                        if !trashed.isEmpty {
-                            Text("\(trashed.count)").foregroundStyle(.secondary).monospacedDigit()
-                        }
+                    if libraryChannels.isEmpty {
+                        Text("The channels of the videos you eat show here.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                } icon: { Image(systemName: trashed.isEmpty ? "trash" : "trash.fill") }
-                .tag(SidebarItem.trash)
+                } label: {
+                    SidebarCountRow(title: "YouTube channels", symbol: "play.tv.fill", count: libraryChannels.count)
+                }
 
+                SidebarCountRow(title: "Favorites", symbol: "star.fill", count: libraryVideos.filter(\.isFavorite).count)
+                    .tag(SidebarItem.favorites)
+
+                SidebarCountRow(title: "Deleted videos", symbol: trashed.isEmpty ? "trash" : "trash.fill", count: trashed.count)
+                    .tag(SidebarItem.trash)
+            } header: {
+                Text("Library")
+            }
+
+            Section {
                 Label {
                     HStack {
                         Text("Skills")
@@ -620,5 +647,22 @@ struct ChannelOfferSheet: View {
         }
         .padding(24)
         .frame(width: 520)
+    }
+}
+
+/// A sidebar row with a count on the right (hidden at zero).
+struct SidebarCountRow: View {
+    let title: String
+    let symbol: String
+    let count: Int
+
+    var body: some View {
+        Label {
+            HStack {
+                Text(title).lineLimit(1)
+                Spacer()
+                if count > 0 { Text("\(count)").foregroundStyle(.secondary).monospacedDigit() }
+            }
+        } icon: { Image(systemName: symbol) }
     }
 }

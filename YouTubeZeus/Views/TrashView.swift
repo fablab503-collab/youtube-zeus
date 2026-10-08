@@ -24,11 +24,11 @@ struct TrashView: View {
         }
         .overlay {
             if trashed.isEmpty {
-                EmptyState(symbol: "trash", title: "The Trash is empty",
+                EmptyState(symbol: "trash", title: "No deleted videos",
                            message: "Videos you delete wait here: restore them, or empty the Trash to remove them for good. Their notes in the Second Brain stay.")
             }
         }
-        .navigationTitle("Trash")
+        .navigationTitle("Deleted videos")
         .navigationSubtitle("\(trashed.count) video\(trashed.count == 1 ? "" : "s")")
         .toolbar {
             ToolbarItemGroup {

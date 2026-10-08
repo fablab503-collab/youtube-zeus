@@ -17,8 +17,11 @@ enum SidebarItem: Hashable {
     case podcast(String)
     case entities
     case digests
-    /// Videos moved out of the library (3.4).
+    /// Videos moved out of the library (3.4): "Deleted videos" under Library.
     case trash
+    /// Library sub-categories (3.5): starred videos, and the videos of one YouTube channel (by its name).
+    case favorites
+    case libraryChannel(String)
 }
 
 /// "Show this item at that moment": the detail view opens the transcript there and highlights the paragraph.
@@ -552,6 +555,8 @@ final class AppModel {
             case "youtube", "browser": selection = .browser
             case "entities", "people", "tools", "companies": selection = .entities
             case "digests", "digest": selection = .digests
+            case "favorites", "favourites", "starred": selection = .favorites
+            case "deleted", "trash": selection = .trash
             default: selection = .library
             }
         case .ask(let question):

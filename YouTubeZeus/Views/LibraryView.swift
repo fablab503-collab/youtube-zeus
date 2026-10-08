@@ -11,8 +11,24 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// What part of the library is shown (3.5): every video, the starred ones, or one YouTube channel's.
+enum LibraryScope: Hashable {
+    case all
+    case favorites
+    case channel(String)
+
+    var title: String {
+        switch self {
+        case .all: "Videos"
+        case .favorites: "Favorites"
+        case .channel(let name): name.isEmpty ? "Unknown channel" : name
+        }
+    }
+}
+
 struct LibraryView: View {
     @Environment(AppModel.self) private var app
+    var scope: LibraryScope = .all
     @Query(sort: \Video.addedAt, order: .reverse) private var videos: [Video]
     @State private var filter: LibraryFilter = .all
     @State private var confirmTrashAll = false
@@ -27,6 +43,11 @@ struct LibraryView: View {
     private var shown: [Video] {
         videos.filter { video in
             guard video.status != .discovered, video.status != .trashed else { return false }
+            switch scope {
+            case .all: break
+            case .favorites: if !video.isFavorite { return false }
+            case .channel(let name): if video.channelTitle != name || video.kind != .youtube { return false }
+            }
             switch filter {
             case .all: break
             case .captions: if !(video.source == .captions || video.source == .autoCaptions) { return false }
@@ -56,7 +77,10 @@ struct LibraryView: View {
                     }
                 }
                 .overlay {
-                    if videos.isEmpty {
+                    if scope == .favorites, list.isEmpty, query.isEmpty, filter == .all {
+                        EmptyState(symbol: "star", title: "No favorites yet",
+                                   message: "Star a video (right-click › Add to Favorites, or the star at the top of a video) to keep it here.")
+                    } else if videos.isEmpty || (list.isEmpty && query.isEmpty && filter == .all) {
                         EmptyState(symbol: "fork.knife", title: "Nothing eaten yet",
                                    message: "Paste a YouTube link, a podcast feed or drop a video or audio file on the window.")
                     } else if list.isEmpty {
@@ -74,7 +98,7 @@ struct LibraryView: View {
             hits = await app.indexer.search(query)
             searching = false
         }
-        .navigationTitle("Library")
+        .navigationTitle(scope.title)
         .navigationSubtitle(usesIndex ? "\(Set(hits.map(\.videoID)).count) item\(Set(hits.map(\.videoID)).count == 1 ? "" : "s") match"
                                       : "\(list.count) item\(list.count == 1 ? "" : "s")")
         .toolbar {
@@ -94,9 +118,10 @@ struct LibraryView: View {
                 .help("Copy the videos shown (summaries; full transcripts when 5 or fewer match a search) for any AI")
             }
             ToolbarItem {
-                Button { confirmTrashAll = true } label: { Label("Move all to the Trash", systemImage: "trash") }
-                    .help("A clean library: every video goes to the Trash (restore them from there)")
-                    .disabled(videos.allSatisfy { $0.status == .trashed })
+                Button { confirmTrashAll = true } label: { Label(scope == .all ? "Move all to the Trash" : "Move these to the Trash", systemImage: "trash") }
+                    .help(scope == .all ? "A clean library: every video goes to the Deleted videos (restore them from there)"
+                                        : "Move the videos shown here to the Deleted videos (restore them from there)")
+                    .disabled(scope == .all ? videos.allSatisfy { $0.status == .trashed } : list.isEmpty)
             }
             ToolbarItem {
                 Picker("Show", selection: $filter) {
@@ -106,8 +131,11 @@ struct LibraryView: View {
                 .disabled(usesIndex)
             }
         }
-        .confirmationDialog("Move every video of the library to the Trash?", isPresented: $confirmTrashAll) {
-            Button("Move all to the Trash", role: .destructive) { app.trashLibrary() }
+        .confirmationDialog(scope == .all ? "Move every video of the library to the Trash?" : "Move the \(list.count) videos of “\(scope.title)” to the Trash?",
+                            isPresented: $confirmTrashAll) {
+            Button(scope == .all ? "Move all to the Trash" : "Move to the Trash", role: .destructive) {
+                if scope == .all { app.trashLibrary() } else { app.trash(list) }
+            }
         } message: {
             Text("The library starts empty. Everything can be restored from the Trash until you empty it; the notes in the Second Brain stay.")
         }
@@ -253,9 +281,14 @@ struct VideoRow: View {
                 }
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text(video.displayTitle)
-                    .font(.headline)
-                    .lineLimit(2)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if video.isFavorite {
+                        Image(systemName: "star.fill").font(.caption).foregroundStyle(.yellow).help("In your Favorites")
+                    }
+                    Text(video.displayTitle)
+                        .font(.headline)
+                        .lineLimit(2)
+                }
                 HStack(spacing: 6) {
                     Text(video.channelTitle.isEmpty ? "…" : video.channelTitle).lineLimit(1)
                     if let date = video.publishedAt {
@@ -344,6 +377,9 @@ struct VideoMenu: View {
             Button("Cancel") { app.engine.cancel(video.videoID) }
         }
         Divider()
+        if video.status != .trashed {
+            Button(video.isFavorite ? "Remove from Favorites" : "Add to Favorites") { app.toggleFavorite(video) }
+        }
         if video.status == .trashed {
             Button("Restore") { app.restore([video]) }
             Button("Delete Forever", role: .destructive) { app.delete(video) }

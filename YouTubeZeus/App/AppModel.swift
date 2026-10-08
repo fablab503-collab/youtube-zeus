@@ -513,12 +513,12 @@ final class AppModel {
         case .trash(let all):
             if all { trashLibrary() }
             selection = .trash
-        case .allChannel(let link):
+        case .allChannel(let link, let again):
             let text = link.hasPrefix("http") ? link : (link.hasPrefix("@") ? "https://www.youtube.com/" + link : link)
             if let url = URL(string: text), url.host?.contains("youtube.com") == true {
-                Task { await eatAllChannelText(name: "", url: url) }
+                Task { await eatAllChannelText(name: "", url: url, again: again) }
             } else if let url = channelURL(forTitle: link) {
-                Task { await eatAllChannelText(name: link, url: url) }
+                Task { await eatAllChannelText(name: link, url: url, again: again) }
             } else {
                 show("“\(link)” is not a YouTube channel link.", error: true)
             }

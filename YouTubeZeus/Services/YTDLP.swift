@@ -226,18 +226,22 @@ nonisolated struct YTDLP: Sendable {
         if let lang = videoLanguage, let match = originals.first(where: { base($0) == lang }) {
             return CaptionTrack(language: match, isAuto: true)
         }
-        // 3. A single original track is the spoken language.
-        if originals.count == 1, manual.isEmpty { return CaptionTrack(language: originals[0], isAuto: true) }
-        // 4. Older videos: an auto track named exactly like the video's language.
+        // 3. The spoken language wins over translations (3.6): when YouTube lists original speech tracks, a plain auto
+        //    track ("en" next to "it-orig") is a machine translation, and channel captions in another language too.
+        if originals.count == 1 { return CaptionTrack(language: originals[0], isAuto: true) }
+        if !originals.isEmpty {
+            for lang in order {
+                if let match = originals.first(where: { base($0) == lang }) { return CaptionTrack(language: match, isAuto: true) }
+            }
+            return CaptionTrack(language: originals[0], isAuto: true)
+        }
+        // 4. Older videos (no "-orig" tracks): an auto track named exactly like the video's language.
         if let full = info.language?.lowercased(), let match = auto.first(where: { $0.lowercased() == full || $0.lowercased() == videoLanguage }) {
             return CaptionTrack(language: match, isAuto: true)
         }
-        // 5. Captions or original tracks in the preferred languages.
+        // 5. Captions in the preferred languages.
         for lang in order {
             if let match = manual.first(where: { base($0) == lang }) { return CaptionTrack(language: match, isAuto: false) }
-        }
-        for lang in order {
-            if let match = originals.first(where: { base($0) == lang }) { return CaptionTrack(language: match, isAuto: true) }
         }
         if let first = manual.first { return CaptionTrack(language: first, isAuto: false) }
         if let first = originals.first { return CaptionTrack(language: first, isAuto: true) }

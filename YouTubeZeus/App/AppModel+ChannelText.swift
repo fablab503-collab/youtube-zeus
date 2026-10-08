@@ -21,7 +21,7 @@ extension AppModel {
     }
 
     /// The whole channel, for its words: lists every video, eats the missing ones (text only) and keeps the files.
-    func eatAllChannelText(name: String, url: URL) async {
+    func eatAllChannelText(name: String, url: URL, again: Bool = false) async {
         guard let ytdlp = settings.makeYTDLP() else {
             show(EatError.missing("yt-dlp").localizedDescription, error: true)
             return
@@ -40,13 +40,16 @@ extension AppModel {
             setKeepsTextFiles(title, true)
             if !listing.title.isEmpty, listing.title != title { setKeepsTextFiles(listing.title, true) }
             let entries = listing.entries.map { (id: $0.id, title: $0.title, channel: title, channelID: $0.channelID) }
+            // `again`: the ones eaten for their words only are eaten again (e.g. after a better caption choice).
+            let redo = again ? Set(entries.compactMap { engine.video($0.id) }.filter { $0.textOnly && $0.status == .done }.map(\.videoID)) : []
+            if !redo.isEmpty { engine.enqueue(entries.filter { redo.contains($0.id) }, force: true) }
             let videos = engine.enqueue(entries)
             // Only the words: what was not eaten yet gets no polishing and no summary (thousands of minutes otherwise).
             for video in videos where video.status != .done && video.digestData == nil && video.polishedData == nil {
                 video.textOnly = true
             }
             try? context.save()
-            let missing = videos.filter { $0.status != .done }.count
+            let missing = videos.filter { $0.status != .done }.count + redo.count
             AppLog.write("ALL CHANNEL \(title): \(listing.entries.count) videos, \(missing) to eat")
             show(missing == 0 ? "All \(listing.entries.count) videos of \(title) are in: their text files are ready."
                               : "Getting the words of \(missing) videos of \(title). Each one becomes a text file, plus one file with all of them.")

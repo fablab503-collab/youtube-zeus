@@ -3,6 +3,12 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 3.6.1 — 2026-10-08
+
+- **The words as spoken, not a translation.** When YouTube lists the original speech track (`it-orig`), Zeus now
+  always takes it: before, an Italian video marked as English could come in as YouTube's English machine
+  translation. `youtubezeus://allchannel?url=…&again=1` eats a channel's text-only videos again.
+
 ## 3.6 — 2026-10-08
 
 - **All channel.** In a channel (followed, or Library › YouTube channels) press **Get all the text** / **All channel**:

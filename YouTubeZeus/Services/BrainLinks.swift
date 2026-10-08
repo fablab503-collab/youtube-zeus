@@ -100,7 +100,7 @@ nonisolated enum BrainLinks {
         /// The Trash; `all` first moves the whole library there (3.4).
         case trash(all: Bool)
         /// "All channel" (3.6): the words of every video of a channel as text files.
-        case allChannel(String)
+        case allChannel(String, again: Bool)
         case playbook(String, make: Bool, force: Bool, run: String?)
     }
 
@@ -125,7 +125,7 @@ nonisolated enum BrainLinks {
         case "pause": return .eating(paused: true)
         case "trash": return .trash(all: ["1", "true", "yes"].contains(value("all")?.lowercased() ?? ""))
         case "resume": return .eating(paused: false)
-        case "allchannel", "channeltext": return (value("url") ?? value("channel")).map { .allChannel($0) }
+        case "allchannel", "channeltext": return (value("url") ?? value("channel")).map { .allChannel($0, again: ["1", "true", "yes"].contains(value("again")?.lowercased() ?? "")) }
         case "playbook":
             let make = ["1", "true", "yes"].contains(value("make")?.lowercased() ?? "")
             let force = ["1", "true", "yes"].contains(value("force")?.lowercased() ?? "")

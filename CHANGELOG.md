@@ -3,6 +3,15 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 3.6 — 2026-10-08
+
+- **All channel.** In a channel (followed, or Library › YouTube channels) press **Get all the text** / **All channel**:
+  Zeus lists every video of the channel and takes only its words (captions first, Whisper when there are none; no
+  polishing, no summary). Each video becomes a text file in `<Second Brain>/<Channel>/Text files/`, numbered from the
+  first upload (`001 - 2019-05-12 - Title.txt`), plus `000 - <Channel> - ALL VIDEOS.txt` with every video together.
+  Both are rewritten each time a video of the channel comes in, so the full file is always complete.
+  Buttons: Open the full text, Show the folder, Stop updating. Link: `youtubezeus://allchannel?url=<channel link>`.
+
 ## 3.5 — 2026-10-08
 
 - **The Library has sub-categories** in the sidebar (fold it with the arrow): **Videos** (everything), **YouTube

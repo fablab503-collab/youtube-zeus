@@ -286,6 +286,8 @@ final class Video {
     var trashedFromRaw: String? = nil
     /// Favorites (3.5): starred videos, a sub-category of the library.
     var isFavorite: Bool = false
+    /// "All channel" (3.6): eaten for its words only (no polishing, no summary).
+    var textOnly: Bool = false
     @Relationship(deleteRule: .cascade, inverse: \SkillDraft.video) var skills: [SkillDraft] = []
 
     init(videoID: String, title: String = "", channelTitle: String = "", channelID: String = "",

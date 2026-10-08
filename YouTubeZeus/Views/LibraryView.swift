@@ -117,6 +117,21 @@ struct LibraryView: View {
                 }
                 .help("Copy the videos shown (summaries; full transcripts when 5 or fewer match a search) for any AI")
             }
+            if case .channel(let name) = scope, let url = app.channelURL(forTitle: name) {
+                ToolbarItem {
+                    Button { Task { await app.eatAllChannelText(name: name, url: url) } } label: {
+                        Label("All channel", systemImage: "text.document")
+                    }
+                    .help("The words of every video of \(name), each as a text file in its own folder, plus one file with all of them")
+                    .disabled(app.isResolvingLink)
+                }
+                if app.keepsTextFiles(name) {
+                    ToolbarItem {
+                        Button { app.openChannelAllText(name) } label: { Label("Open the full text", systemImage: "doc.plaintext") }
+                            .help("The file with every video of \(name), from the first to the newest")
+                    }
+                }
+            }
             ToolbarItem {
                 Button { confirmTrashAll = true } label: { Label(scope == .all ? "Move all to the Trash" : "Move these to the Trash", systemImage: "trash") }
                     .help(scope == .all ? "A clean library: every video goes to the Deleted videos (restore them from there)"

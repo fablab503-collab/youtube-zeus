@@ -236,6 +236,7 @@ final class EatEngine {
         guard video.status == .done, !inPost(video.videoID),
               !polishing.contains(video.videoID),
               !summarizing.contains(video.videoID) else { return false }
+        guard !video.textOnly else { return false }
         let wantsPolish = shouldPolish(video) && video.polishedData == nil && video.polishError == nil
         let wantsSummary = settings.autoSummarize && canSummarize && video.digestData == nil && video.digestError == nil
         return wantsPolish || wantsSummary
@@ -398,8 +399,8 @@ final class EatEngine {
     private func schedulePost(_ id: String) {
         guard let video = video(id) else { return }
         let forced = forcePolish.contains(id)
-        let wantsPolish = forced || (shouldPolish(video) && video.polishedData == nil && video.polishError == nil)
-        let wantsSummary = settings.autoSummarize && canSummarize && video.digestData == nil
+        let wantsPolish = forced || (!video.textOnly && shouldPolish(video) && video.polishedData == nil && video.polishError == nil)
+        let wantsSummary = !video.textOnly && settings.autoSummarize && canSummarize && video.digestData == nil
         if wantsPolish, !polishQueue.contains(id), polishCurrent != id { polishQueue.append(id) }
         if wantsSummary, !summaryQueue.contains(id), summaryCurrent != id { summaryQueue.append(id) }
         if !wantsPolish, !wantsSummary { finish(video) }

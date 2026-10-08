@@ -98,6 +98,9 @@ final class AppModel {
     var podcastOffer: PodcastOffer?
     var playlistOffer: PlaylistOffer?
     var importingPlaylists: String?
+    /// Channels whose videos are kept as text files (3.6, "All channel").
+    var textChannelNames: Set<String> = Set(UserDefaults.standard.stringArray(forKey: AppModel.textChannelsKey) ?? [])
+    @ObservationIgnored var textRebuilds: [String: Task<Void, Never>] = [:]
     var packResults: [String: PackResult] = [:]
     var buildingPacks: Set<String> = []
     var isResolvingLink = false
@@ -510,6 +513,15 @@ final class AppModel {
         case .trash(let all):
             if all { trashLibrary() }
             selection = .trash
+        case .allChannel(let link):
+            let text = link.hasPrefix("http") ? link : (link.hasPrefix("@") ? "https://www.youtube.com/" + link : link)
+            if let url = URL(string: text), url.host?.contains("youtube.com") == true {
+                Task { await eatAllChannelText(name: "", url: url) }
+            } else if let url = channelURL(forTitle: link) {
+                Task { await eatAllChannelText(name: link, url: url) }
+            } else {
+                show("“\(link)” is not a YouTube channel link.", error: true)
+            }
         case .eating(let paused):
             if paused { engine.pauseEating() } else { engine.resumeEating() }
         case .playbook(let id, let make, let force, let run):
@@ -598,6 +610,7 @@ final class AppModel {
     func itemChanged(_ id: String) {
         indexer.schedule(id)
         entityChanged(id)
+        channelTextItemChanged(id)
     }
 
     /// Opens an item in the library, at a moment when given.

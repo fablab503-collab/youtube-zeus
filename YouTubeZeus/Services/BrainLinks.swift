@@ -30,6 +30,7 @@ nonisolated enum BrainLinks {
     }
     static func zeusEatFile(_ path: String) -> String { "youtubezeus://eat?file=\(encode(path))" }
     static func zeusScreen(video id: String) -> String { "youtubezeus://screen?video=\(encode(id))" }
+    static func zeusAllChannel(_ channelURL: String) -> String { "youtubezeus://allchannel?url=\(encode(channelURL))" }
     static func zeusDigest(week: String) -> String { "youtubezeus://digest?week=\(encode(week))" }
     /// The Playbook tab of an item; `make` writes it (again), `force` even when it does not look like a tutorial,
     /// `run` hands it to Claude Code or Codex.
@@ -98,6 +99,8 @@ nonisolated enum BrainLinks {
         case eating(paused: Bool)
         /// The Trash; `all` first moves the whole library there (3.4).
         case trash(all: Bool)
+        /// "All channel" (3.6): the words of every video of a channel as text files.
+        case allChannel(String)
         case playbook(String, make: Bool, force: Bool, run: String?)
     }
 
@@ -122,6 +125,7 @@ nonisolated enum BrainLinks {
         case "pause": return .eating(paused: true)
         case "trash": return .trash(all: ["1", "true", "yes"].contains(value("all")?.lowercased() ?? ""))
         case "resume": return .eating(paused: false)
+        case "allchannel", "channeltext": return (value("url") ?? value("channel")).map { .allChannel($0) }
         case "playbook":
             let make = ["1", "true", "yes"].contains(value("make")?.lowercased() ?? "")
             let force = ["1", "true", "yes"].contains(value("force")?.lowercased() ?? "")

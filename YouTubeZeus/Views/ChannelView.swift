@@ -69,6 +69,7 @@ struct ChannelView: View {
                 podcastButtons(channel)
             } else {
                 youtubeButtons(channel)
+                ChannelTextBox(channelTitle: channel.title, channelURL: channel.url)
             }
         }
         .padding(.vertical, 8)
@@ -169,5 +170,61 @@ struct ChannelView: View {
                 }
             }
         }
+    }
+}
+
+/// "All channel" (3.6): the words of every video as text files, and the file with all of them.
+struct ChannelTextBox: View {
+    @Environment(AppModel.self) private var app
+    let channelTitle: String
+    let channelURL: URL
+    @Query private var videos: [Video]
+
+    init(channelTitle: String, channelURL: URL) {
+        self.channelTitle = channelTitle
+        self.channelURL = channelURL
+        _videos = Query(filter: #Predicate<Video> { $0.channelTitle == channelTitle })
+    }
+
+    var body: some View {
+        let done = videos.filter { $0.status == .done && $0.kind == .youtube && !$0.transcriptText.isEmpty }.count
+        let busy = videos.filter { $0.status == .queued || $0.status.isBusy }.count
+        let on = app.keepsTextFiles(channelTitle)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Label("All channel", systemImage: "text.document").font(.headline)
+                Spacer()
+                if on {
+                    Text(busy > 0 ? "\(done) text files · \(busy) coming" : "\(done) text files")
+                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                }
+            }
+            Text("The words of every video, from the first one to the newest: each video as its own text file in the channel's folder, plus one file with all of them together, kept up to date when new videos come.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            GlassEffectContainer(spacing: 8) {
+                FlowLayout(spacing: 8) {
+                    Button {
+                        Task { await app.eatAllChannelText(name: channelTitle, url: channelURL) }
+                    } label: {
+                        Label(on ? "Get the missing videos" : "Get all the text", systemImage: "arrow.down.doc")
+                    }
+                    .buttonStyle(.glassProminent)
+                    .disabled(app.isResolvingLink)
+                    if on {
+                        Button { app.openChannelAllText(channelTitle) } label: { Label("Open the full text", systemImage: "doc.plaintext") }
+                            .buttonStyle(.glass)
+                        Button { app.openChannelTextFolder(channelTitle) } label: { Label("Show the folder", systemImage: "folder") }
+                            .buttonStyle(.glass)
+                        Button { app.setKeepsTextFiles(channelTitle, false) } label: { Label("Stop updating", systemImage: "pause.circle") }
+                            .buttonStyle(.glass)
+                            .help("The files stay; new videos are no longer added to them")
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 14))
     }
 }

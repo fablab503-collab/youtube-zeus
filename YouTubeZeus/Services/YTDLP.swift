@@ -223,8 +223,18 @@ nonisolated struct YTDLP: Sendable {
         }
         let manual = info.subtitles
         let auto = info.autoCaptions
-        let originals = auto.filter { $0.hasSuffix("-orig") }
-        let videoLanguage = (info.spokenLanguage ?? info.language).map(base)
+        var originals = auto.filter { $0.hasSuffix("-orig") }
+        var reported = info.language
+        // AI dubbing (3.6.1): YouTube reports the dub shown to you as the video's language, with a region ("en-us"),
+        // and lists the dub's speech track too ("en-US-orig" next to "it-orig"). That one is not what was said.
+        if info.spokenLanguage == nil, originals.count > 1, let language = info.language?.lowercased(), language.contains("-") {
+            let dub = originals.filter { $0.lowercased() == language + "-orig" }
+            if !dub.isEmpty, dub.count < originals.count {
+                originals.removeAll { dub.contains($0) }
+                reported = nil
+            }
+        }
+        let videoLanguage = (info.spokenLanguage ?? reported).map(base)
         var order: [String] = []
         if let videoLanguage { order.append(videoLanguage) }
         order += preferred.map(base).filter { !order.contains($0) }
@@ -251,7 +261,7 @@ nonisolated struct YTDLP: Sendable {
             return CaptionTrack(language: originals[0], isAuto: true)
         }
         // 4. Older videos (no "-orig" tracks): an auto track named exactly like the video's language.
-        if let full = info.language?.lowercased(), let match = auto.first(where: { $0.lowercased() == full || $0.lowercased() == videoLanguage }) {
+        if let full = (info.spokenLanguage ?? reported)?.lowercased(), let match = auto.first(where: { $0.lowercased() == full || $0.lowercased() == videoLanguage }) {
             return CaptionTrack(language: match, isAuto: true)
         }
         // 5. Captions in the preferred languages.

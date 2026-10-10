@@ -293,7 +293,7 @@ def cmd_prepare(args, progress: Progress) -> int:
         from zfx.masks import run_masks
         with Timer() as t:
             mstats = run_masks(job.dir / "work.mp4", job.dir / "mask.mp4", lambda f, m: say("masks", f, m),
-                               quality=args.mask_quality)
+                               quality=args.mask_quality, min_person_ratio=args.min_person_ratio)
         job.set_artifact("mask", job.dir / "mask.mp4", save=False)
         job["mask_info"] = mstats
         job.set_timing("masks", t.seconds)
@@ -478,6 +478,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "but ~3x slower and ~10 GB peak)")
     pr.add_argument("--mask-quality", choices=("accurate", "balanced", "fast"), default="accurate",
                     help=argparse.SUPPRESS)
+    pr.add_argument("--min-person-ratio", type=float, default=0.25,
+                    help="drop mask blobs smaller than this x the largest person, e.g. faces on screens "
+                         "(default 0.25; 0 keeps every blob)")
 
     a = sub.add_parser("approve", help="record the review (SHA-256 of every prepared artifact)")
     a.add_argument("--job", required=True)

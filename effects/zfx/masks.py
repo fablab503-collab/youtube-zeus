@@ -2,7 +2,8 @@
 
 VNGeneratePersonSegmentationRequest (qualityLevel accurate) through pyobjc, per frame of
 work.mp4, through one VNSequenceRequestHandler (Vision keeps temporal state), then
-temporal smoothing (EMA 0.6 on the soft mask), threshold 0.5, dilation 8 px.
+temporal smoothing (EMA 0.6 on the soft mask), threshold 0.5, small blobs dropped (< 0.25 x the
+largest person: faces on screens or posters), dilation 8 px.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ log = get_logger()
 DILATE_PX = 8
 EMA_ALPHA = 0.6     # weight of the current frame
 THRESHOLD = 0.5
+MIN_PERSON_RATIO = 0.25  # blobs smaller than this x the largest are dropped (faces shown on screens)
 
 
 class MaskError(RuntimeError):
@@ -99,9 +101,24 @@ class PersonSegmenter:
         return soft
 
 
+def keep_main_people(binary: np.ndarray, min_ratio: float = MIN_PERSON_RATIO) -> np.ndarray:
+    """Drop blobs smaller than min_ratio x the largest one (faces on screens, posters, reflections).
+
+    min_ratio 0 keeps everything. Operates on a uint8 0/255 mask, returns the same kind."""
+    import cv2
+    if min_ratio <= 0 or not binary.any():
+        return binary
+    count, labels, stats, _ = cv2.connectedComponentsWithStats((binary > 127).astype(np.uint8), connectivity=8)
+    if count <= 2:      # background + at most one blob
+        return binary
+    areas = stats[1:, cv2.CC_STAT_AREA]
+    keep = np.flatnonzero(areas >= min_ratio * areas.max()) + 1
+    return np.isin(labels, keep).astype(np.uint8) * 255
+
+
 def postprocess(soft_masks: Iterable[np.ndarray], dilate_px: int = DILATE_PX, alpha: float = EMA_ALPHA,
-                threshold: float = THRESHOLD) -> Iterator[np.ndarray]:
-    """Soft masks in [0,1] -> uint8 masks (0/255): EMA over time, threshold, dilate."""
+                threshold: float = THRESHOLD, min_person_ratio: float = MIN_PERSON_RATIO) -> Iterator[np.ndarray]:
+    """Soft masks in [0,1] -> uint8 masks (0/255): EMA over time, threshold, keep main people, dilate."""
     import cv2
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * dilate_px + 1, 2 * dilate_px + 1)) \
         if dilate_px > 0 else None
@@ -109,14 +126,14 @@ def postprocess(soft_masks: Iterable[np.ndarray], dilate_px: int = DILATE_PX, al
     for soft in soft_masks:
         soft = np.asarray(soft, dtype=np.float32)
         ema = soft if ema is None else alpha * soft + (1.0 - alpha) * ema
-        binary = (ema >= threshold).astype(np.uint8) * 255
+        binary = keep_main_people((ema >= threshold).astype(np.uint8) * 255, min_person_ratio)
         if kernel is not None:
             binary = cv2.dilate(binary, kernel)
         yield binary
 
 
 def run_masks(work_path: Path, out_path: Path, report: Callable[[float, str], None],
-              quality: str = "accurate") -> dict:
+              quality: str = "accurate", min_person_ratio: float = MIN_PERSON_RATIO) -> dict:
     """work.mp4 -> mask.mp4. Returns {frames, person_frames, coverage}."""
     info = probe(work_path)
     total = info.get("frames") or 0
@@ -135,7 +152,7 @@ def run_masks(work_path: Path, out_path: Path, report: Callable[[float, str], No
 
     coverage = []
     with VideoWriter(out_path, w, h, WORK_FPS, crf=12) as writer:
-        for mask in postprocess(soft_stream()):
+        for mask in postprocess(soft_stream(), min_person_ratio=min_person_ratio):
             frac = float((mask > 127).mean())
             coverage.append(frac)
             stats["person_frames"] += int(frac > 0.002)

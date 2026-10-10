@@ -64,6 +64,11 @@ enum ZeusCLI {
       zeus entity <name>        every item that names someone or something, with the moments
       zeus digest [--week 2026-W39|--last] [--save] [--no-ai]
                                 the weekly digest: what was eaten, best ideas, open questions, new repositories
+      zeus effects <doctor|prepare|approve|generate|status|list|setup> [args…]
+                                Effects, a free local Genjutsu (keep the movement, replace the person with a photo,
+                                keep the sound): runs the engine on this Mac and prints its JSON lines as they come;
+                                exit code 1 on error. `zeus effects setup [--faceswap|--vace]` installs it.
+                                generate needs --consent (the photos show the user or people who agreed) and an approve
       zeus mcp                  run YouTube Zeus as an MCP server (stdio) for Claude, Codex, Cursor, LM Studio…
       zeus shortcut [--no-open] make the "Eat with Zeus" shortcut for the iPhone/iPad share sheet (opens Shortcuts)
       zeus setup [--install] [--model <tag>] [--json]
@@ -78,6 +83,8 @@ enum ZeusCLI {
     """
 
     static func run(_ raw: [String]) async -> Int32 {
+        // Effects passes its arguments to the engine untouched (they have values: --input X, --start S…).
+        if raw.first == "effects" { return await effects(Array(raw.dropFirst())) }
         var positional: [String] = []
         var flags = Set<String>()
         var limit = 25
@@ -491,6 +498,32 @@ enum ZeusCLI {
             }
         }
         return snapshot
+    }
+
+    // MARK: Effects
+
+    static let effectsCommands: Set<String> = ["doctor", "prepare", "approve", "generate", "status", "list", "setup"]
+
+    /// `zeus effects …`: a pass-through to the local engine (effects/zeus_effects.py, see effects/SPEC.md). Its JSON
+    /// lines go straight to stdout, its logs to stderr; the engine's exit code is returned.
+    static func effects(_ arguments: [String]) async -> Int32 {
+        guard let command = arguments.first, effectsCommands.contains(command) else {
+            return fail("zeus effects <doctor|prepare|approve|generate|status|list|setup> [args…]. Free and local; `zeus guide` explains it.")
+        }
+        guard let engine = EffectsPaths.engine, let script = EffectsPaths.script else {
+            return fail("The Zeus Effects engine was not found (the app's Resources/effects, or effects/ in the repository).")
+        }
+        if command == "setup" {
+            let setup: EffectsSetup = arguments.contains("--vace") ? .fullReplace : (arguments.contains("--faceswap") ? .faceSwap : .main)
+            guard let bash = EffectsPaths.setupCommand(setup) else { return fail("setup.sh is missing from the engine.") }
+            log("\(setup.label) in \(EffectsPaths.home.path)…")
+            return await EffectsRunner.passThrough(URL(fileURLWithPath: "/bin/bash"), bash, directory: engine)
+        }
+        guard EffectsPaths.isSetUp else {
+            return fail("The Effects engine is not set up yet: run `zeus effects setup` (free, open models) or YouTube Zeus › Effects › Set up.")
+        }
+        // The engine itself uses the app's YouTube sign-in (youtube-cookies.txt) when --cookies is not given.
+        return await EffectsRunner.passThrough(EffectsPaths.python, [script.path] + arguments, directory: engine)
     }
 
     // MARK: Podcasts

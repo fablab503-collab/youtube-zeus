@@ -22,6 +22,8 @@ enum SidebarItem: Hashable {
     /// Library sub-categories (3.5): starred videos, and the videos of one YouTube channel (by its name).
     case favorites
     case libraryChannel(String)
+    /// Effects (3.8): a free, local Genjutsu (keep the movement, replace the person, keep the sound).
+    case effects
 }
 
 /// "Show this item at that moment": the detail view opens the transcript there and highlights the paragraph.
@@ -73,6 +75,8 @@ final class AppModel {
     let setup: SetupAssistant
     let player = MediaPlayer()
     let account = YouTubeAccount()
+    /// The Effects tab's engine runs (3.8).
+    let effects = EffectsEngine()
     private var browserStorage: BrowserModel?
 
     /// Created the first time the YouTube window is shown.
@@ -220,6 +224,9 @@ final class AppModel {
         }
         if (domain["showBrowser"] as? String) != nil {
             selection = .browser
+        }
+        if (domain["showEffects"] as? String) != nil {
+            openEffects(video: domain["effectsVideo"] as? String)
         }
         if let link = domain["browse"] as? String, let url = URL(string: link) {
             selection = .browser
@@ -554,6 +561,8 @@ final class AppModel {
             }
         case .eating(let paused):
             if paused { engine.pauseEating() } else { engine.resumeEating() }
+        case .effects(let id, let seconds):
+            openEffects(video: id, start: seconds)
         case .playbook(let id, let make, let force, let run):
             if selection != .library, selection != .github { selection = .library }
             selectedVideoID = id
@@ -599,6 +608,7 @@ final class AppModel {
             case "digests", "digest": selection = .digests
             case "favorites", "favourites", "starred": selection = .favorites
             case "deleted", "trash": selection = .trash
+            case "effects": selection = .effects
             default: selection = .library
             }
         case .ask(let question):

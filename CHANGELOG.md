@@ -3,6 +3,26 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 3.8 — Effects (free, local Genjutsu)
+
+2026-10-10
+
+- **Effects** (new in the sidebar). A free, local-only version of Sirio Berati's open-source Genjutsu workflow (MIT):
+  keep how the people in a clip move, replace who they are with your photo, keep the original sound. Pick a video you
+  ate (or drop a video file), choose the start and up to 10 seconds, and a mode (Depth · Depth + face mesh · Face mesh).
+  **Prepare** makes the depth (Video-Depth-Anything-Small), the people mask (Apple Vision) and the face mesh (MediaPipe)
+  on this Mac; **Review** shows the contact sheet and the control, depth and mask videos; **Approve this mask** records a
+  SHA-256 fingerprint of every prepared file. **Generate** takes one or two reference photos, an optional prompt, the
+  consent box ("These photos show me or people who agreed") and an engine: **Face swap · fast** (FaceFusion) or
+  **Full replace · slow** (Wan2.1-VACE-1.3B, about 19 GB, added with one button). The result keeps the clip's complete
+  original soundtrack and says "AI-generated with YouTube Zeus Effects" in its metadata: play it, Reveal in Finder, or
+  **Save to Movies** (`~/Movies/YouTube Zeus Effects/`). Earlier jobs are listed next to the tab. No paid API, no key,
+  no cloud engine. The engine (`effects/`, contract in `effects/SPEC.md`) ships inside the app; its Python, weights and
+  jobs live in `~/Library/Application Support/YouTube Zeus/Effects/`.
+- **For agents:** `zeus effects <doctor|prepare|approve|generate|status|list|setup> [args…]` passes everything to the
+  engine and streams its JSON lines; `youtubezeus://effects?video=<id>` opens the tab with that video. The agent guide
+  has a new Effects section (consent is always the user's).
+
 ## 3.7 — 2026-10-08
 
 - **Translate.** The new Translate button of a video shows its text in another language: pick one of every language

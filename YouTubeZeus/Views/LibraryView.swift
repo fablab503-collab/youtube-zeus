@@ -383,6 +383,9 @@ struct VideoMenu: View {
             Button("Polish with Local AI") { app.engine.polishNow(video) }
             Button("Make Skills…") { app.compileSkills(video) }
             if video.kind != .podcast { Button("Read the Screen") { app.readScreen(video) } }
+            if app.effectsInput(for: video.videoID) != nil {
+                Button("Make an Effect…") { app.openEffects(video: video.videoID) }
+            }
             Divider()
             Button("Eat Again") { app.engine.retry(video) }
             Button("Listen Again with Whisper") { app.engine.retry(video, withWhisper: true) }

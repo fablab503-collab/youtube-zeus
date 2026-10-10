@@ -39,6 +39,12 @@ nonisolated enum BrainLinks {
             + (run.map { "&run=\(encode($0))" } ?? "")
     }
 
+    /// The Effects tab (3.8), with an item of the library as the source and a start moment when given.
+    static func zeusEffects(video id: String? = nil, t seconds: Double? = nil) -> String {
+        "youtubezeus://effects" + (id.map { "?video=\(encode($0))" } ?? "")
+            + (seconds.map { (id == nil ? "?" : "&") + "t=\(Int($0.rounded(.down)))" } ?? "")
+    }
+
     /// Markdown link to a Zeus page, for notes.
     static func markdown(_ title: String, _ link: String) -> String { "[\(title)](\(link))" }
 
@@ -104,6 +110,8 @@ nonisolated enum BrainLinks {
         /// Translations (3.7): the text of a video in a language.
         case translate(String, language: String)
         case playbook(String, make: Bool, force: Bool, run: String?)
+        /// Effects (3.8): the tab, with a video as the source and the clip's start.
+        case effects(String?, t: Double?)
     }
 
     static func parse(_ url: URL) -> Target? {
@@ -127,6 +135,7 @@ nonisolated enum BrainLinks {
         case "pause": return .eating(paused: true)
         case "trash": return .trash(all: ["1", "true", "yes"].contains(value("all")?.lowercased() ?? ""))
         case "resume": return .eating(paused: false)
+        case "effects", "effect": return .effects(value("video"), t: (value("t") ?? value("start")).flatMap(Self.seconds))
         case "translate":
             guard let id = value("video"), let lang = value("lang") ?? value("language") else { return nil }
             return .translate(id, language: lang)

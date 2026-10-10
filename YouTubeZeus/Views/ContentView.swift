@@ -24,6 +24,7 @@ struct ContentView: View {
                 case .github: GitHubView()
                 case .browser: AccountPanel()
                 case .trash: TrashView()
+                case .effects: EffectsJobsList()
                 case .favorites: LibraryView(scope: .favorites)
                 case .libraryChannel(let name): LibraryView(scope: .channel(name)).id(name)
                 case .library, nil: LibraryView()
@@ -36,6 +37,8 @@ struct ContentView: View {
                 BrowserScreen()
             } else if app.selection == .ask {
                 AskView()
+            } else if app.selection == .effects {
+                EffectsView()
             } else if app.selection == .entities, let name = app.selectedEntity {
                 EntityDetailView(name: name).id(name)
             } else if app.selection == .digests, let week = app.selectedDigest {
@@ -245,6 +248,18 @@ struct SidebarView: View {
                     }
                 } icon: { Image(systemName: "chevron.left.forwardslash.chevron.right") }
                 .tag(SidebarItem.github)
+
+                Label {
+                    HStack {
+                        Text("Effects")
+                        Spacer()
+                        if app.effects.isBusy { ProgressView().controlSize(.mini) }
+                    }
+                } icon: {
+                    Image(systemName: "wand.and.stars").symbolEffect(.pulse, isActive: app.effects.isBusy)
+                }
+                .tag(SidebarItem.effects)
+                .help("Free, local Genjutsu: keep the movement, replace the person with your photo, keep the sound")
             }
 
             if !lists.isEmpty {

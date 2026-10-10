@@ -8,8 +8,8 @@ options:
   groupSortPosition: top
 settings:
   base:
-    MARKETING_VERSION: "3.7"
-    CURRENT_PROJECT_VERSION: "19"
+    MARKETING_VERSION: "3.8"
+    CURRENT_PROJECT_VERSION: "20"
     DEVELOPMENT_TEAM: B7P7FR67VK
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "Developer ID Application"
@@ -39,6 +39,28 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: YouTubeZeus/Info.plist
         OTHER_CODE_SIGN_FLAGS: "--timestamp=none"
+        # The "Copy the Effects engine" phase reads the whole effects/ folder, which a sandboxed script cannot
+        # (a folder as input does not open its files). It is the only script phase of this target.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    postBuildScripts:
+      # Zeus Effects (3.8): the free local engine (effects/, Python) ships inside the app as
+      # Contents/Resources/effects, without its tests or caches. Its venv and weights live in Application Support.
+      - name: Copy the Effects engine
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - $(SRCROOT)/effects
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/effects
+        script: |
+          set -e
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/effects"
+          mkdir -p "$DEST"
+          if [ -d "${SRCROOT}/effects" ]; then
+            /usr/bin/rsync -a --delete \
+              --exclude 'tests/' --exclude '__pycache__/' --exclude '*.pyc' --exclude '.venv/' \
+              --exclude '.pytest_cache/' --exclude '.DS_Store' --exclude '*.log' \
+              "${SRCROOT}/effects/" "$DEST/"
+          fi
     info:
       path: YouTubeZeus/Info.plist
       properties:

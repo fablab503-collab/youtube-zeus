@@ -1,0 +1,39 @@
+# Zeus Effects main engine (Python 3.12, Apple Silicon, installed by effects/setup.sh with uv).
+# Free and local only: no API keys, no cloud engines. Pinned versions resolved 2026-10-10.
+
+# PyTorch with the Metal (MPS) backend
+torch==2.11.0
+torchvision==0.26.0
+numpy==2.5.3
+
+# Video and images
+# (mediapipe pulls opencv-contrib-python of the same version; both provide cv2, which is fine at equal versions)
+opencv-python-headless==5.0.0.93
+av==19.0.1
+Pillow==12.3.0
+imageio==2.38.1
+imageio-ffmpeg==0.6.0
+
+# Face mesh (MediaPipe Face Landmarker, tasks API)
+mediapipe==1.1.0
+
+# Person masks with Apple Vision through pyobjc
+pyobjc-framework-Vision==12.2.2
+pyobjc-framework-Quartz==12.2.2
+
+# Video-Depth-Anything inference (vendored code, Apache-2.0); xformers/decord/CUDA-only extras skipped
+einops==0.8.2
+easydict==1.13
+tqdm==4.70.1
+
+# Wan2.1-VACE-1.3B engine (diffusers WanVACEPipeline on MPS)
+diffusers==0.41.0
+transformers==5.19.0
+accelerate==1.15.0
+sentencepiece==0.2.2
+ftfy==6.3.1
+safetensors==0.8.0
+huggingface_hub==1.33.0
+
+# doctor: free RAM
+psutil==7.2.2

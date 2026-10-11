@@ -24,6 +24,7 @@ extension AppModel {
                 guard let file = video.mediaURL, file.isFileURL, MediaFiles.isVideo(file) else { return nil }
                 return file.path
             case .podcast: return nil
+            case .social: return video.duration > 0 ? video.pageURLString : nil   // a post with a video (3.9)
             }
         }
         return MediaKind.of(id: id) == .youtube ? "https://www.youtube.com/watch?v=\(id)" : nil

@@ -361,6 +361,7 @@ struct VideoMenu: View {
         switch video.kind {
         case .youtube: Button("Open on YouTube") { NSWorkspace.shared.open(video.url) }
         case .podcast: Button("Open the Episode Page") { NSWorkspace.shared.open(video.url) }
+        case .social: Button("Open the Post") { NSWorkspace.shared.open(video.url) }
         case .file:
             if let file = video.mediaURL, file.isFileURL { Button("Show the File in Finder") { app.reveal(file.path) } }
         }

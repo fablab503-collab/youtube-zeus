@@ -109,6 +109,8 @@ nonisolated enum BrainLinks {
         case allChannel(String, again: Bool, stop: Bool, language: String?)
         /// Translations (3.7): the text of a video in a language.
         case translate(String, language: String)
+        /// YouTube pages (3.9): put a page (account) in front, by number or name.
+        case youtubePage(String)
         case playbook(String, make: Bool, force: Bool, run: String?)
         /// Effects (3.8): the tab, with a video as the source and the clip's start.
         case effects(String?, t: Double?)
@@ -136,6 +138,8 @@ nonisolated enum BrainLinks {
         case "trash": return .trash(all: ["1", "true", "yes"].contains(value("all")?.lowercased() ?? ""))
         case "resume": return .eating(paused: false)
         case "effects", "effect": return .effects(value("video"), t: (value("t") ?? value("start")).flatMap(Self.seconds))
+        case "youtube", "page":
+            return value("page").map { .youtubePage($0) } ?? .view("youtube")
         case "translate":
             guard let id = value("video"), let lang = value("lang") ?? value("language") else { return nil }
             return .translate(id, language: lang)

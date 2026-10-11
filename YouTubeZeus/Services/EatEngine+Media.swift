@@ -50,6 +50,7 @@ extension EatEngine {
             switch video.kind {
             case .podcast: result = try await eatEpisode(video, workDir: workDir)
             case .file: result = try await eatOwnFile(video, workDir: workDir)
+            case .social: result = try await eatSocial(video, workDir: workDir)
             case .youtube: return
             }
             finishEating(video, result: result, fallbackLanguage: video.language)
@@ -160,6 +161,12 @@ extension EatEngine {
                 source = try await ytdlp.downloadVideo(videoID: id, workDir: workDir.appendingPathComponent("video")) { value in
                     Task { @MainActor in self.jobs[id] = JobState(step: "Downloading the picture to read the screen", progress: value) }
                 }
+            case .social:
+                guard let ytdlp = settings.makeSocialYTDLP(), let page = video.pageURLString else { throw EatError.missing("yt-dlp") }
+                jobs[id] = JobState(step: "Downloading the picture to read the screen", progress: 0)
+                source = try await ytdlp.downloadVideo(url: page, workDir: workDir.appendingPathComponent("video")) { value in
+                    Task { @MainActor in self.jobs[id] = JobState(step: "Downloading the picture to read the screen", progress: value) }
+                }
             case .podcast:
                 guard let media = video.mediaURL, MediaFiles.isVideo(media) else {
                     throw MediaFileError.notMedia("An audio podcast")
@@ -251,7 +258,7 @@ extension EatEngine {
         }
     }
 
-    private func whisperTools() throws -> (whisper: String, ffmpeg: String) {
+    func whisperTools() throws -> (whisper: String, ffmpeg: String) {
         guard let ffmpeg = ToolLocator.find("ffmpeg", override: settings.ffmpegPath) else { throw EatError.missing("ffmpeg") }
         // whisper.cpp is the fallback of MLX; with MLX available it is not strictly required.
         let whisper = ToolLocator.find("whisper-cli", override: settings.whisperPath) ?? ""

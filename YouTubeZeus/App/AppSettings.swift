@@ -207,6 +207,22 @@ final class AppSettings {
         }
     }
 
+    /// Posts (3.8): the sign-ins made in Zeus's web window for X, Instagram, Facebook and Threads, or the browser
+    /// chosen as the cookie source.
+    var socialCookieArguments: [String] {
+        switch cookieSource {
+        case "none", "", "zeus":
+            let file = YouTubeAccount.socialCookieFile
+            return FileManager.default.fileExists(atPath: file.path) ? ["--cookies", file.path] : []
+        default: return ["--cookies-from-browser", cookieSource]
+        }
+    }
+
+    func makeSocialYTDLP() -> YTDLP? {
+        guard let path = ToolLocator.find("yt-dlp", override: ytdlpPath) else { return nil }
+        return YTDLP(executable: path, cookieArguments: socialCookieArguments, comments: 0)
+    }
+
     /// A configured yt-dlp, or nil when it is not installed.
     func makeYTDLP(withComments: Bool = false) -> YTDLP? {
         guard let path = ToolLocator.find("yt-dlp", override: ytdlpPath) else { return nil }

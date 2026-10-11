@@ -199,6 +199,8 @@ enum AgentGuide {
         | `youtubezeus://open?view=favorites` | the starred videos (Library › Favorites) |
         | `youtubezeus://allchannel?url=<channel link>` | "All channel": the words of every video of the channel (captions first, no polishing or summary), one text file per video in `<Channel>/Text files/` (numbered from the first upload) plus `000 - <Channel> - ALL VIDEOS.txt` with all of them, rewritten when new videos come; `&again=1` eats its text-only videos again, `&stop=1` (or `channel=<name>&stop=1`) takes the waiting ones out of the line, `channel=<name>&lang=fr` also keeps every file in French (`Text files - French/`) |
         | `youtubezeus://translate?video=<id>&lang=<code>` | the text of a video in another language (YouTube's translation, about 160 languages: `fr`, `ro`, `zh-Hans`, `iw`…; the local AI for podcasts and files), kept with the video |
+        | `youtubezeus://eat?url=<X / Instagram / Facebook / Threads post or Spotify episode>` | posts: the words of the post plus Whisper on its video or audio, id `web-<hash>`, kind `social`; Spotify: the episode from its public RSS feed (found in Apple's podcast directory) |
+        | `youtubezeus://youtube?page=<number or name>` | YouTube pages: puts that YouTube account (page) in front in Zeus's YouTube window; a new name makes a new page (up to 20). Lists, members-only videos and yt-dlp use the page in front |
         | `youtubezeus://pause`, `youtubezeus://resume` | pause eating (what is running waits at the front of the line) or start again |
         | `youtubezeus://setup` | the setup page: installs Homebrew, the tools and the local AI model for this Mac |
         | `youtubezeus://open?collection=<playlist or list id>` | a collection |

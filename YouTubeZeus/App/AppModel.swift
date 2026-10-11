@@ -78,13 +78,20 @@ final class AppModel {
     /// The Effects tab's engine runs (3.8).
     let effects = EffectsEngine()
     private var browserStorage: BrowserModel?
+    /// YouTube pages: several YouTube accounts, one in front (3.9).
+    let youtubePages = YouTubePages()
 
     /// Created the first time the YouTube window is shown.
     var browser: BrowserModel {
-        if let browserStorage { return browserStorage }
-        let created = BrowserModel()
+        if let browserStorage, browserStorage.pageID == youtubePages.activeID { return browserStorage }
+        let created = BrowserModel(pageID: youtubePages.activeID)
         browserStorage = created
         return created
+    }
+
+    /// A new YouTube window for the page now in front (3.9), when the window was already open.
+    func resetBrowser() {
+        if browserStorage != nil { browserStorage = BrowserModel(pageID: youtubePages.activeID) }
     }
 
     /// The YouTube browser when it was opened (nil before: it is not loaded just to show suggestions).
@@ -165,6 +172,7 @@ final class AppModel {
         started = true
         engine.onProcessed = { [weak self] id in self?.videoProcessed(id) }
         engine.onChanged = { [weak self] id in self?.itemChanged(id) }
+        account.onChecked = { [weak self] signedIn in self?.youtubePages.setSignedIn(signedIn) }
         engine.resumeInterrupted()
         PlaybookFiles.clearMaking()
         watcher.start()
@@ -286,18 +294,26 @@ final class AppModel {
 
     var clipboardLink: String? {
         guard let text = NSPasteboard.general.string(forType: .string) else { return nil }
-        return YouTubeLink.firstLink(in: text) ?? (YouTubeLink.parse(text) != nil ? text : nil)
+        if let link = YouTubeLink.firstLink(in: text) ?? (YouTubeLink.parse(text) != nil ? text : nil) { return link }
+        // A post or a Spotify episode (3.8).
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return SocialSite.of(trimmed) != nil ? trimmed : nil
     }
 
     func eatClipboard() {
         guard let link = clipboardLink else {
-            show("There is no YouTube link on the clipboard.", error: true)
+            show("There is no YouTube, X, Instagram, Facebook, Threads or Spotify link on the clipboard.", error: true)
             return
         }
         Task { await eat(link) }
     }
 
     func eat(_ raw: String) async {
+        // X, Instagram, Facebook, Threads posts and Spotify episodes (3.8).
+        if YouTubeLink.parse(raw) == nil, let site = SocialSite.of(raw) {
+            await eatSocial(raw, site: site)
+            return
+        }
         guard let link = YouTubeLink.parse(raw) else {
             let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             if PodcastFeed.looksLikePodcast(text) {
@@ -525,6 +541,15 @@ final class AppModel {
         case .trash(let all):
             if all { trashLibrary() }
             selection = .trash
+        case .youtubePage(let text):
+            selection = .browser
+            if let page = youtubePages.find(text) {
+                switchYouTubePage(page.id)
+            } else if youtubePages.canAdd, Int(text) == nil {
+                addYouTubePage(named: text)
+            } else {
+                show("No YouTube page “\(text)”.", error: true)
+            }
         case .translate(let id, let language):
             guard let video = engine.video(id) else { show("No video \(id) in the library.", error: true); return }
             Task {

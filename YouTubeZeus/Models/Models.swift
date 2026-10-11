@@ -58,6 +58,7 @@ nonisolated enum TranscriptSource: String, Codable, Sendable {
     case autoCaptions = "auto-captions"
     case whisper
     case published      // a transcript published with a podcast episode
+    case post           // the words of a social post (3.8)
 
     var label: String {
         switch self {
@@ -66,6 +67,7 @@ nonisolated enum TranscriptSource: String, Codable, Sendable {
         case .autoCaptions: "Auto-captions"
         case .whisper: "Whisper"
         case .published: "Published transcript"
+        case .post: "Text of the post"
         }
     }
 
@@ -76,6 +78,7 @@ nonisolated enum TranscriptSource: String, Codable, Sendable {
         case .autoCaptions: "text.bubble.fill"
         case .whisper: "waveform"
         case .published: "doc.text.fill"
+        case .post: "text.quote"
         }
     }
 }
@@ -86,12 +89,15 @@ nonisolated enum MediaKind: String, Codable, Sendable, CaseIterable {
     case youtube
     case podcast
     case file
+    /// A post from X, Instagram, Facebook or Threads (3.8).
+    case social
 
     var label: String {
         switch self {
         case .youtube: "YouTube video"
         case .podcast: "Podcast episode"
         case .file: "Your file"
+        case .social: "Post"
         }
     }
 
@@ -100,12 +106,14 @@ nonisolated enum MediaKind: String, Codable, Sendable, CaseIterable {
         case .youtube: "play.rectangle.fill"
         case .podcast: "mic.fill"
         case .file: "doc.fill"
+        case .social: "text.bubble.fill"
         }
     }
 
     static func of(id: String) -> MediaKind {
         if id.hasPrefix("pod-") { return .podcast }
         if id.hasPrefix("file-") { return .file }
+        if id.hasPrefix("web-") { return .social }
         return .youtube
     }
 }
@@ -641,13 +649,16 @@ nonisolated enum MediaLinks {
             if let media, let url = URL(string: media) { return url }
             return URL(string: BrainLinks.zeus(video: id))!
         case .file: return URL(string: BrainLinks.zeus(video: id))!
+        case .social:
+            if let page, let url = URL(string: page), url.scheme?.hasPrefix("http") == true { return url }
+            return URL(string: BrainLinks.zeus(video: id))!
         }
     }
 
     static func url(kind: MediaKind, id: String, at seconds: Double) -> URL {
         switch kind {
         case .youtube: return URL(string: "https://www.youtube.com/watch?v=\(id)&t=\(Int(seconds))s")!
-        case .podcast, .file: return URL(string: BrainLinks.zeus(video: id, t: seconds))!
+        case .podcast, .file, .social: return URL(string: BrainLinks.zeus(video: id, t: seconds))!
         }
     }
 }

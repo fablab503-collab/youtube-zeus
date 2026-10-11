@@ -121,6 +121,13 @@ enum ZeusCLI {
                     }
                     return 0
                 }
+                if YouTubeLink.parse(link) == nil, let site = SocialSite.of(link) {
+                    // Posts and Spotify episodes are eaten by the app (library, note, search index).
+                    openInApp(URL(string: BrainLinks.zeusEat(link))!, raw: true)
+                    let id = site == .spotify ? nil : SocialLinks.id(for: link)
+                    print("Eating the \(site.name) \(site == .spotify ? "episode" : "post") in YouTube Zeus." + (id.map { " When it is done: zeus get \($0)" } ?? ""))
+                    return 0
+                }
                 if YouTubeLink.parse(link) == nil, PodcastFeed.looksLikePodcast(link) {
                     return try await podcast(link, flags: flags, latest: flags.contains("--limit") ? limit : 1, follow: true)
                 }

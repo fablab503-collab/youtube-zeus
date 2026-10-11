@@ -321,6 +321,8 @@ extension AppModel {
             NSWorkspace.shared.open(seconds > 0 ? video.url(at: seconds) : video.url)
         case .podcast, .file:
             player.play(video, at: seconds)
+        case .social:
+            NSWorkspace.shared.open(video.url)
         }
     }
 }

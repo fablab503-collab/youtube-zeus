@@ -318,12 +318,33 @@ nonisolated struct YTDLP: Sendable {
     // MARK: Audio (for Whisper)
 
     func downloadAudio(videoID: String, workDir: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        try await downloadAudio(url: Self.watchURL(videoID), workDir: workDir, progress: progress)
+    }
+
+    /// The raw yt-dlp description of any page it knows (X, Instagram, Facebook, Threads…), 3.8.
+    func pageInfo(url: String) async throws -> [String: Any] {
+        let output = try await ProcessRunner.check(executable, ["-J", "--skip-download", "--no-warnings", "--no-playlist"]
+                                                   + cookieArguments + ["--", url])
+        guard let json = try? JSONSerialization.jsonObject(with: output.stdout) as? [String: Any] else {
+            throw YTDLPError.badOutput("post info")
+        }
+        // A post with several videos is a playlist: its first video.
+        if json["_type"] as? String == "playlist", var first = (json["entries"] as? [[String: Any]])?.first {
+            for key in ["description", "uploader", "uploader_id", "channel", "timestamp", "title"] where first[key] == nil {
+                first[key] = json[key]
+            }
+            return first
+        }
+        return json
+    }
+
+    func downloadAudio(url: String, workDir: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         let output = try await ProcessRunner.check(executable, cookieArguments + [
             "-f", "bestaudio/best", "--no-playlist", "--no-warnings", "--newline",
             "-o", workDir.appendingPathComponent("audio.%(ext)s").path,
             "--print", "after_move:filepath",
-            "--", Self.watchURL(videoID),
+            "--", url,
         ], streamStdout: true) { line in
             if line.hasPrefix("[download]"), let percent = Self.percent(in: line) { progress(percent) }
         }
@@ -343,13 +364,17 @@ nonisolated struct YTDLP: Sendable {
 
     /// The picture only (no sound), H.264 up to 1080p when YouTube has it: small, and every Mac decodes it.
     func downloadVideo(videoID: String, workDir: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        try await downloadVideo(url: Self.watchURL(videoID), workDir: workDir, progress: progress)
+    }
+
+    func downloadVideo(url: String, workDir: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         let output = try await ProcessRunner.check(executable, cookieArguments + [
             "-f", "bv*[vcodec^=avc1][height<=1080]/bv*[vcodec^=avc][height<=1080]/bv*[height<=1080][ext=mp4]/bv*[height<=1080]/b[height<=1080]/b",
             "--no-playlist", "--no-warnings", "--newline",
             "-o", workDir.appendingPathComponent("video.%(ext)s").path,
             "--print", "after_move:filepath",
-            "--", Self.watchURL(videoID),
+            "--", url,
         ], streamStdout: true) { line in
             if line.hasPrefix("[download]"), let percent = Self.percent(in: line) { progress(percent) }
         }

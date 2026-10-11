@@ -68,7 +68,7 @@ struct ContentView: View {
             // YouTube links, podcast feeds, and your own audio or video files.
             let files = urls.filter { $0.isFileURL && MediaFiles.isMedia($0) }
             let links = urls.filter { !$0.isFileURL }.map(\.absoluteString)
-                .filter { YouTubeLink.parse($0) != nil || PodcastFeed.looksLikePodcast($0) }
+                .filter { YouTubeLink.parse($0) != nil || PodcastFeed.looksLikePodcast($0) || SocialSite.of($0) != nil }
             guard !files.isEmpty || !links.isEmpty else { return false }
             Task {
                 if !files.isEmpty { await app.eatFiles(files) }

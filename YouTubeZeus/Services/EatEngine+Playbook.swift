@@ -130,6 +130,13 @@ extension EatEngine {
             return try await ytdlp.downloadVideo(videoID: id, workDir: workDir.appendingPathComponent("video")) { value in
                 Task { @MainActor in self.playbookProgress(id, step, value) }
             }
+        case .social:
+            guard video.duration > 0, let ytdlp = settings.makeSocialYTDLP(), let page = video.pageURLString else { return nil }
+            let step = "Downloading the picture to look at the frames"
+            playbookProgress(id, step, 0)
+            return try? await ytdlp.downloadVideo(url: page, workDir: workDir.appendingPathComponent("video")) { value in
+                Task { @MainActor in self.playbookProgress(id, step, value) }
+            }
         case .podcast:
             guard let media = video.mediaURL, MediaFiles.isVideo(media) else { return nil }
             let file = workDir.appendingPathComponent("episode." + media.pathExtension)

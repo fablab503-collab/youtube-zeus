@@ -14,9 +14,13 @@ final class BrowserModel {
     var bouclierOn = BouclierShield.isOn
     private var observations: [NSKeyValueObservation] = []
 
-    init() {
+    /// The YouTube page (account) this browser shows (3.9).
+    let pageID: String
+
+    init(pageID: String = YouTubePages.activeIDNow) {
+        self.pageID = pageID
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .default()
+        configuration.websiteDataStore = YouTubePages.store(for: pageID)
         // Bouclier (Daniel's ad blocker): YouTube ads, ad banners and ad servers blocked in this browser.
         if BouclierShield.isOn { BouclierShield.install(in: configuration.userContentController) }
         configuration.mediaTypesRequiringUserActionForPlayback = .all
@@ -74,6 +78,7 @@ struct BrowserScreen: View {
         let browser = app.browser
         let link = browser.url.flatMap { YouTubeLink.parse($0.absoluteString) }
         WebViewHost(webView: browser.webView)
+            .id(browser.pageID)
             .ignoresSafeArea(edges: .bottom)
             .overlay(alignment: .bottomTrailing) {
                 if link != nil {
@@ -116,6 +121,7 @@ struct BrowserScreen: View {
                         .help("YouTube home")
                 }
                 ToolbarItem { BouclierToggle(browser: browser) }
+                ToolbarItem { YouTubePageMenu() }
             }
             .onChange(of: browser.url) { _, url in
                 address = url?.absoluteString ?? ""
@@ -155,13 +161,14 @@ struct AccountPanel: View {
     var body: some View {
         @Bindable var settings = settings
         List {
+            YouTubePagesSection()
             Section {
                 HStack(spacing: 12) {
                     Image(systemName: app.account.isSignedIn ? "person.crop.circle.fill.badge.checkmark" : "person.crop.circle.badge.questionmark")
                         .font(.largeTitle)
                         .foregroundStyle(app.account.isSignedIn ? .green : .secondary)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(app.account.isSignedIn ? "Signed in to YouTube" : "Not signed in").font(.headline)
+                        Text((app.account.isSignedIn ? "Signed in to YouTube" : "Not signed in") + " · " + app.youtubePages.active.name).font(.headline)
                         Text(app.account.isSignedIn
                              ? "Zeus uses this sign-in for members-only and age-restricted videos and for your lists."
                              : "Sign in on the right, in Zeus's own YouTube window. Your password goes to Google only.")

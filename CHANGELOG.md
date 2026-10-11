@@ -3,6 +3,22 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 3.9 — 2026-10-11
+
+- **YouTube pages: up to 20 YouTube accounts.** The YouTube window has pages (toolbar menu, and the list at the top
+  of the YouTube panel): Page 1, Page 2… each with its own Google sign-in. Rename them ("Personal YouTube",
+  "Work YouTube", "Third channel"), switch with one click, add up to 20, remove one with its sign-in. The page in
+  front is the one used for Import my subscriptions, Watch Later, Liked videos and members-only videos. The first page
+  is your existing sign-in. The library stays one. Link: `youtubezeus://youtube?page=2` (or a name).
+- **X, Instagram, Facebook and Threads posts.** Paste (or drop) a post link in the Eat bar: Zeus keeps the words of
+  the post and, when it has a video or audio, what is said in it (Whisper on this Mac). yt-dlp reads the post; the
+  page's own preview tags are the fallback. Posts get the same note, search, summary and translation as videos.
+- **Settings › Accounts:** sign in to X, Instagram, Facebook or Threads inside Zeus, for private accounts and posts
+  shown only to members (`social-cookies.txt`, private, read only by yt-dlp on this Mac). Public posts need nothing.
+- **Spotify podcasts.** A Spotify episode or show link is found by name in Apple's free podcast directory and eaten
+  from its public feed (Spotify never gives the audio). Music and Spotify-only shows cannot be eaten.
+- `zeus eat <post link>` and the MCP `eat` tool take the same links.
+
 ## 3.8 — Effects (free, local Genjutsu)
 
 2026-10-10

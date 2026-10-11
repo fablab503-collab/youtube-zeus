@@ -8,6 +8,7 @@ struct SettingsView: View {
         TabView {
             Tab("Eating", systemImage: "fork.knife") { EatingSettings() }
             Tab("Channels", systemImage: "dot.radiowaves.left.and.right") { ChannelSettings() }
+            Tab("Accounts", systemImage: "person.crop.circle.badge.checkmark") { SocialAccountsView() }
             Tab("AI", systemImage: "apple.intelligence") { AISettings() }
             Tab("Local AI", systemImage: "wand.and.stars") { LocalAISettings() }
             Tab("AI hand-off", systemImage: "square.and.arrow.up.on.square") { HandOffSettings() }

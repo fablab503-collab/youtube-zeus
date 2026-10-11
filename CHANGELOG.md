@@ -28,6 +28,10 @@ Newest first.
   about twice as slow. Faces shown on screens or posters are left out of the mask (`--min-person-ratio`).
 - **Fix:** opening a video no longer crashes on macOS 27: SwiftUI's `VideoPlayer` aborts there, so every player (Effects
   and the player bar of podcasts and your files) now uses AVKit's AppKit player view.
+- **Face swap is about 20 times faster**: 33 s instead of 11 min for 3 s of 1080p, because the face sharpening (GFPGAN)
+  is now off by default; tick **Sharpen the face** to use it. **Lips stay in sync**: the result is no longer stretched
+  to the video track's length (it drifted ~0.1 s by the end of 3 s). **Full replace keeps the background sharp**: only
+  the person comes from the 360p generation, pasted inside the mask over the original frames.
 
 ## 3.7 — 2026-10-08
 

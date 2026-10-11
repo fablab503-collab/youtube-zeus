@@ -78,8 +78,11 @@ final.mp4           result-raw + original audio, retimed to source fps; metadata
   diffusers `WanVACEPipeline` on MPS. Inputs: `video` = control.mp4 frames, `mask` = mask.mp4 (1 = regenerate),
   `reference_images` = user photos, prompt = user prompt + "replace the person with the person in the reference
   image, keep the exact motion, lips and timing; depth colours are guidance only and must not appear".
-  Frame count 4k+1 at 16 fps; long clips in overlapping windows. Must fit 16 GB unified memory: encode the
-  prompt with the UMT5 text encoder first and free it before loading the transformer; bf16/fp16; VAE tiling/slicing.
+  Frame count 4k+1 at 16 fps; long clips in overlapping windows. Fits 16 GB unified memory (measured 2026-10-11,
+  M2 Pro: 5.0 GB peak, ~16 min per 2 s window at 360p / 33 frames / 20 steps): UMT5 prompt encoding on the CPU in a
+  separate process (cached), a one-time fp16 `transformer-half/` copy streamed to the GPU block by block, fp16 VAE
+  with tiling and a GPU sync per conv, chunked attention, scheduler step on the CPU. Inside the mask the control is
+  grey depth; the reference photo is cut out onto white. Details and all measured runs: `ENGINES.md`.
 - **faceswap** (face only, fast): FaceFusion 3.x headless (`headless-run`, processors `face_swapper face_enhancer`,
   execution provider `coreml`, fallback `cpu`) on `source.mp4`, then original audio. No depth/mask needed;
   still requires approve + consent.

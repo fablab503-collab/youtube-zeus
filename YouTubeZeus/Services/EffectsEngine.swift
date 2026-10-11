@@ -690,7 +690,7 @@ final class EffectsEngine {
     var generator: EffectsGenerator = .faceswap
     var frames = 33
     var steps = 20
-    var size = "480p"
+    var size = "360p"   // 480p fits 16 GB but takes ~2x longer and looked worse (effects/ENGINES.md)
     var seedText = ""
 
     var isBusy: Bool { work != nil }

@@ -1,7 +1,8 @@
 #!/bin/bash
 # Zeus Effects — optional FREE LOCAL generation engines.
 #
-#   setup-engines.sh --vace        verify / resume-download Wan2.1-VACE-1.3B-diffusers (Apache-2.0, ~18 GB)
+#   setup-engines.sh --vace        verify / resume-download Wan2.1-VACE-1.3B-diffusers (Apache-2.0, ~18 GB),
+#                                  then write transformer-half/ (fp16 copy, 4.3 GB, one-time) so it fits 16 GB
 #   setup-engines.sh --faceswap    clone FaceFusion 3.x + its own Python 3.12 venv (onnxruntime with CoreML)
 #   setup-engines.sh --check       report what is installed, change nothing
 #
@@ -9,6 +10,7 @@
 # Everything goes under the runtime folder (paths contain spaces; always quoted):
 #   ${ZEUS_EFFECTS_HOME:-~/Library/Application Support/YouTube Zeus/Effects}/
 #     models/Wan2.1-VACE-1.3B-diffusers/    (override: ZEUS_VACE_DIR)
+#       transformer-half/   (fp16 copy made here from the download; ZEUS_VACE_HALF=bf16 for bf16)
 #     facefusion/  + facefusion/.venv/       (override: ZEUS_FACEFUSION_DIR)
 set -euo pipefail
 
@@ -18,6 +20,8 @@ VACE_DIR="${ZEUS_VACE_DIR:-$RUNTIME_HOME/models/Wan2.1-VACE-1.3B-diffusers}"
 FF_DIR="${ZEUS_FACEFUSION_DIR:-$RUNTIME_HOME/facefusion}"
 FF_URL="https://github.com/facefusion/facefusion"
 FF_PY="$FF_DIR/.venv/bin/python"
+PY="$RUNTIME_HOME/.venv/bin/python"
+EFFECTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 log() { printf '[setup-engines] %s\n' "$*" >&2; }
@@ -25,7 +29,7 @@ die() { printf '[setup-engines] ERROR: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 not found. $2"; }
 
 usage() {
-  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -65,9 +69,34 @@ sys.exit(1 if bad else 0)
 PY
 }
 
+vace_half_ready() {
+  # 0 = transformer-half/ complete (zeus-half.json + the safetensors file as long as its header says)
+  [ -x "$PY" ] || return 1
+  ( cd "$EFFECTS_DIR" && ZEUS_VACE_DIR="$VACE_DIR" "$PY" -c '
+import sys
+from zfx.engines import vace
+sys.exit(0 if vace.half_ready("transformer") else 1)' ) >/dev/null 2>&1
+}
+
+vace_half() {
+  # transformer-half/ (fp16 by default, 4.3 GB), streamed tensor by tensor from the downloaded fp32/bf16
+  # shards (a few hundred MB of RAM). Loading it instead of the 7.1 GB of shards keeps the load peak low
+  # on a 16 GB Mac (see effects/ENGINES.md).
+  [ -x "$PY" ] || die "Runtime Python missing ($PY). Run effects/setup.sh first."
+  if vace_half_ready && [ "${FORCE:-0}" != "1" ]; then
+    log "VACE transformer-half/ present."
+    return 0
+  fi
+  log "Writing VACE transformer-half/ (one-time, 4.3 GB on disk, under a minute)…"
+  ( cd "$EFFECTS_DIR" && ZEUS_VACE_DIR="$VACE_DIR" "$PY" -m zfx.engines.vace half --model "$VACE_DIR" ) \
+    || die "Could not write transformer-half/ in $VACE_DIR."
+  log "VACE transformer-half/ ready."
+}
+
 setup_vace() {
   if vace_complete; then
     log "VACE weights complete: $VACE_DIR"
+    vace_half
     return 0
   fi
   need uvx "Install uv: https://docs.astral.sh/uv/ (brew install uv)."
@@ -77,6 +106,7 @@ setup_vace() {
   uvx --from huggingface_hub hf download "$VACE_REPO" --local-dir "$VACE_DIR"
   vace_complete || die "VACE download finished but files are incomplete. Run setup-engines.sh --vace again."
   log "VACE weights ready."
+  vace_half
 }
 
 # ---------------------------------------------------------------- FaceFusion
@@ -124,7 +154,10 @@ setup_faceswap() {
 }
 
 check() {
-  if vace_complete; then echo "vace: ready ($VACE_DIR)"; else echo "vace: missing or incomplete ($VACE_DIR) -> setup-engines.sh --vace"; fi
+  if vace_complete; then
+    if vace_half_ready; then echo "vace: ready ($VACE_DIR, transformer-half/ present)"
+    else echo "vace: weights ready, transformer-half/ missing -> setup-engines.sh --vace"; fi
+  else echo "vace: missing or incomplete ($VACE_DIR) -> setup-engines.sh --vace"; fi
   if ff_ready; then echo "faceswap: ready ($FF_DIR)"; else echo "faceswap: not installed ($FF_DIR) -> setup-engines.sh --faceswap"; fi
 }
 

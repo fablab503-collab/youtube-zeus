@@ -627,8 +627,8 @@ private struct EffectsGenerateCard: View {
                     GridRow {
                         Text("Size").foregroundStyle(.secondary)
                         Picker("Size", selection: $effects.size) {
-                            Text("480p").tag("480p")
-                            Text("360p (faster)").tag("360p")
+                            Text("360p").tag("360p")
+                            Text("480p (2x slower)").tag("480p")
                         }
                         .pickerStyle(.segmented)
                         .labelsHidden()

@@ -492,9 +492,11 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--prompt", default="", help="extra prompt text (vace)")
     g.add_argument("--consent", action="store_true",
                    help="the reference photos show me or people who agreed")
-    g.add_argument("--frames", type=int, default=None, help="limit frames (engine default: whole clip)")
+    g.add_argument("--frames", type=int, default=None,
+                   help="vace: frames per window (4k+1, default 33); the whole clip runs in overlapping windows")
     g.add_argument("--steps", type=int, default=None, help="diffusion steps (engine default)")
-    g.add_argument("--size", choices=("480p", "360p"), default="480p")
+    g.add_argument("--size", choices=("480p", "360p"), default=None,
+                   help="vace size (engine default; see effects/ENGINES.md for times on a 16 GB Mac)")
     g.add_argument("--seed", type=int, default=None)
 
     s = sub.add_parser("status", help="print job.json")

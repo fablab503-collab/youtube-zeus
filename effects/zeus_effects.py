@@ -5,11 +5,13 @@ Run with the runtime venv:
   "$ZEUS_EFFECTS_HOME/.venv/bin/python" effects/zeus_effects.py <command> ...
 
   doctor   [--json]
-  prepare  --input FILE|URL [--start S] [--duration D<=10] --mode depth|depth_mesh|mesh [--job DIR] [--cookies FILE]
+  prepare  --input FILE|URL [--start S] [--duration D<=10] --mode depth|depth_mesh|mesh|pose|depth_pose
+           [--job DIR] [--cookies FILE] [--motion]
   approve  --job DIR
   generate --job DIR --engine vace|faceswap (--ref IMG [--ref IMG2] | --ref-pack DIR.c101face | both)
            [--prompt TEXT] [--consent] [--frames N] [--steps N] [--size 480p|360p] [--seed N]
   facepack --pack DIR.c101face [--max-refs N] [--json]   (what generate would pick from a face pack)
+  motion   --job DIR [--json]   (the job's motion capture: frames with a body, hands, visibility, limbs)
   status   --job DIR [--json]
   list     [--json]
 
@@ -36,7 +38,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import zfx  # noqa: E402
-from zfx import MAX_DURATION, MODES  # noqa: E402
+from zfx import MAX_DURATION, MESH_MODES, MODES, POSE_MODES  # noqa: E402
 from zfx.progress import Progress, setup_logging  # noqa: E402
 
 
@@ -104,8 +106,8 @@ def _memory() -> dict:
 # ---------------------------------------------------------------------------
 # doctor
 def doctor_report() -> dict:
-    from zfx import (effects_home, face_landmarker_model, facefusion_dir, vace_dir, vda_code_dir,
-                     vda_weights)
+    from zfx import (effects_home, face_landmarker_model, facefusion_dir, hand_landmarker_model,
+                     pose_landmarker_model, vace_dir, vda_code_dir, vda_weights)
     from zfx.io import which
 
     home = effects_home()
@@ -153,6 +155,8 @@ def doctor_report() -> dict:
         "vda": _file_info(vda_weights()),
         "vda_code": _file_info(vda_code_dir() / "video_depth_anything" / "video_depth.py"),
         "face_landmarker": _file_info(face_landmarker_model()),
+        "pose_landmarker": _file_info(pose_landmarker_model()),
+        "hand_landmarker": _file_info(hand_landmarker_model()),
         "vace": {"path": str(vace), "present": (vace / "model_index.json").is_file()},
         "facefusion": {"path": str(ff), "present": (ff / "facefusion.py").is_file(),
                        "venv": (ff / ".venv" / "bin" / "python").exists()},
@@ -164,6 +168,8 @@ def doctor_report() -> dict:
                       weights["vda_code"]["present"], weights["face_landmarker"]["present"]])
     report["engines"] = {
         "prepare": prepare_ok,
+        # pose modes; the two .task files are also fetched on first use (Google's official MediaPipe storage)
+        "pose": bool(prepare_ok and weights["pose_landmarker"]["present"] and weights["hand_landmarker"]["present"]),
         "download": bool(ytdlp),
         "vace": bool(weights["vace"]["present"] and torch_info.get("ok")),
         "faceswap": bool(weights["facefusion"]["present"] and weights["facefusion"]["venv"]),
@@ -212,7 +218,7 @@ def cmd_doctor(args, progress: Progress) -> int:
 DEPTH_INPUT_SIZE = 392
 
 STAGE_WEIGHTS = {"download": 0.10, "trim": 0.04, "normalize": 0.04, "depth": 0.37, "masks": 0.20,
-                 "mesh": 0.10, "composite": 0.15}
+                 "mesh": 0.10, "pose": 0.25, "composite": 0.15}
 
 
 def cmd_prepare(args, progress: Progress) -> int:
@@ -236,8 +242,12 @@ def cmd_prepare(args, progress: Progress) -> int:
             raise CLIError(f"Input file not found: {p}", "start")
         input_ref = str(p.resolve())
 
+    want_motion = args.mode in POSE_MODES or bool(getattr(args, "motion", False))
+    want_mesh = args.mode in MESH_MODES or want_motion     # the face is part of the motion asset
+    want_depth = args.mode != "pose"
     stages = [s for s in STAGE_WEIGHTS
-              if (s != "mesh" or args.mode in ("mesh", "depth_mesh")) and (s != "download" or zio.is_url(input_ref))]
+              if (s != "mesh" or want_mesh) and (s != "pose" or want_motion) and (s != "depth" or want_depth)
+              and (s != "download" or zio.is_url(input_ref))]
     total_w = sum(STAGE_WEIGHTS[s] for s in stages)
     offsets, acc = {}, 0.0
     for s in stages:
@@ -279,16 +289,17 @@ def cmd_prepare(args, progress: Progress) -> int:
         job.set_artifact("work", job.dir / "work.mp4", save=False)
         job.save()
 
-        stage = "depth"
-        from zfx.depth import run_depth
-        with Timer() as t:
-            say("depth", 0.0, "Video-Depth-Anything-Small")
-            dstats = run_depth(job.dir / "work.mp4", job.dir / "depth.mp4", lambda f, m: say("depth", f, m),
-                               device=args.device, input_size=args.depth_size)
-        job.set_artifact("depth", job.dir / "depth.mp4", save=False)
-        job["depth_info"] = dstats
-        job.set_timing("depth", t.seconds)
-        say("depth", 1.0, f"depth.mp4 in {t.seconds:.1f} s on {dstats['device']}")
+        if want_depth:
+            stage = "depth"
+            from zfx.depth import run_depth
+            with Timer() as t:
+                say("depth", 0.0, "Video-Depth-Anything-Small")
+                dstats = run_depth(job.dir / "work.mp4", job.dir / "depth.mp4", lambda f, m: say("depth", f, m),
+                                   device=args.device, input_size=args.depth_size)
+            job.set_artifact("depth", job.dir / "depth.mp4", save=False)
+            job["depth_info"] = dstats
+            job.set_timing("depth", t.seconds)
+            say("depth", 1.0, f"depth.mp4 in {t.seconds:.1f} s on {dstats['device']}")
 
         stage = "masks"
         from zfx.masks import run_masks
@@ -303,7 +314,7 @@ def cmd_prepare(args, progress: Progress) -> int:
         say("masks", 1.0, f"mask.mp4 in {t.seconds:.1f} s")
 
         landmarks = None
-        if args.mode in ("mesh", "depth_mesh"):
+        if want_mesh:
             stage = "mesh"
             from zfx.mesh import detect_landmarks, write_landmarks
             with Timer() as t:
@@ -315,16 +326,52 @@ def cmd_prepare(args, progress: Progress) -> int:
                                 "search": landmarks.get("search"), "crop": landmarks.get("crop")}
             job.set_timing("mesh", t.seconds)
             if landmarks["faces_found"] == 0:
-                warnings_out.append("No face found for the mesh (control has no mesh lines).")
+                warnings_out.append("No face found for the mesh (control has no mesh lines)." if args.mode in
+                                    ("mesh", "depth_mesh") else "No face found (motion.json has no face).")
             say("mesh", 1.0, f"face in {landmarks['faces_found']}/{len(landmarks['frames'])} frames, "
                              f"{t.seconds:.1f} s")
+
+        motion = None
+        if want_motion:
+            stage = "pose"
+            from zfx.bvh import BVHError, write_bvh
+            from zfx.pose import detect_motion, summarize, write_motion, write_pose_video
+            with Timer() as t:
+                source_ref = {"job": job.id, "input": input_ref, "start": start, "duration": job.get("duration"),
+                              "video": "work.mp4", "source_fps": job.get("source_fps")}
+                motion = detect_motion(job.dir / "work.mp4", lambda f, m: say("pose", 0.85 * f, m),
+                                       mask_path=job.dir / "mask.mp4", face=landmarks, source=source_ref)
+                write_motion(motion, job.dir / "motion.json")
+                job.set_artifact("motion", job.dir / "motion.json", save=False)
+                pstats = write_pose_video(motion, job.dir / "pose.mp4", lambda f, m: say("pose", 0.85 + 0.1 * f, m))
+                job.set_artifact("pose", job.dir / "pose.mp4", save=False)
+                bvh_info = None
+                try:
+                    bvh_info = write_bvh(motion, job.dir / "motion.bvh")
+                    job.set_artifact("bvh", job.dir / "motion.bvh", save=False)
+                except BVHError as exc:
+                    warnings_out.append(str(exc))
+            summary = summarize(motion)
+            job["motion_info"] = {k: summary[k] for k in ("frames", "body_frames", "left_hand_frames",
+                                                          "right_hand_frames", "face_frames", "average_visibility",
+                                                          "limbs_tracked", "search")}
+            job["motion_info"]["pose_video"] = pstats
+            if bvh_info:
+                job["motion_info"]["bvh"] = {k: bvh_info[k] for k in ("frames", "joints", "channels",
+                                                                        "held_frames", "root")}
+            job.set_timing("pose", t.seconds)
+            if summary["body_frames"] == 0:
+                warnings_out.append("No body found in any frame (motion.json is empty, pose.mp4 is black).")
+            say("pose", 1.0, f"body in {summary['body_frames']}/{summary['frames']} frames, hands L "
+                             f"{summary['left_hand_frames']} R {summary['right_hand_frames']}, {t.seconds:.1f} s")
 
         stage = "composite"
         from zfx.composite import build_control
         with Timer() as t:
-            cstats = build_control(job.dir / "work.mp4", job.dir / "depth.mp4", job.dir / "mask.mp4",
-                                   job.dir / "control.mp4", args.mode, lambda f, m: say("composite", f, m),
-                                   landmarks=landmarks, preview_path=job.dir / "preview.jpg")
+            cstats = build_control(job.dir / "work.mp4", job.dir / "depth.mp4" if want_depth else None,
+                                   job.dir / "mask.mp4", job.dir / "control.mp4", args.mode,
+                                   lambda f, m: say("composite", f, m), landmarks=landmarks,
+                                   preview_path=job.dir / "preview.jpg", motion=motion)
         job.set_artifact("control", job.dir / "control.mp4", save=False)
         if (job.dir / "preview.jpg").is_file():
             job.set_artifact("preview", job.dir / "preview.jpg", save=False)
@@ -366,6 +413,8 @@ def cmd_prepare(args, progress: Progress) -> int:
         "warnings": warnings_out,
         "next": "review preview.jpg, then approve --job",
     }
+    if job.get("motion_info"):
+        result["motion"] = job["motion_info"]
     progress.done(job.dir, result)
     return 0
 
@@ -463,6 +512,69 @@ def cmd_facepack(args, progress: Progress) -> int:
     return 0
 
 
+def motion_report(job) -> dict:
+    """Summary of a job's motion capture (motion.json, motion.bvh, pose.mp4) for agents."""
+    from zfx.bvh import BVHError, describe_bvh
+    from zfx.pose import PoseError, load_motion, summarize
+    path = job.artifact("motion") or (job.dir / "motion.json" if (job.dir / "motion.json").is_file() else None)
+    if path is None:
+        raise CLIError(f"Job {job.id} has no motion capture. Prepare it with --mode pose or depth_pose "
+                       "(or --motion with any mode).", "motion")
+    try:
+        motion = load_motion(path)
+    except (PoseError, OSError, ValueError) as exc:
+        raise CLIError(f"Could not read {path.name}: {exc}", "motion")
+    report = summarize(motion)
+    report["job"] = job.id
+    report["files"] = {"motion": str(path)}
+    for name, file in (("pose", "pose.mp4"), ("bvh", "motion.bvh")):
+        p = job.artifact(name) or (job.dir / file if (job.dir / file).is_file() else None)
+        report["files"][name] = str(p) if p else None
+    if report["files"]["bvh"]:
+        try:
+            report["bvh"] = describe_bvh(Path(report["files"]["bvh"]))
+        except (BVHError, OSError, ValueError) as exc:
+            report["bvh"] = {"error": str(exc)}
+    return report
+
+
+def cmd_motion(args, progress: Progress) -> int:
+    from zfx.jobs import Job, JobError
+    try:
+        job = Job.load(args.job)
+    except JobError as exc:
+        raise CLIError(str(exc), "motion")
+    report = motion_report(job)
+    if args.json:
+        _emit_report(progress, report, job.dir)
+        return 0
+    n = report["frames"] or 0
+
+    def pct(k):
+        return f"{k}/{n} ({(100.0 * k / n) if n else 0:.0f} %)"
+
+    vis = report["average_visibility"]
+    limbs = report["limbs_fraction"] or {}
+    lines = [f"Motion of job {report['job']}: {n} frames at {report['fps']} fps "
+             f"({report['duration']} s, {report['size'][0]}x{report['size'][1]})",
+             f"  body        {pct(report['body_frames'])}",
+             f"  left hand   {pct(report['left_hand_frames'])}",
+             f"  right hand  {pct(report['right_hand_frames'])}",
+             f"  face        {pct(report['face_frames'])}",
+             f"  average visibility {vis if vis is not None else '-'}",
+             "  limbs tracked (share of body frames with every point visible): "
+             + (", ".join(f"{k} {v:.0%}" for k, v in limbs.items() if v > 0) or "none")]
+    if report.get("bvh") and "joints" in report["bvh"]:
+        b = report["bvh"]
+        lines.append(f"  motion.bvh  {len(b['joints'])} joints, {b['channels']} channels, {b['frames']} frames "
+                     f"at {b['fps']} fps")
+    for name, path in report["files"].items():
+        lines.append(f"  {name:6}  {path or '-'}")
+    print("\n".join(lines))
+    progress.finished = True
+    return 0
+
+
 def cmd_status(args, progress: Progress) -> int:
     from zfx.jobs import Job, JobError
     try:
@@ -501,7 +613,7 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("doctor", help="check tools, weights, memory and disk (never downloads)")
     d.add_argument("--json", action="store_true")
 
-    pr = sub.add_parser("prepare", help="download/trim, normalize, depth, masks, composite, mesh")
+    pr = sub.add_parser("prepare", help="download/trim, normalize, depth, masks, mesh, pose, composite")
     pr.add_argument("--input", required=True, help="video file or YouTube URL")
     pr.add_argument("--start", type=float, default=0.0, help="start second (default 0)")
     pr.add_argument("--duration", type=float, default=5.0, help=f"seconds, at most {MAX_DURATION:g} (default 5)")
@@ -517,6 +629,9 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--min-person-ratio", type=float, default=0.25,
                     help="drop mask blobs smaller than this x the largest person, e.g. faces on screens "
                          "(default 0.25; 0 keeps every blob)")
+    pr.add_argument("--motion", action="store_true",
+                    help="also save the whole-body motion capture (motion.json, motion.bvh, pose.mp4) in the "
+                         "depth/mesh modes (always on in pose and depth_pose)")
 
     a = sub.add_parser("approve", help="record the review (SHA-256 of every prepared artifact)")
     a.add_argument("--job", required=True)
@@ -545,6 +660,10 @@ def build_parser() -> argparse.ArgumentParser:
     fp.add_argument("--max-refs", type=int, default=None, help="frames to pick (default 5)")
     fp.add_argument("--json", action="store_true")
 
+    mo = sub.add_parser("motion", help="summary of a job's motion capture (body, hands, face, limbs, BVH)")
+    mo.add_argument("--job", required=True)
+    mo.add_argument("--json", action="store_true")
+
     s = sub.add_parser("status", help="print job.json")
     s.add_argument("--job", required=True)
     s.add_argument("--json", action="store_true")
@@ -555,7 +674,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 COMMANDS = {"doctor": cmd_doctor, "prepare": cmd_prepare, "approve": cmd_approve, "generate": cmd_generate,
-            "facepack": cmd_facepack, "status": cmd_status, "list": cmd_list}
+            "facepack": cmd_facepack, "motion": cmd_motion, "status": cmd_status, "list": cmd_list}
 
 
 def main(argv=None) -> int:

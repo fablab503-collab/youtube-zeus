@@ -24,6 +24,11 @@ VDA_WEIGHTS="$VDA_WEIGHTS_DIR/video_depth_anything_vits.pth"
 VDA_WEIGHTS_URL="https://huggingface.co/depth-anything/Video-Depth-Anything-Small/resolve/main/video_depth_anything_vits.pth"
 FACE_TASK="$MODELS/face_landmarker.task"
 FACE_TASK_URL="https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+# Whole-body motion capture (pose modes): official MediaPipe models (Apache-2.0) from Google's model storage
+POSE_TASK="$MODELS/pose_landmarker_heavy.task"
+POSE_TASK_URL="https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/latest/pose_landmarker_heavy.task"
+HAND_TASK="$MODELS/hand_landmarker.task"
+HAND_TASK_URL="https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
 
 say() { printf '[zeus-effects setup] %s\n' "$*"; }
 die() { printf '[zeus-effects setup] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -100,6 +105,8 @@ fi
 # 4. Small weights
 fetch "$VDA_WEIGHTS_URL" "$VDA_WEIGHTS" 50000000      # ~110 MB, Video-Depth-Anything-Small (vits)
 fetch "$FACE_TASK_URL" "$FACE_TASK" 1000000           # ~3.6 MB, MediaPipe Face Landmarker
+fetch "$POSE_TASK_URL" "$POSE_TASK" 10000000          # ~30 MB, MediaPipe Pose Landmarker (heavy)
+fetch "$HAND_TASK_URL" "$HAND_TASK" 2000000           # ~7.8 MB, MediaPipe Hand Landmarker
 
 # 5. Report
 say "checking the install"

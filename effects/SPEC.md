@@ -2,8 +2,8 @@
 
 Free, local-only version of the "Genjutsu" character-replacement workflow
 (idea: https://github.com/sirioberati/Genjustsu-Open-Source-Workflow, MIT, by Sirio Berati).
-Keep *how* people move (depth, masks, face mesh), replace *who* they are with the user's
-reference photo, put the original soundtrack back.
+Keep *how* people move (depth, masks, face mesh, whole-body pose), replace *who* they are with the
+user's reference photo, put the original soundtrack back.
 
 **Hard rules**
 - Everything runs on this Mac (Apple Silicon, M2 Pro, 16 GB). No paid API, no Replicate,
@@ -27,6 +27,7 @@ effects/requirements.txt   main engine deps (pinned)
 effects/zeus_effects.py    CLI entry point (argparse), subcommands below
 effects/zfx/               package: io.py (download/trim/normalize/audio), depth.py,
                            masks.py (Apple Vision via pyobjc), composite.py, mesh.py,
+                           pose.py (body + hands motion capture), bvh.py (BVH skeleton),
                            review.py (hash gate), jobs.py, progress.py
 effects/zfx/engines/       vace.py (Wan2.1-VACE-1.3B, diffusers, MPS), faceswap.py (FaceFusion)
 effects/tests/             unittest, runnable without weights (synthetic clips)
@@ -35,7 +36,8 @@ Runtime (`$ZEUS_EFFECTS_HOME`, default `~/Library/Application Support/YouTube Ze
 ```
 .venv/            main engine, Python 3.12 via `uv`
 facefusion/       FaceFusion checkout + its own .venv (optional, `setup.sh --faceswap`)
-models/           Video-Depth-Anything-Small, Wan2.1-VACE-1.3B-diffusers (optional, `setup.sh --vace`)
+models/           Video-Depth-Anything-Small, face_landmarker.task, pose_landmarker_heavy.task, hand_landmarker.task,
+                  Wan2.1-VACE-1.3B-diffusers (optional, `setup.sh --vace`)
 Jobs/<job-id>/    one folder per job
 effects.log
 ```
@@ -49,8 +51,9 @@ The last line is either `{"done":true,"job":"<dir>","result":{…}}` or
 
 | Command | What it does |
 |---|---|
-| `doctor [--json]` | Python, torch+MPS, ffmpeg, yt-dlp, pyobjc Vision, weights present per engine, free RAM/disk. Never downloads. |
-| `prepare --input <file or YouTube URL> [--start S] [--duration D≤10] --mode depth\|depth_mesh\|mesh [--job DIR] [--cookies FILE]` | Download/trim, normalize, depth, masks, composite, mesh. Creates the job. |
+| `doctor [--json]` | Python, torch+MPS, ffmpeg, yt-dlp, pyobjc Vision, weights present per engine (incl. the pose and hand landmarkers), free RAM/disk. Never downloads. |
+| `prepare --input <file or YouTube URL> [--start S] [--duration D≤10] --mode depth\|depth_mesh\|mesh\|pose\|depth_pose [--job DIR] [--cookies FILE] [--motion]` | Download/trim, normalize, depth (not in `pose`), masks, face mesh, motion capture (pose modes, or `--motion`), composite. Creates the job. |
+| `motion --job DIR [--json]` | Summary of the job's motion capture for agents: frames with a body, each hand and the face, average visibility, limbs tracked, the BVH (joints, channels, fps) and file paths. |
 | `approve --job DIR` | Records the review: SHA-256 of every prepared artifact into `job.json.review`. |
 | `generate --job DIR --engine vace\|faceswap --ref IMG [--ref IMG2] [--ref-pack DIR.c101face] [--prompt TEXT] [--consent] [--frames N] [--steps N] [--size 480p\|360p] [--seed N]` | Refuses without `--consent`, without approval, or if any approved artifact hash changed. Writes `result-raw.mp4` then `final.mp4` (original audio). |
 | `status --job DIR [--json]` | Prints `job.json`. |
@@ -65,12 +68,69 @@ audio.m4a           original audio, stream-copied when possible
 work.mp4            16 fps, long side ≤ 832, even dims (what models see)
 depth.mp4           colored depth (Video-Depth-Anything-Small, inferno-like colormap), same frames as work.mp4
 mask.mp4            people mask, white = person (Apple Vision VNGeneratePersonSegmentationRequest, accurate), dilated 8 px, temporally smoothed
-control.mp4         depth people over the original background (mode depth / depth_mesh), + mesh overlay (depth_mesh), or original + mesh (mesh)
-face-landmarks.json MediaPipe Face Landmarker, 478 points per frame (mesh modes)
-preview.jpg         contact sheet: 4 frames × (work | depth | mask | control) for review
+control.mp4         depth people over the original background (mode depth / depth_mesh), + mesh overlay (depth_mesh), or original + mesh (mesh),
+                    the pose skeleton on black (pose), grey depth inside the mask (hard edge) + the skeleton inside the mask (depth_pose)
+face-landmarks.json MediaPipe Face Landmarker, 478 points per frame (mesh and pose modes)
+motion.json         whole-body motion capture (pose modes / --motion), see "Motion capture" below
+motion.bvh          BVH body skeleton solved from motion.json (pose modes / --motion)
+pose.mp4            OpenPose-style skeleton on black, same frames/size as work.mp4 (pose modes / --motion)
+preview.jpg         contact sheet: 4 frames × (work | depth | mask | [pose] | control) for review (no depth column in mode pose)
 result-raw.mp4      engine output (no audio)
 final.mp4           result-raw + original audio, retimed to source fps; metadata comment as above
 ```
+
+## Modes
+
+| Mode | control.mp4 | VACE control at generation (engines/vace.py) |
+|---|---|---|
+| `depth` | coloured depth inside the people mask (feathered) over the original | grey depth inside the mask, original outside |
+| `depth_mesh` | the same + white face mesh | the same, mesh in grey |
+| `mesh` | the original + white face mesh | as is |
+| `pose` | OpenPose-style skeleton (body, hands, 68 face dots) on black; no depth computed | as is (the background comes back from the source in the final composite) |
+| `depth_pose` | grey depth inside the mask (hard edge, no halo) over the original + the skeleton inside the mask | as is (already grey) |
+
+`pose` and `depth_pose` always save the motion capture (and run the face mesh, the face is part of it);
+`--motion` adds it to the other modes. Approval then also hashes `motion.json`, `pose.mp4`, `motion.bvh` and
+`face-landmarks.json`.
+
+## Motion capture (`zfx/pose.py`, `zfx/bvh.py`)
+
+Every frame of work.mp4 goes through MediaPipe Pose Landmarker **heavy** (33 body points, VIDEO mode) and Hand
+Landmarker (21 points per hand, 2 hands), official `.task` files from Google's model storage (Apache-2.0;
+`setup.sh` downloads them, and a missing one is fetched on first use; `ZEUS_EFFECTS_NO_DOWNLOAD=1` forbids that).
+Like the face mesh, they first run on one fixed crop around the main person of mask.mp4 (small presenters are too
+small for MediaPipe's detectors in the full frame) and fall back to the full frame when that finds the body in fewer
+frames. Hands go to the person's own left/right by the nearest body wrist (a hand farther than 1.2 × the shoulder
+width is someone else's); without a body, MediaPipe's handedness is used swapped (it assumes a mirrored selfie).
+Smoothing: One-Euro filter (image: min_cutoff 1.2 Hz, beta 4; world: 1.2 Hz, beta 1.5; d_cutoff 1 Hz) on x, y, z,
+reset after every frame without a detection; raw values are kept next to the smoothed ones.
+
+`motion.json` (format `"zeus-motion"`, version 1; the schema is `zfx.pose.MOTION_SCHEMA`):
+```
+format, version, generator, created, source{job, input, start, duration, video, source_fps}
+fps (16), frames, width, height, time[s per frame], coordinates{image, world, frame_index}
+models{pose, hands, face}, search{pose: person_crop|full_frame, crop, hands}, smoothing{...}
+names{body[33], hand[21], face}, edges{body, hand}, limb_groups{part: [body names]}
+body{image, world, image_raw, world_raw}       per frame null or 33 × [x, y, z, visibility]
+hands{left|right: {image, world, image_raw, world_raw: per frame null or 21 × [x, y, z], score, frames_found}}
+face null | {points 478, model, file, image, image_raw: per frame null or 478 × [x, y, z], frames_found, openpose68}
+stats{frames, body_frames, left_hand_frames, right_hand_frames, face_frames, visibility{mean, per_landmark, limbs}}
+```
+image = normalized to the frame (x right, y down, z MediaPipe relative depth in the x scale); world = metres,
+camera-aligned (x right, y down, z away from the camera), body origin between the hips.
+
+`motion.bvh`: Hips (6 channels) › Spine › Spine1 › Neck › Head, Left/RightShoulder › Arm › ForeArm › Hand,
+Left/RightUpLeg › Leg › Foot (19 joints, 60 channels, ZXY, degrees), Y up, centimetres, facing +Z, frame time
+1/16 s. Rest = T-pose with the person's measured bone lengths. Rotations: hips and chest from the hip/shoulder lines,
+spine = half-way, head from ears + nose, hands from wrist/knuckles, every other bone = the shortest swing of its rest
+direction onto the measured one in the parent's frame (twist inherited from the shoulder/hip lines, never flips).
+Hidden joints: each bone is blended (slerp) from a neutral pose (arms down along the body, legs straight, head
+level) to its solved rotation by the best visibility of the landmarks that place it (0 at <= 0.2, full at >= 0.5),
+so partly seen limbs follow MediaPipe's estimate and limbs never in the picture relax, without pops; frames without
+a body repeat the nearest solved one; root = rest hip height + the image movement of the hips (or shoulders) in cm, no depth. Fingers and the
+face are in motion.json only. Use: Blender's BVH importer directly; Unreal Engine 5.5 has no BVH importer: import
+in Blender, export FBX (armature + animation), import into UE as an animation on a new skeleton, then retarget to
+the Third Person template's Manny with an IK Rig per skeleton (chains spine/neck/head/arms/legs) and an IK Retargeter.
 
 ## Engines
 

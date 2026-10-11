@@ -38,6 +38,13 @@ Newest first.
   is now off by default; tick **Sharpen the face** to use it. **Lips stay in sync**: the result is no longer stretched
   to the video track's length (it drifted ~0.1 s by the end of 3 s). **Full replace keeps the background sharp**: only
   the person comes from the 360p generation, pasted inside the mask over the original frames.
+- **Whole-body motion capture.** Two new modes, **Pose** (a coloured OpenPose-style skeleton on black guides the
+  model, so the new subject can have any shape) and **Depth + pose** (grey depth with the skeleton on top). Every frame
+  gets the body (33 points, MediaPipe Pose heavy), both hands (21 points each), the face mesh, smoothed (One-Euro) with
+  the raw values kept, and is saved as data in the job: `motion.json` (documented schema), `motion.bvh` (a 19-joint
+  body skeleton for Blender, or Unreal Engine through an FBX and the IK Retargeter onto Manny) and `pose.mp4`. The
+  contact sheet gets a pose column; approval also fingerprints the motion files. `--motion` adds the capture to the
+  other modes. Agents: `zeus effects motion --job <dir> --json` (frames with a body and hands, visibility, limbs).
 
 ## 3.7 — 2026-10-08
 

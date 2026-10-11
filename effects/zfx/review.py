@@ -1,7 +1,8 @@
 """Review gate: approval bound to SHA-256 hashes of the prepared artifacts.
 
-approve(job)  hashes source.mp4, audio.m4a, work.mp4, depth.mp4, mask.mp4, control.mp4,
-              face-landmarks.json (mesh modes) and preview.jpg into job.json.review.
+approve(job)  hashes source.mp4, audio.m4a, work.mp4, depth.mp4 (not in mode pose), mask.mp4, control.mp4,
+              face-landmarks.json (mesh and pose modes), motion.json + pose.mp4 (pose modes), motion.bvh and
+              preview.jpg (when present) into job.json.review.
 verify(job)   used by generate: raises ReviewError (plain English) unless the job was
               approved and every approved file still has the same hash. Returns the hashes.
 """
@@ -12,6 +13,7 @@ import hashlib
 from pathlib import Path
 from typing import Union
 
+from . import MESH_MODES, POSE_MODES
 from .jobs import Job, now_iso
 
 HASH_CHUNK = 1 << 20
@@ -32,17 +34,25 @@ def sha256_file(path: Union[str, Path]) -> str:
 def required_artifacts(job: Job) -> list[str]:
     """Artifacts that must exist before approval (by mode)."""
     names = ["source", "work", "depth", "mask", "control"]
-    if job.mode in ("mesh", "depth_mesh"):
+    if job.mode == "pose":      # the pose control needs no depth
+        names.remove("depth")
+    if job.mode in MESH_MODES:
         names.append("landmarks")
+    if job.mode in POSE_MODES:
+        names += ["motion", "pose"]
     if job.get("has_audio"):
         names.append("audio")
     return names
 
 
+OPTIONAL_REVIEWED = ("audio", "preview", "depth", "landmarks", "motion", "pose", "bvh")
+
+
 def reviewed_artifacts(job: Job) -> list[str]:
-    """Everything that gets hashed: required + preview when present."""
+    """Everything that gets hashed: required + the optional files present (preview, motion.bvh, the motion
+    assets of a non-pose mode prepared with --motion)."""
     names = required_artifacts(job)
-    for optional in ("audio", "preview"):
+    for optional in OPTIONAL_REVIEWED:
         if optional not in names and job.artifact(optional) is not None:
             names.append(optional)
     return names

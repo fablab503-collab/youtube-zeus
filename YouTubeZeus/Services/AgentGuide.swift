@@ -300,9 +300,13 @@ enum AgentGuide {
         YouTube sign-in when there is one).
 
         1. **Prepare** — a clip of at most 10 seconds from a video of the library (its YouTube link, or the user's own video
-           file) or any video file, with a start and a mode: `depth`, `depth_mesh` (depth + face mesh) or `mesh`. It writes
-           `source.mp4`, `audio.m4a`, `work.mp4` (16 fps), `depth.mp4`, `mask.mp4` (white = the people, who get replaced),
-           `control.mp4`, `face-landmarks.json` and `preview.jpg` (contact sheet) in a job folder.
+           file) or any video file, with a start and a mode: `depth`, `depth_mesh` (depth + face mesh), `mesh`, `pose`
+           (whole-body skeleton on black) or `depth_pose` (grey depth + skeleton). It writes `source.mp4`, `audio.m4a`,
+           `work.mp4` (16 fps), `depth.mp4`, `mask.mp4` (white = the people, who get replaced), `control.mp4`,
+           `face-landmarks.json` and `preview.jpg` (contact sheet) in a job folder. The pose modes (or `--motion` with any
+           mode) also save the whole movement as data: `motion.json` (33 body points in the image and in metres, 21 per
+           hand, the face mesh, smoothed and raw, per frame), `motion.bvh` (a body skeleton for Blender, or Unreal through
+           an FBX and the IK Retargeter) and `pose.mp4` (OpenPose-style skeleton, a VACE pose control).
         2. **Review and approve** — the user looks at the preview and the control, depth and mask videos, then approves:
            the SHA-256 of every prepared file is recorded in `job.json` (`review`). If any of them changes, generation refuses.
         3. **Generate** — one required and one optional reference photo, an optional prompt, the engine, and **consent**:
@@ -318,7 +322,8 @@ enum AgentGuide {
         |---|---|
         | `zeus effects setup [--faceswap\\|--vace]` | installs the engine (its own Python with uv, depth/mask/mesh tools and small weights); `--faceswap` adds FaceFusion, `--vace` downloads Wan2.1-VACE-1.3B (about 19 GB, resumable) |
         | `zeus effects doctor --json` | Python, torch + MPS, ffmpeg, yt-dlp, Apple Vision, weights per engine, free memory and disk (never downloads) |
-        | `zeus effects prepare --input "<file or YouTube link>" [--start S] [--duration D≤10] --mode depth\\|depth_mesh\\|mesh` | makes the job (path in the `done` line) |
+        | `zeus effects prepare --input "<file or YouTube link>" [--start S] [--duration D≤10] --mode depth\\|depth_mesh\\|mesh\\|pose\\|depth_pose [--motion]` | makes the job (path in the `done` line) |
+        | `zeus effects motion --job "<job dir>" --json` | the job's motion capture: frames with a body, each hand and the face, average visibility, limbs tracked, the BVH and file paths |
         | `zeus effects approve --job "<job dir>"` | records the review (hashes of every prepared file) |
         | `zeus effects generate --job "<job dir>" --engine faceswap\\|vace --ref <photo> [--ref <photo 2>] [--prompt "…"] --consent [--frames N] [--steps N] [--size 480p\\|360p] [--seed N]` | the result, `final.mp4` in the job folder |
         | `zeus effects facepack --pack "<Name>.c101face" --json` | checks a face pack from Cinema 101's Scan my face (format, consent, paths) and lists the frames `generate … --ref-pack "<pack>"` uses instead of, or with, `--ref` (up to 5: frontal, ±20°, ±40°, smile; 2 for vace) |

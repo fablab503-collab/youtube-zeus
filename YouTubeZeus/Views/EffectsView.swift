@@ -516,8 +516,18 @@ private struct EffectsReviewCard: View {
     @Environment(AppModel.self) private var app
     let job: EffectsJob
 
+    /// The columns of preview.jpg (no depth in the pose mode, a pose column when the motion was captured).
+    private var previewHelp: String {
+        var columns = ["work"]
+        if job.file("depth.mp4") != nil { columns.append("depth") }
+        columns.append("mask")
+        if job.file("pose.mp4") != nil && job.mode != "pose" { columns.append("pose") }
+        columns.append(job.mode == "pose" ? "control = pose" : "control")
+        return "4 frames: " + columns.joined(separator: " · ")
+    }
+
     var body: some View {
-        let clips = [("Control (what the model follows)", "control.mp4"), ("Depth", "depth.mp4"), ("Mask (white = replaced)", "mask.mp4")]
+        let clips = [("Control (what the model follows)", "control.mp4"), ("Depth", "depth.mp4"), ("Mask (white = replaced)", "mask.mp4"), ("Pose (body, hands, face)", "pose.mp4")]
             .compactMap { title, name in job.file(name).map { (title, $0) } }
         VStack(alignment: .leading, spacing: 14) {
             Label("2 · Review", systemImage: "eye").font(.headline)
@@ -528,7 +538,7 @@ private struct EffectsReviewCard: View {
                 EffectsImage(url: preview, stamp: job.stamp)
                     .frame(maxWidth: .infinity)
                     .clipShape(.rect(cornerRadius: 14))
-                    .help("4 frames: work · depth · mask · control")
+                    .help(previewHelp)
             }
             if !clips.isEmpty {
                 HStack(alignment: .top, spacing: 10) {

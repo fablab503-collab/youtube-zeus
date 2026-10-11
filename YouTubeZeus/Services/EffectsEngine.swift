@@ -82,6 +82,8 @@ nonisolated enum EffectsMode: String, CaseIterable, Identifiable, Sendable {
     case depth
     case depthMesh = "depth_mesh"
     case mesh
+    case pose
+    case depthPose = "depth_pose"
 
     var id: String { rawValue }
 
@@ -90,6 +92,8 @@ nonisolated enum EffectsMode: String, CaseIterable, Identifiable, Sendable {
         case .depth: "Depth"
         case .depthMesh: "Depth + face mesh"
         case .mesh: "Face mesh"
+        case .pose: "Pose"
+        case .depthPose: "Depth + pose"
         }
     }
 
@@ -98,6 +102,8 @@ nonisolated enum EffectsMode: String, CaseIterable, Identifiable, Sendable {
         case .depth: "The people become coloured depth over the original background: the most freedom for a full replacement."
         case .depthMesh: "Depth plus a white face mesh on top: keeps lips, eyes and expressions."
         case .mesh: "The original picture with the face mesh on top: the lightest guide."
+        case .pose: "Whole-body motion capture (body, hands, face): the coloured skeleton on black guides the model, so the new subject can have any shape. Also saves the movement as motion.json and motion.bvh."
+        case .depthPose: "Grey depth of the people with the coloured body and hand skeleton on top, plus the saved movement (motion.json, motion.bvh)."
         }
     }
 

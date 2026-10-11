@@ -604,6 +604,23 @@ def cmd_list(args, progress: Progress) -> int:
     return 0
 
 
+def cmd_voice(args, progress: Progress) -> int:
+    """Change who speaks in the job's audio, same words/timing/emotion (zfx/voice.py): final-voice.mp4."""
+    if not args.consent:
+        raise CLIError("Refusing to change the voice without --consent: confirm the voice is yours or of someone "
+                       "who agreed to this.", "consent")
+    try:
+        from zfx.voice import VoiceError, run_voice
+    except ImportError as exc:
+        raise CLIError(f"The voice step is not available in this copy (zfx.voice: {exc}).", "voice")
+    try:
+        result = run_voice(args, args.job, progress)
+    except VoiceError as exc:
+        raise CLIError(str(exc), progress.stage if progress.stage not in ("start", None) else "voice")
+    progress.done(Path(result["final_voice"]).parent, result)
+    return 0
+
+
 # ---------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="zeus_effects", description="YouTube Zeus Effects (free, local only).")
@@ -673,11 +690,34 @@ def build_parser() -> argparse.ArgumentParser:
 
     li = sub.add_parser("list", help="jobs under Jobs/, newest first")
     li.add_argument("--json", action="store_true")
+
+    vo = sub.add_parser("voice", help="change who speaks, same words, timing and emotion (needs --consent): "
+                                      "audio-voice.m4a + final-voice.mp4")
+    vo.add_argument("--job", required=True)
+    vo.add_argument("--voice", action="append", default=None, metavar="FILE",
+                    help="a recording of the new voice (audio or video; repeat for more; 10-30 s of clear speech)")
+    vo.add_argument("--consent", action="store_true", help="the voice is mine or of someone who agreed")
+    vo.add_argument("--keep-music", action=argparse.BooleanOptionalAction, default=True,
+                    help="put the original music and ambience back under the new voice (default; "
+                         "--no-keep-music = the new voice alone)")
+    vo.add_argument("--grade", choices=("match", "none"), default="match",
+                    help="match = EQ, de-ess and EBU R128 loudness matched to the original voice (default)")
+    vo.add_argument("--deess", choices=("auto", "on", "off"), default="auto",
+                    help="auto = only when the new voice is hissier than the original (default)")
+    vo.add_argument("--check", choices=("auto", "on", "off"), default="auto",
+                    help="whisper-cli transcripts before/after (auto = when whisper-cli and its model exist)")
+    vo.add_argument("--engine", choices=("chatterbox",), default="chatterbox",
+                    help="voice conversion engine (Chatterbox VC, Resemble AI, MIT)")
+    vo.add_argument("--device", choices=("auto", "mps", "cpu"), default="auto", help="where the models run")
+    vo.add_argument("--steps", type=int, default=None, help="Chatterbox flow-matching steps (default 10)")
+    vo.add_argument("--seed", type=int, default=None,
+                    help="seed of the conversion (default 0); another seed = another take of the same voice")
     return p
 
 
 COMMANDS = {"doctor": cmd_doctor, "prepare": cmd_prepare, "approve": cmd_approve, "generate": cmd_generate,
-            "facepack": cmd_facepack, "motion": cmd_motion, "status": cmd_status, "list": cmd_list}
+            "facepack": cmd_facepack, "motion": cmd_motion, "status": cmd_status, "list": cmd_list,
+            "voice": cmd_voice}
 
 
 def main(argv=None) -> int:

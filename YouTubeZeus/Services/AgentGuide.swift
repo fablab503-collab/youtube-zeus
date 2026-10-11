@@ -327,6 +327,7 @@ enum AgentGuide {
         | `zeus effects approve --job "<job dir>"` | records the review (hashes of every prepared file) |
         | `zeus effects generate --job "<job dir>" --engine faceswap\\|vace --ref <photo> [--ref <photo 2>] [--prompt "…"] --consent [--frames N] [--steps N] [--size 480p\\|360p] [--seed N]` | the result, `final.mp4` in the job folder |
         | `zeus effects facepack --pack "<Name>.c101face" --json` | checks a face pack from Cinema 101's Scan my face (format, consent, paths) and lists the frames `generate … --ref-pack "<pack>"` uses instead of, or with, `--ref` (up to 5: frontal, ±20°, ±40°, smile; 2 for vace) |
+        | `zeus effects voice --job "<job dir>" --voice <voice.wav> [--voice <voice 2.wav>] --consent [--no-keep-music] [--grade match\\|none]` | same words and timing in another voice (Chatterbox voice conversion, local): splits voice and music (Demucs), converts the voice, matches level and EQ to the original, remixes; writes `final-voice.mp4` (the video of `final.mp4`, or of the source, untouched) and `stems/`. Needs `effects/setup-voice.sh` once. Use 20–30 s of clean speech as the voice |
         | `zeus effects status --job "<job dir>" --json` / `zeus effects list --json` | one job's `job.json` / every job, newest first |
 
         **Consent is the user's, never the agent's.** Pass `--consent` only after the user has confirmed, in their own words,

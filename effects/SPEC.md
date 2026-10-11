@@ -11,8 +11,10 @@ user's reference photo, put the original soundtrack back.
 - No API keys needed. Never ask for or store keys.
 - Model weights and venvs live outside the repo, under the runtime folder
   `~/Library/Application Support/YouTube Zeus/Effects/` (env `ZEUS_EFFECTS_HOME` overrides).
-- No vocal split / pitch shift: there is no IP filter locally. The final video always gets the
-  **complete original audio** of the trimmed source, copied untouched.
+- No pitch tricks to dodge filters (there is no IP filter locally). `generate` always gives the final video the
+  **complete original audio** of the trimmed source, copied untouched. Only the separate, opt-in `voice` step
+  (2026-10-11) changes the audio: it splits voice and music, converts the voice to a consented reference with the same
+  words and timing, and writes `final-voice.mp4` next to `final.mp4`, which stays as it was.
 - Every generation is gated by an explicit review approval bound to SHA-256 hashes of the
   prepared artifacts, and by a consent flag ("the reference photos show me or people who agreed").
 - Outputs carry metadata `comment=AI-generated with YouTube Zeus Effects (<engine>)`.

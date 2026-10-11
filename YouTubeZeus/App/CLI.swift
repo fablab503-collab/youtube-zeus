@@ -502,7 +502,7 @@ enum ZeusCLI {
 
     // MARK: Effects
 
-    static let effectsCommands: Set<String> = ["doctor", "prepare", "approve", "generate", "facepack", "motion", "status", "list", "setup"]
+    static let effectsCommands: Set<String> = ["doctor", "prepare", "approve", "generate", "facepack", "motion", "voice", "status", "list", "setup"]
 
     /// `zeus effects …`: a pass-through to the local engine (effects/zeus_effects.py, see effects/SPEC.md). Its JSON
     /// lines go straight to stdout, its logs to stderr; the engine's exit code is returned.

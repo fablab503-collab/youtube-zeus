@@ -3,7 +3,7 @@
     run_generate(args, job_dir, progress) -> result dict
         args: engine ('vace' | 'faceswap'), ref (list of photo paths), ref_pack (a .c101face face pack folder,
               optional; see effects/FACE-PACK.md and zfx/facepack.py), prompt, consent (bool),
-              frames, steps, size ('480p' | '360p'), seed
+              frames, steps, size ('480p' | '360p'), seed, upscale ('fast' | 'best' | 'lanczos', vace only)
         progress: callable(stage, progress 0..1, message) (zfx.progress.Progress works as is)
 
 Order: refuse without consent -> refuse unless the review approval still matches the prepared
@@ -11,6 +11,9 @@ files -> references: the face pack's picks (refused unless its manifest says con
 photos, all copied into <job>/refs/ -> engine writes result-raw.mp4 (video only) -> final.mp4 = result-raw retimed to the
 source fps/duration and scaled to the source size + audio.m4a stream-copied untouched, with
 metadata comment "AI-generated with YouTube Zeus Effects (<engine>)" -> record in job.json.
+vace: Log footage is detected first (zfx/logcolor.py: Cinema 101's c101 probe, else colour tags) and the model gets a
+Rec.709 picture; vace generates crops around the person (result-crops/), and zfx/hires.py composites them into the
+original frames at the source resolution (upscaled, colour- and grain-matched, back to Log when the source is Log).
 Raises GenerateError (plain English) on refusal or failure; the CLI turns it into the JSON error line.
 """
 
@@ -372,6 +375,52 @@ def mux_final(raw: Path, source: Path, audio: Optional[Path], out: Path, engine:
             "audio": audio_src.name if audio_src else None, "comment": comment}
 
 
+# ----------------------------------------------------------------------------- vace: Log + full-resolution composite
+def _input_file(job_path: Path) -> Optional[Path]:
+    """The job's original local input file (prepare re-encodes source.mp4, dropping Apple's Log key), if any."""
+    try:
+        ref = str(load_job(job_path).get("input") or "")
+    except Exception:
+        return None
+    if not ref or "://" in ref:
+        return None
+    p = Path(ref).expanduser()
+    return p if p.is_file() else None
+
+
+def prepare_color(job_path: Path, source: Path, report: Optional[Progress] = None) -> dict:
+    """Log detection + LUTs for vace (zfx/logcolor.py). Never fatal: a failure is recorded and the model then
+    sees the footage as it is."""
+    from . import logcolor
+    try:
+        files = [f for f in (_input_file(job_path), source) if f is not None]
+        if report:
+            report("color", 0.0, "checking for Log footage (Cinema 101 / colour tags)")
+        record = logcolor.prepare(job_path, files, report)
+        if report:
+            report("color", 1.0, f"Log: {record.get('name') or record.get('profile')} via {record.get('via')}"
+                   if record.get("log") else "Rec.709 / not Log: nothing to convert")
+        return record
+    except Exception as exc:   # noqa: BLE001 - colour handling must not stop a generation
+        return {"log": None, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def composite_final(job_path: Path, manifest_path: Path, source: Path, mask: Path, audio: Optional[Path], out: Path,
+                    engine: str, upscale_mode: Optional[str], color: Optional[dict],
+                    report: Optional[Progress] = None) -> dict:
+    """vace's crops -> final.mp4 at the source's size, fps and clock with the original audio (zfx/hires.py).
+    Same guarantees as mux_final: never time-stretched, audio stream-copied untouched, AI comment."""
+    from . import hires
+    manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    src_i = probe_video(source)
+    try:
+        return hires.render(job_path, manifest, source, src_i, mask, audio, out, AI_COMMENT.format(engine=engine),
+                            upscale_mode=upscale_mode or "fast", color=color if (color or {}).get("log") else None,
+                            report=report)
+    except RuntimeError as exc:
+        raise GenerateError(str(exc)) from exc
+
+
 # ----------------------------------------------------------------------------- entry point
 def run_generate(args, job_dir, progress: Optional[Progress] = None) -> dict:
     report = _progress(progress)
@@ -405,6 +454,7 @@ def run_generate(args, job_dir, progress: Optional[Progress] = None) -> dict:
     previous_status = load_job(job_path).get("status")
     update_job(job_path, lambda d: d.update(status="generating"))
 
+    upscale_mode = (getattr(args, "upscale", None) or "").strip().lower() or None
     options = {
         "prompt": getattr(args, "prompt", None) or "",
         "frames": getattr(args, "frames", None),
@@ -412,15 +462,27 @@ def run_generate(args, job_dir, progress: Optional[Progress] = None) -> dict:
         "size": getattr(args, "size", None),
         "seed": getattr(args, "seed", None),
         "enhance": bool(getattr(args, "enhance", False)),
+        "upscale": upscale_mode if engine_name == "vace" else None,
     }
     t0 = time.monotonic()
     report("generate", 0.0, f"starting {engine.LABEL}")
+    color = None
     try:
+        if engine_name == "vace":
+            color = prepare_color(job_path, source, report)
+            if color.get("forward_lut"):
+                options["source_lut"] = str(job_path / color["forward_lut"])
         info = engine.run(job_path, refs, raw, report, **options)
+        options.pop("source_lut", None)
         report("mux", 0.0, "putting the original audio back")
         mask = job_path / "mask.mp4"
-        mux = mux_final(raw, source, audio if audio.is_file() else None, final, engine_name,
-                        mask=mask if engine_name == "vace" and mask.is_file() else None)
+        crops = job_path / "result-crops.json"
+        if engine_name == "vace" and isinstance(info, dict) and info.get("crop") and crops.is_file():
+            mux = composite_final(job_path, crops, source, mask, audio if audio.is_file() else None, final,
+                                  engine_name, upscale_mode, color, report)
+        else:
+            mux = mux_final(raw, source, audio if audio.is_file() else None, final, engine_name,
+                            mask=mask if engine_name == "vace" and mask.is_file() else None)
         report("mux", 1.0, "final.mp4 ready")
     except (EngineError, GenerateError) as exc:
         update_job(job_path, lambda d: d.update(status=previous_status or "approved", last_error=str(exc)))
@@ -446,6 +508,7 @@ def run_generate(args, job_dir, progress: Optional[Progress] = None) -> dict:
         "final_sha256": sha256_file(final),
         "engine_info": info,
         "mux": mux,
+        **({"color": color} if color else {}),
     }
 
     def save(d: dict) -> None:

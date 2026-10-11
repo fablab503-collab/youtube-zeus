@@ -4,6 +4,8 @@
 #   setup-engines.sh --vace        verify / resume-download Wan2.1-VACE-1.3B-diffusers (Apache-2.0, ~18 GB),
 #                                  then write transformer-half/ (fp16 copy, 4.3 GB, one-time) so it fits 16 GB
 #   setup-engines.sh --faceswap    clone FaceFusion 3.x + its own Python 3.12 venv (onnxruntime with CoreML)
+#   setup-engines.sh --upscaler    Real-ESRGAN ncnn-vulkan 0.2.5.0 (BSD-3, official macOS build, 52 MB) for the
+#                                  sharp full-resolution composite of vace (falls back to lanczos without it)
 #   setup-engines.sh --check       report what is installed, change nothing
 #
 # Idempotent: re-running only does the missing parts. No API keys, no paid services.
@@ -12,6 +14,7 @@
 #     models/Wan2.1-VACE-1.3B-diffusers/    (override: ZEUS_VACE_DIR)
 #       transformer-half/   (fp16 copy made here from the download; ZEUS_VACE_HALF=bf16 for bf16)
 #     facefusion/  + facefusion/.venv/       (override: ZEUS_FACEFUSION_DIR)
+#     tools/realesrgan/  realesrgan-ncnn-vulkan + models/  (override: ZEUS_REALESRGAN_DIR)
 set -euo pipefail
 
 RUNTIME_HOME="${ZEUS_EFFECTS_HOME:-$HOME/Library/Application Support/YouTube Zeus/Effects}"
@@ -21,6 +24,10 @@ FF_DIR="${ZEUS_FACEFUSION_DIR:-$RUNTIME_HOME/facefusion}"
 FF_URL="https://github.com/facefusion/facefusion"
 FF_PY="$FF_DIR/.venv/bin/python"
 PY="$RUNTIME_HOME/.venv/bin/python"
+ESR_DIR="${ZEUS_REALESRGAN_DIR:-$RUNTIME_HOME/tools/realesrgan}"
+ESR_URL="https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-macos.zip"
+ESR_SIZE=51817124   # bytes, from the GitHub release API (2026-10-11)
+ESR_SHA256="e0ad05580abfeb25f8d8fb55aaf7bedf552c375b5b4d9bd3c8d59764d2cc333a"   # measured 2026-10-11 (universal x86_64+arm64)
 EFFECTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
@@ -29,7 +36,7 @@ die() { printf '[setup-engines] ERROR: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 not found. $2"; }
 
 usage() {
-  sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -109,6 +116,60 @@ setup_vace() {
   vace_half
 }
 
+# ---------------------------------------------------------------- Real-ESRGAN (upscaler)
+esr_ready() {
+  [ -x "$ESR_DIR/realesrgan-ncnn-vulkan" ] && [ -f "$ESR_DIR/models/realesr-animevideov3-x2.param" ] \
+    && [ -f "$ESR_DIR/models/realesrgan-x4plus.param" ]
+}
+
+esr_selftest() {
+  # 0 = the binary runs on this Mac and upscales a tiny frame (x2, realesr-animevideov3, Vulkan via MoltenVK)
+  local t
+  t="$(mktemp -d)"
+  ffmpeg -v error -f lavfi -i "testsrc2=size=64x48" -frames:v 1 "$t/in.png" || { rm -rf "$t"; return 1; }
+  if "$ESR_DIR/realesrgan-ncnn-vulkan" -i "$t/in.png" -o "$t/out.png" -n realesr-animevideov3 -s 2 \
+       -m "$ESR_DIR/models" -f png >"$t/log" 2>&1 && [ -s "$t/out.png" ]; then
+    rm -rf "$t"; return 0
+  fi
+  log "Real-ESRGAN self-test failed: $(tail -3 "$t/log" | tr '\n' ' ')"
+  rm -rf "$t"; return 1
+}
+
+setup_upscaler() {
+  need curl "curl is part of macOS."
+  need ffmpeg "Install ffmpeg: brew install ffmpeg"
+  if ! esr_ready || [ "${FORCE:-0}" = "1" ]; then
+    local dl="$ESR_DIR.download"
+    rm -rf "$dl"; mkdir -p "$dl"
+    log "Downloading Real-ESRGAN ncnn-vulkan (official macOS build, BSD-3, 52 MB) from github.com/xinntao…"
+    curl -fL --retry 3 -o "$dl/realesrgan.zip" "$ESR_URL" || die "Real-ESRGAN download failed."
+    local size
+    size="$(stat -f %z "$dl/realesrgan.zip")"
+    [ "$size" = "$ESR_SIZE" ] || die "Real-ESRGAN zip has $size bytes, expected $ESR_SIZE."
+    local digest
+    digest="$(shasum -a 256 "$dl/realesrgan.zip" | cut -d' ' -f1)"
+    [ "$digest" = "$ESR_SHA256" ] || die "Real-ESRGAN zip sha256 $digest, expected $ESR_SHA256."
+    /usr/bin/ditto -x -k "$dl/realesrgan.zip" "$dl/x" || die "Could not unzip Real-ESRGAN."
+    local bin models
+    bin="$(find "$dl/x" -type f -name realesrgan-ncnn-vulkan | head -1)"
+    models="$(find "$dl/x" -type d -name models | head -1)"
+    [ -n "$bin" ] && [ -n "$models" ] || die "Unexpected Real-ESRGAN zip layout (no binary or models/)."
+    rm -rf "$ESR_DIR"; mkdir -p "$ESR_DIR"
+    mv "$bin" "$ESR_DIR/realesrgan-ncnn-vulkan"
+    mv "$models" "$ESR_DIR/models"
+    chmod +x "$ESR_DIR/realesrgan-ncnn-vulkan"
+    find "$(dirname "$bin")" -maxdepth 1 -iname 'README*' -exec cp {} "$ESR_DIR/" \; 2>/dev/null || true
+    rm -rf "$dl"
+  fi
+  esr_ready || die "Real-ESRGAN files incomplete in $ESR_DIR."
+  log "Real-ESRGAN binary: $(lipo -archs "$ESR_DIR/realesrgan-ncnn-vulkan" 2>/dev/null || file -b "$ESR_DIR/realesrgan-ncnn-vulkan")"
+  if esr_selftest; then
+    log "Real-ESRGAN ready: $ESR_DIR"
+  else
+    log "WARNING: Real-ESRGAN does not run on this Mac; vace composites fall back to lanczos upscaling."
+  fi
+}
+
 # ---------------------------------------------------------------- FaceFusion
 ff_ready() {
   [ -x "$FF_PY" ] && [ -f "$FF_DIR/facefusion.py" ] && \
@@ -159,14 +220,16 @@ check() {
     else echo "vace: weights ready, transformer-half/ missing -> setup-engines.sh --vace"; fi
   else echo "vace: missing or incomplete ($VACE_DIR) -> setup-engines.sh --vace"; fi
   if ff_ready; then echo "faceswap: ready ($FF_DIR)"; else echo "faceswap: not installed ($FF_DIR) -> setup-engines.sh --faceswap"; fi
+  if esr_ready; then echo "upscaler: Real-ESRGAN ($ESR_DIR)"; else echo "upscaler: lanczos only -> setup-engines.sh --upscaler"; fi
 }
 
 [ $# -eq 0 ] && usage 1
-DO_VACE=0; DO_FF=0; DO_CHECK=0
+DO_VACE=0; DO_FF=0; DO_ESR=0; DO_CHECK=0
 for a in "$@"; do
   case "$a" in
     --vace) DO_VACE=1 ;;
     --faceswap) DO_FF=1 ;;
+    --upscaler) DO_ESR=1 ;;
     --check) DO_CHECK=1 ;;
     --force) export FORCE=1 ;;
     -h|--help) usage 0 ;;
@@ -175,5 +238,6 @@ for a in "$@"; do
 done
 [ "$DO_FF" = 1 ] && setup_faceswap
 [ "$DO_VACE" = 1 ] && setup_vace
+[ "$DO_ESR" = 1 ] && setup_upscaler
 [ "$DO_CHECK" = 1 ] && check
 exit 0

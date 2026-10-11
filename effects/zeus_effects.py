@@ -652,6 +652,9 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--size", choices=("480p", "360p"), default=None,
                    help="vace size (engine default; see effects/ENGINES.md for times on a 16 GB Mac)")
     g.add_argument("--seed", type=int, default=None)
+    g.add_argument("--upscale", choices=("fast", "best", "lanczos"), default=None,
+                   help="vace: how the generated crop is upscaled to the source resolution (fast = Real-ESRGAN "
+                        "animevideov3, best = realesrgan-x4plus, lanczos = no model; default fast)")
     g.add_argument("--enhance", action="store_true",
                    help="faceswap: also sharpen the face (GFPGAN), about 20x slower")
 

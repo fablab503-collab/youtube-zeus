@@ -31,7 +31,10 @@ Scheduler: UniPCMultistepScheduler with flow_shift 3.0 ("5.0 for 720P, 3.0 for 4
 
 Long clips: windows of N = 4k+1 frames overlapping by 8; each later window is conditioned on the
 previous window's last generated frames (mask black there) and the overlap is cross-faded.
-Output: result-raw.mp4 at 16 fps, model size (generate.py rescales/retimes and adds the audio).
+Crops (zfx/cropbox.py): each window is generated on a box around the person (the person fills the 640x368 canvas),
+its context taken from source.mp4 at full resolution; ZEUS_VACE_CROP=0 generates the whole frame as before.
+Output: result-raw.mp4 (16 fps, work size, crops pasted back) and result-crops/ + result-crops.json, which
+zfx/hires.py composites into the original frames at the source resolution (generate.py, with the audio).
 """
 
 from __future__ import annotations
@@ -69,6 +72,7 @@ OVERLAP = 8
 FPS = 16
 MAX_SEQUENCE_LENGTH = 512        # WanVACEPipeline.__call__ default
 MIN_FRAMES = 5
+MARGIN_SHARE = 0.12              # crop box margin around the window's union of mask boxes (zfx.cropbox.MARGIN)
 
 REPLACE_PROMPT = ("replace the person with the person in the reference image, keep the exact motion, "
                   "lips and timing; depth colours are guidance only and must not appear")
@@ -1026,11 +1030,165 @@ def _is_oom(exc: BaseException) -> bool:
     return "out of memory" in text or "mps backend out of memory" in text or "failed to allocate" in text
 
 
+# ----------------------------------------------------------------------------- crops (what the model sees)
+CROPS_DIR = "result-crops"
+CROPS_MANIFEST = "result-crops.json"
+
+
+def crop_enabled(value: Optional[bool] = None) -> bool:
+    """Crop-and-generate is on unless ZEUS_VACE_CROP=0 (or crop=False): then every window is the whole frame."""
+    if value is not None:
+        return bool(value)
+    return os.environ.get("ZEUS_VACE_CROP", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def inside_mask(ctrl: np.ndarray, msk: np.ndarray, base: np.ndarray) -> np.ndarray:
+    """The control inside the mask, `base` (the sharp original crop) outside; for controls kept as they are
+    (mesh mode, ZEUS_VACE_CONTROL=as-is)."""
+    alpha = (msk.astype(np.float32) / 255.0)[..., None]
+    return np.clip(base.astype(np.float32) * (1.0 - alpha) + ctrl.astype(np.float32) * alpha + 0.5, 0, 255).astype(np.uint8)
+
+
+def _filter_path(path: Path) -> str:
+    """A file path inside an ffmpeg filter argument (single-quoted; quotes and backslashes escaped)."""
+    return "'" + str(path).replace("\\", "\\\\").replace("'", "'\\''") + "'"
+
+
+def color_conversion(source: Path, lut: Optional[Path] = None) -> str:
+    """ffmpeg filters turning the source's Y'CbCr into RGB with its own matrix and range (+ the Log -> Rec.709 LUT)."""
+    from ..hires import _MATRIX, source_format
+    fmt = source_format(source)
+    mat = _MATRIX.get(fmt["matrix"] or "")
+    conv = "scale=iw:ih" + (f":in_color_matrix={mat}" if mat else "") + \
+        f":in_range={'pc' if fmt['range'] == 'pc' else 'tv'},format=rgb48le"
+    if lut:
+        conv += f",lut3d=file={_filter_path(lut)}:interp=tetrahedral"
+    return conv
+
+
+def read_source_crop(source: Path, start: int, end: int, box: Sequence[int], out_w: int, out_h: int,
+                     lut: Optional[Path] = None) -> np.ndarray:
+    """Frames [start, end) of the source on work.mp4's 16 fps clock (same fps filter as zfx.io.make_work), cropped to
+    `box` in source pixels at full resolution, through the Log LUT when given, resized to out_w x out_h (Lanczos)."""
+    x0, y0, x1, y1 = (int(v) for v in box)
+    vf = (f"fps={FPS}:start_time=0,trim=start_frame={int(start)}:end_frame={int(end)},setpts=PTS-STARTPTS,"
+          f"crop={x1 - x0}:{y1 - y0}:{x0}:{y0},{color_conversion(source, lut)},"
+          f"scale={out_w}:{out_h}:flags=lanczos,format=rgb24")
+    proc = subprocess.run([_tool("ffmpeg"), "-v", "error", "-i", str(source), "-an", "-vf", vf,
+                           "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True)
+    if proc.returncode != 0:
+        raise EngineError(f"Could not read {source.name}: {proc.stderr.decode(errors='replace')[-300:]}")
+    size = out_w * out_h * 3
+    n = len(proc.stdout) // size
+    frames = np.frombuffer(proc.stdout[: n * size], np.uint8).reshape(n, out_h, out_w, 3)
+    want = int(end) - int(start)
+    if n == 0:
+        raise EngineError(f"{source.name} has no frames in {start}..{end} (16 fps).")
+    if n < want:   # the clip ends a frame early on the 16 fps clock: hold the last frame (padded windows too)
+        frames = np.concatenate([frames, np.repeat(frames[-1:], want - n, axis=0)])
+    return frames[:want]
+
+
+def _write_png(path: Path, rgb: np.ndarray) -> None:
+    import cv2
+    if not cv2.imwrite(str(path), np.ascontiguousarray(rgb[..., ::-1] if rgb.ndim == 3 else rgb)):
+        raise EngineError(f"Could not write {path}")
+
+
+def prepare_windows(job_dir: Path, control: Path, mask: Path, windows: Sequence[tuple[int, int]], size: str,
+                    control_style: str, crop: bool, lut: Optional[Path] = None,
+                    report: Optional[Progress] = None) -> tuple[list[dict], dict]:
+    """Per window: crop box (zfx.cropbox), the control/mask crops at the generation size, and the sharp original crop
+    (from source.mp4 at full resolution, Log -> Rec.709 when `lut`). All of it is read BEFORE the model is loaded.
+    Returns (windows, geometry)."""
+    from .. import cropbox
+    import cv2
+
+    report = report or (lambda *a, **k: None)
+    ww, wh = video_size(control)
+    ctrl_full = read_frames(control, ww, wh)
+    msk_full = read_frames(mask, ww, wh, gray=True)
+    total = min(len(ctrl_full), len(msk_full))
+    source = job_dir / "source.mp4"
+    use_source = source.is_file()
+    src_w, src_h = video_size(source) if use_source else (ww, wh)
+    work_full = None
+    if not use_source:
+        work = job_dir / "work.mp4"
+        work_full = read_frames(work if work.is_file() else control, ww, wh)
+    gen_sizes = [target_size(2, 1, size), target_size(1, 2, size)]
+    plans = cropbox.plan_window_boxes(msk_full[:total], windows, src_w, src_h, gen_sizes, crop=crop,
+                                      margin=MARGIN_SHARE)
+    sx, sy = ww / float(src_w), wh / float(src_h)
+    out = []
+    for wi, ((start, end), plan) in enumerate(zip(windows, plans)):
+        report("generate", 0.02, f"cropping window {wi + 1}/{len(windows)} around the person")
+        gw, gh = plan["gen"]
+        box = plan["box"]
+        box_w = cropbox.scale_box(box, sx, sy)
+        idx = [min(i, total - 1) for i in range(start, end)]
+        ctrl = np.stack([cropbox.crop_resize(ctrl_full[i], box_w, gw, gh) for i in idx])
+        msk = np.stack([np.where(cropbox.crop_resize(msk_full[i], box_w, gw, gh) > 127, 255, 0).astype(np.uint8)
+                        for i in idx])
+        if use_source:
+            base = read_source_crop(source, start, min(end, total), box, gw, gh, lut)
+            if len(base) < len(idx):
+                base = np.concatenate([base, np.repeat(base[-1:], len(idx) - len(base), axis=0)])
+        else:
+            base = np.stack([cropbox.crop_resize(work_full[i], box_w, gw, gh, cv2.INTER_LANCZOS4) for i in idx])
+        vid = gray_control(ctrl, msk, base) if control_style == "gray" else inside_mask(ctrl, msk, base)
+        out.append({**plan, "index": wi, "start": int(start), "end": int(end), "valid": int(min(end, total) - start),
+                    "video": vid, "mask": msk, "base": base, "box_work": [round(v, 2) for v in box_w],
+                    "dir": f"w{wi:02d}"})
+    geometry = {"source_size": [int(src_w), int(src_h)], "work_size": [int(ww), int(wh)], "total": int(total),
+                "base_from": "source.mp4" if use_source else "work.mp4"}
+    return out, geometry
+
+
+def assemble_raw(job_dir: Path, wins: Sequence[dict], results: Sequence[np.ndarray], geometry: dict,
+                 lut: Optional[Path] = None) -> np.ndarray:
+    """result-raw.mp4 frames at work size: work.mp4 (Rec.709 when Log) with each window's generated crop pasted
+    into its box, windows cross-faded over their overlaps in full-frame coordinates (zfx.cropbox.frame_weights)."""
+    from .. import cropbox
+
+    ww, wh = geometry["work_size"]
+    total = geometry["total"]
+    sx, sy = ww / float(geometry["source_size"][0]), wh / float(geometry["source_size"][1])
+    work = job_dir / "work.mp4"
+    if work.is_file() and lut:
+        proc = subprocess.run([_tool("ffmpeg"), "-v", "error", "-i", str(work), "-vf",
+                               f"{color_conversion(work, lut)},scale={ww}:{wh},format=rgb24", "-f", "rawvideo",
+                               "-pix_fmt", "rgb24", "-"], capture_output=True)
+        n = len(proc.stdout) // (ww * wh * 3)
+        frames = np.frombuffer(proc.stdout[: n * ww * wh * 3], np.uint8).reshape(n, wh, ww, 3).copy()
+    elif work.is_file():
+        frames = read_frames(work, ww, wh).copy()
+    else:
+        frames = np.zeros((total, wh, ww, 3), np.uint8)
+    if len(frames) < total:
+        frames = np.concatenate([frames, np.repeat(frames[-1:], total - len(frames), axis=0)])
+    frames = frames[:total]
+    cover = cropbox.frame_weights([(w["start"], w["end"]) for w in wins], total)
+    for i in range(total):
+        acc = frames[i].astype(np.float32)
+        for wi, weight in sorted(cover[i], key=lambda t: t[0]):
+            win = wins[wi]
+            img, cov = cropbox.paste(acc, results[wi][i - win["start"]], cropbox.scale_box(win["box"], sx, sy))
+            a = (cov * weight)[..., None]
+            acc = acc * (1.0 - a) + img * a
+        frames[i] = np.clip(acc + 0.5, 0, 255).astype(np.uint8)
+    return frames
+
+
 # ----------------------------------------------------------------------------- run
 def run(job_dir, refs: Sequence, out_path, progress: Optional[Progress] = None, *,
         prompt: str = "", frames: Optional[int] = None, steps: Optional[int] = None,
         size: Optional[str] = None, seed: Optional[int] = None,
-        control: Optional[Path] = None, mask: Optional[Path] = None, **_ignored) -> dict:
+        control: Optional[Path] = None, mask: Optional[Path] = None, crop: Optional[bool] = None,
+        source_lut: Optional[Path] = None, **_ignored) -> dict:
+    """Generate the replacement person. Writes `out_path` (result-raw.mp4, work size, 16 fps) and the per-window
+    crops <job>/result-crops/wNN/{gen,base,mask}/NNNN.png + result-crops.json, which zfx.hires composites into the
+    original frames at the source resolution."""
     job_dir = Path(job_dir)
     out_path = Path(out_path)
     report: Progress = progress or (lambda *a, **k: None)
@@ -1040,6 +1198,9 @@ def run(job_dir, refs: Sequence, out_path, progress: Optional[Progress] = None, 
     for p in (control, mask):
         if not p.is_file():
             raise EngineError(f"{p.name} is missing in the job folder. Run prepare again.")
+    lut = Path(source_lut) if source_lut else None
+    if lut is not None and not lut.is_file():
+        raise EngineError(f"The Log -> Rec.709 LUT {lut} is missing.")
 
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
     watermarks = configure_mps_memory()   # before the first MPS allocation
@@ -1054,6 +1215,8 @@ def run(job_dir, refs: Sequence, out_path, progress: Optional[Progress] = None, 
         raise EngineError("diffusers is not installed in this Python. Run effects/setup.sh.") from exc
 
     size = (size or DEFAULT_SIZE).lower()
+    if size not in SIZES:
+        raise EngineError(f"Unknown size '{size}'. Use one of: {', '.join(SIZES)}.")
     window = normalize_frames(frames or DEFAULT_FRAMES)
     steps = max(1, int(steps or DEFAULT_STEPS))
     seed = int(seed) if seed is not None else random.randint(0, 2**31 - 1)
@@ -1062,30 +1225,28 @@ def run(job_dir, refs: Sequence, out_path, progress: Optional[Progress] = None, 
     # UMT5 on the CPU: bf16 weights stay mmapped file pages (0.7 GB footprint, ~20 s for both prompts) instead
     # of 11.4 GB of GPU buffers; same embeddings as on MPS (cosine 0.9996)
     te_device = os.environ.get("ZEUS_VACE_TEXT_DEVICE", "").strip().lower() or "cpu"
-
-    src_w, src_h = video_size(control)
-    width, height = target_size(src_w, src_h, size)
-    ctrl = read_frames(control, width, height)
-    msk = read_frames(mask, width, height, gray=True)
     mode = job_mode(job_dir)
     control_style = os.environ.get("ZEUS_VACE_CONTROL", "").strip().lower() or (
         "gray" if mode in ("depth", "depth_mesh") else "as-is")
-    if control_style == "gray":
-        n = min(len(ctrl), len(msk))
-        work = job_dir / "work.mp4"
-        base = read_frames(work, width, height)[:n] if work.is_file() else None
-        ctrl = gray_control(ctrl[:n], msk[:n], base if base is not None and len(base) == n else None)
-    total = min(len(ctrl), len(msk))
-    if total == 0:
-        raise EngineError("control.mp4 / mask.mp4 have no frames. Run prepare again.")
-    windows = plan_windows(total, window, OVERLAP)
-    ref_images = _load_refs(refs)
-    full_prompt = (prompt.strip().rstrip(".") + ". " if prompt and prompt.strip() else "") + REPLACE_PROMPT
+    cropping = crop_enabled(crop)
 
     timings: dict = {}
     t_all = time.monotonic()
-    report("generate", 0.0, f"VACE {width}x{height}, {total} frames in {len(windows)} window(s) of "
-           f"{windows[0][1] - windows[0][0]}, {steps} steps, seed {seed}")
+    # 0) crops: boxes, control/mask/original at the generation size (before the model takes its memory)
+    t0 = time.monotonic()
+    n_frames = min(len(read_frames(control, 16, 16, gray=True)), len(read_frames(mask, 16, 16, gray=True)))
+    windows = plan_windows(n_frames, window, OVERLAP)
+    if not windows:
+        raise EngineError("control.mp4 / mask.mp4 have no frames. Run prepare again.")
+    wins, geometry = prepare_windows(job_dir, control, mask, windows, size, control_style, cropping, lut, report)
+    total = geometry["total"]
+    timings["crops"] = round(time.monotonic() - t0, 1)
+    ref_images = _load_refs(refs)
+    full_prompt = (prompt.strip().rstrip(".") + ". " if prompt and prompt.strip() else "") + REPLACE_PROMPT
+    boxes_text = "; ".join(f"{w['box'][2] - w['box'][0]}x{w['box'][3] - w['box'][1]}"
+                           f"{' (whole frame)' if w['full_frame'] else ''} -> {w['gen'][0]}x{w['gen'][1]}" for w in wins)
+    report("generate", 0.03, f"VACE {total} frames in {len(windows)} window(s) of {windows[0][1] - windows[0][0]}, "
+           f"{steps} steps, seed {seed}; crops {boxes_text}")
 
     # 1) text encoder alone, in its own process (skipped when both embeddings are cached)
     t0 = time.monotonic()
@@ -1100,23 +1261,31 @@ def run(job_dir, refs: Sequence, out_path, progress: Optional[Progress] = None, 
     negative_prompt_embeds = negative_prompt_embeds.to(device=device, dtype=dtype)
     timings["load"] = round(time.monotonic() - t0, 1)
 
-    out = np.zeros((total, height, width, 3), dtype=np.uint8)
+    crops_root = job_dir / CROPS_DIR
+    shutil.rmtree(crops_root, ignore_errors=True)
+    (job_dir / CROPS_MANIFEST).unlink(missing_ok=True)
+    crops_root.mkdir(parents=True)
+    results: list = []
     window_times: list = []
     generator = torch.Generator(device="cpu").manual_seed(seed)
-    prev_end = 0
     t0 = time.monotonic()
-    lo, hi = 0.06, 0.97
+    lo, hi = 0.06, 0.95
     try:
-        for wi, (start, end) in enumerate(windows):
+        from .. import cropbox
+        for wi, win in enumerate(wins):
+            start, end = win["start"], win["end"]
+            gw, gh = win["gen"]
             n = end - start
-            idx = [min(i, total - 1) for i in range(start, end)]
-            vid = ctrl[idx].copy()
-            mk = msk[idx].copy()
-            carry = max(0, min(prev_end, end) - start) if wi > 0 else 0
-            if carry:
-                # continue from what we already generated: keep those frames (mask black)
-                vid[:carry] = out[start:start + carry]
-                mk[:carry] = 0
+            vid = win["video"].copy()
+            mk = win["mask"].copy()
+            if wi > 0:
+                prev = wins[wi - 1]
+                carry = max(0, min(prev["start"] + prev["valid"], end) - start)
+                for j in range(carry):
+                    # continue from what the previous window generated (redrawn into this window's box), mask black
+                    vid[j] = cropbox.reproject(results[wi - 1][start + j - prev["start"]], prev["box"], win["box"],
+                                               gw, gh, fill=win["base"][j])
+                    mk[j] = 0
             video_imgs = [Image.fromarray(f) for f in vid]
             mask_imgs = [Image.fromarray(m) for m in mk]  # 2-D uint8 -> mode "L"
 
@@ -1124,9 +1293,9 @@ def run(job_dir, refs: Sequence, out_path, progress: Optional[Progress] = None, 
 
             def on_step(pipeline, step, timestep, callback_kwargs, _wi=wi):
                 stamps.append(time.monotonic())
-                frac = (_wi + (step + 1) / steps) / len(windows)
+                frac = (_wi + (step + 1) / steps) / len(wins)
                 report("generate", lo + (hi - lo) * frac,
-                       f"window {_wi + 1}/{len(windows)} · step {step + 1}/{steps}")
+                       f"window {_wi + 1}/{len(wins)} · step {step + 1}/{steps}")
                 return callback_kwargs
 
             with mps_runtime(pipe, device):
@@ -1136,8 +1305,8 @@ def run(job_dir, refs: Sequence, out_path, progress: Optional[Progress] = None, 
                     reference_images=ref_images,
                     prompt_embeds=prompt_embeds,
                     negative_prompt_embeds=negative_prompt_embeds,
-                    height=height,
-                    width=width,
+                    height=gh,
+                    width=gw,
                     num_frames=n,
                     num_inference_steps=steps,
                     guidance_scale=GUIDANCE,
@@ -1155,22 +1324,19 @@ def run(job_dir, refs: Sequence, out_path, progress: Optional[Progress] = None, 
                                  "decode_s": round(stamps[-1] - stamps[-2], 1)})
             res = (np.clip(np.asarray(result, dtype=np.float32), 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
             del result
-            if not np.isfinite(np.asarray(res, dtype=np.float32)).all() or res.max() == res.min():
+            if res.max() == res.min():
                 raise EngineError("VACE produced an empty (flat) video. Try ZEUS_VACE_DTYPE=bf16.")
-            if res.shape[1:3] != (height, width):
-                raise EngineError(f"VACE returned {res.shape[2]}x{res.shape[1]} instead of {width}x{height}.")
-            valid = min(end, total) - start
-            overlap_n = max(0, prev_end - start) if wi > 0 else 0
-            weights = blend_weights(overlap_n)
-            for j in range(valid):
-                i = start + j
-                if j < overlap_n:
-                    a = weights[j]
-                    out[i] = (out[i].astype(np.float32) * (1 - a) + res[j].astype(np.float32) * a + 0.5).astype(np.uint8)
-                else:
-                    out[i] = res[j]
-            prev_end = start + valid
-            del res, video_imgs, mask_imgs
+            if res.shape[1:3] != (gh, gw):
+                raise EngineError(f"VACE returned {res.shape[2]}x{res.shape[1]} instead of {gw}x{gh}.")
+            results.append(res)
+            wdir = crops_root / win["dir"]
+            for sub in ("gen", "base", "mask"):
+                (wdir / sub).mkdir(parents=True, exist_ok=True)
+            for j in range(win["valid"]):
+                _write_png(wdir / "gen" / f"{j:04d}.png", res[j])
+                _write_png(wdir / "base" / f"{j:04d}.png", win["base"][j])
+                _write_png(wdir / "mask" / f"{j:04d}.png", win["mask"][j])
+            del video_imgs, mask_imgs
             _empty_cache()
     except RuntimeError as exc:
         if _is_oom(exc):
@@ -1184,8 +1350,15 @@ def run(job_dir, refs: Sequence, out_path, progress: Optional[Progress] = None, 
     timings["denoise"] = round(time.monotonic() - t0, 1)
     timings["windows"] = window_times
 
-    report("generate", 0.98, "writing result-raw.mp4")
-    write_frames(out, out_path, FPS)
+    report("generate", 0.97, "writing result-raw.mp4 and result-crops.json")
+    write_frames(assemble_raw(job_dir, wins, results, geometry, lut), out_path, FPS)
+    win_records = [{k: w[k] for k in ("index", "start", "end", "valid", "box", "box_work", "gen", "full_frame",
+                                      "aspect_error", "mask_bbox", "dir")} for w in wins]
+    manifest = {"version": 1, "dir": CROPS_DIR, "fps": FPS, **geometry, "crop": cropping, "margin": MARGIN_SHARE,
+                "color": {"lut": str(lut), "domain": "rec709"} if lut else None, "windows": win_records}
+    tmp = job_dir / (CROPS_MANIFEST + ".partial")
+    tmp.write_text(json.dumps(manifest, indent=1))
+    os.replace(tmp, job_dir / CROPS_MANIFEST)
     timings["total"] = round(time.monotonic() - t_all, 1)
     report("generate", 1.0, f"VACE done in {timings['total']:.0f} s")
     return {
@@ -1194,13 +1367,18 @@ def run(job_dir, refs: Sequence, out_path, progress: Optional[Progress] = None, 
         "license": MODEL_LICENSE,
         "seconds": timings["total"],
         "timings": timings,
-        "width": width,
-        "height": height,
+        "width": wins[0]["gen"][0],
+        "height": wins[0]["gen"][1],
         "frames": total,
         "fps": FPS,
         "windows": [list(w) for w in windows],
         "window_frames": windows[0][1] - windows[0][0],
         "overlap": OVERLAP,
+        "crop": {"enabled": cropping, "margin": MARGIN_SHARE, "manifest": CROPS_MANIFEST, "dir": CROPS_DIR,
+                 "source_size": geometry["source_size"], "base_from": geometry["base_from"],
+                 "boxes": [{"window": [w["start"], w["end"]], "box": w["box"], "gen": w["gen"],
+                           "full_frame": w["full_frame"], "aspect_error": w["aspect_error"]} for w in win_records]},
+        "source_lut": str(lut) if lut else None,
         "steps": steps,
         "guidance_scale": GUIDANCE,
         "flow_shift": FLOW_SHIFT,

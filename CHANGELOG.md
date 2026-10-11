@@ -34,6 +34,15 @@ Newest first.
   frames (frontal, about ±20° and ±40°, a smile; 2 for full replace), shown as thumbnails; the photos become
   optional and the job records which frames were used. Agents: `zeus effects generate … --ref-pack <pack>` and
   `zeus effects facepack --pack <pack> --json`.
+- **Full replace at the clip's own resolution, also 4K and camera Log.** VACE now generates a crop around the person
+  (one steady box per window, the person filling the 640x368 canvas) instead of the whole frame; the crop is upscaled
+  with Real-ESRGAN (free, BSD-3, runs natively on Apple Silicon; `setup-engines.sh --upscaler`, `--upscale fast|best|
+  lanczos`), colour- and grain-matched to the original around it and feathered into the original frames at their own
+  size, frame rate and colour (4K stays 4K, 10-bit stays 10-bit), the original audio untouched. Log clips (Apple Log
+  and the other profiles Cinema 101 knows, found by `c101 probe` or the colour tags) are shown to the model in Rec.709
+  and put back into Log. Measured on a 1080p clip: the person comes out visibly sharper with no visible edge, the
+  composite takes 8 s (40 s for 4K); VACE itself is unchanged (~21 min per 2 s, 5 GB) and still does not reproduce a
+  *different* person's identity well.
 - **Face swap is about 20 times faster**: 33 s instead of 11 min for 3 s of 1080p, because the face sharpening (GFPGAN)
   is now off by default; tick **Sharpen the face** to use it. **Lips stay in sync**: the result is no longer stretched
   to the video track's length (it drifted ~0.1 s by the end of 3 s). **Full replace keeps the background sharp**: only

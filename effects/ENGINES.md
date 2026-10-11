@@ -133,6 +133,77 @@ Overrides: `ZEUS_VACE_DIR`, `ZEUS_VACE_DEVICE`, `ZEUS_VACE_DTYPE` (fp16/bf16/fp3
 `ZEUS_VACE_ATTN_MB` (512), `ZEUS_VACE_VAE_TILE` (256), `ZEUS_VACE_SYNC_EVERY` (1), `ZEUS_VACE_HALF`
 (setup: fp16/bf16), `PYTORCH_MPS_HIGH_WATERMARK_RATIO` / `PYTORCH_MPS_LOW_WATERMARK_RATIO`.
 
+### Full replace at the source resolution (crop → upscale → match → merge), 2026-10-11
+
+Before: VACE drew the whole frame at 640x368 and `mux_final` pasted it, Lanczos-upscaled, inside the feathered mask
+over the original frames: background sharp, person soft. Now (`zfx/cropbox.py`, `zfx/engines/vace.py`,
+`zfx/upscale.py`, `zfx/hires.py`, `zfx/logcolor.py`):
+
+1. **Crop** — one box per window: union over the window's frames of the main person's mask box (blobs ≥ 50 % of the
+   largest, plus smaller ones within 30 % of its size: a cut-off hand; a far, small blob such as the face on a screen
+   in job 218f, 35 % of the presenter, is left outside and keeps its original pixels), +12 % margin on the sides the
+   person does not leave the frame through, grown to 640x368 or 368x640 (whichever is the smaller box that keeps the aspect; if the frame
+   cannot hold it, the generation size follows the box, multiples of 16, same pixel budget), even source pixels. Whole
+   frame when the box would cover ≥ 80 % of it. Control and mask are cropped from the work-size videos, the context
+   outside the mask from **source.mp4 at full resolution** (same `fps=16:start_time=0` clock as work.mp4), all read
+   before the model loads. A later window continues from the previous one's frames redrawn into its own box
+   (`cropbox.reproject`); overlaps are cross-faded in full-frame coordinates (`cropbox.frame_weights`, same ramp as
+   before). Per window the generated, original and mask crops go to `result-crops/wNN/{gen,base,mask}/`, the boxes to
+   `result-crops.json`; `result-raw.mp4` is still written (work size, crops pasted in their boxes).
+2. **Upscale** — Real-ESRGAN ncnn-vulkan 0.2.5.0 (BSD-3, official macOS zip, 51 817 124 bytes, sha256 `e0ad0558…`,
+   **universal x86_64 + arm64**: runs natively with its bundled MoltenVK, no Rosetta — which is not installed on this
+   Mac). `setup-engines.sh --upscaler` puts it in `tools/realesrgan/` (`models/` passed with `-m`). M2 Pro, 16 frames
+   640x368: animevideov3 x2 **3.2 s** (0.15 GB), x4 **4.4 s** (0.24 GB); realesrgan-x4plus x4 **108 s** (1.5 GB).
+   Then INTER_AREA to the box size in source pixels.
+3. **Colour** — Lab mean/std transfer estimated per frame on a ring (3 % of the generation size's short side) just
+   outside the mask, generated ring → original ring (both at generation size), smoothed ±3 frames, applied to the whole
+   patch; std gain clamped to [1/1.5, 1.5] for L and [1/1.15, 1.15] for a/b, because the ring is background and must
+   not desaturate the new person.
+4. **Grain** — Immerkær's noise operator on the flattest 30 % of 16 px blocks (clipped blocks skipped) of 3 source
+   frames; the patch gets `sqrt(source² − patch²)`, mostly luma, new every frame. Synthetic σ = 1/3/6 is measured within
+   ±12 %.
+5. **Merge** — alpha = smoothstep(distance inside the mask / feather), feather = 1.5 % of the box's short side
+   (open at frame borders): 0 on the mask edge, so every pixel outside the mask is the original bit for bit before the
+   final encode. Frames on the source's clock (`hires.fps_map` = ffmpeg's fps filter rule, tested against it), source
+   colour tags kept, 10-bit sources encoded 10-bit HEVC, audio stream-copied. Light wrap exists (`ZEUS_FX_LIGHTWRAP`,
+   default 0).
+
+**Log footage** — `c101 probe` (on the job's input file first: ffmpeg drops Apple's LogTransferFunction key from
+source.mp4) or the colour tags. Forward = `c101 bake --profile <id> --size 33` (ffmpeg lut3d on the crops VACE sees).
+Cinema 101's CLI has no inverse, and its LUT tone-maps and desaturates highlights, so a grid inverse alone is not
+enough: on Apple Log → Rec.709, 37 % of natural bright colours came back more than 1 % off (cells straddling the edge
+of what the LUT can output). Now: 1-D shaper (inverse of the neutral axis) + 33³ grid solved by Levenberg-Marquardt
+from two starts, unreachable points filled harmonically (9.6 s), then **each distinct 8-bit colour solved exactly on the
+LUT and cached** (`logcolor.LogInverter`): 0.6 % of natural colours > 1 % off, p99 0.5 %; synthetic Log curve < 1 %
+both ways. Without Cinema 101, Apple Log uses Apple's published curve (approximate tone map). Not tested on real Apple
+Log footage (none on this Mac): checked on a synthetic Log 4K clip (below).
+
+**Measured on job 218f** (YouTube, 1920x1080 30 fps, 2 s, depth mode; presenter in the bottom-right corner, a face
+on a screen in the mask; reference = a generated portrait of a woman who does not exist, so a *different* identity;
+seed 1097996469, 33 frames, 20 steps; Ollama's model loaded, swap nearly full the whole time):
+
+| Run | Box → generation | VACE wall / peak | Composite (1080p) | What came out |
+|---|---|---|---|---|
+| 1 (first box rule) | 1602x922 (the screen face stretched the box) → 640x368 | 1315 s / 5.03 GB | 16 s | **not a person**: a black hood with a metal object and a giant bare shoulder |
+| 2 (`ZEUS_VACE_CROP=0`) | whole frame → 640x368, x3 upscale | 1263 s / 5.03 GB | 18 s | a dark-haired woman with a headpiece, plastic face, a green glow late in the clip |
+| **3 (final code)** | **878x504** (main person only, 8 % of the mask left outside) → 640x368, x2 upscale | **1273 s / 4.97 GB** (step 55 s, VAE 152 + 59 s, crops 1 s) | **8 s** (upscale 3.9 s) | a person following the pose, visibly sharper and more detailed than run 2, but **not the reference** (brown hair, a sweater it invented), distorted face, the moving hand a magenta/yellow smear |
+
+What the composite itself does on it: the UI and background stay pixel-exact; no seam, halo or box edge is visible
+around the head/shoulders (feather 7.6 px); the ring colour shift was tiny (ΔL −0.34, a/b < 0.1), so no colour cast;
+the source has no measurable noise in flat areas (σ = 0: codec-smoothed screen recording + crushed black), so no grain
+was added. Upscalers on the generated crop: animevideov3 gives crisp edges but a plastic, painted face; Lanczos a
+blurry one; on a real downscaled face (not generated) animevideov3 looks cartoonish and x4plus over-sharp
+(PSNR vs the original crop: Lanczos 33.0, animevideov3 31.4, x4plus 31.7 dB) — the 1.3 B model's face is the weak
+link, not the upscale. One sample per setting (same seed): the crop does not obviously hurt or help the identity;
+what VACE draws inside the mask still needs a matching reference (same clothes/framing) or a descriptive `--prompt`.
+
+4K (the same crops on the source upscaled to 3840x2160, no VACE): 40 s for 61 frames (12 s Real-ESRGAN x4), 1.1 GB.
+Synthetic Apple Log 4K (that source pushed through the inverse of `c101 bake --profile apple.log`, 10-bit HEVC,
+`ZEUS_FX_LOG_PROFILE=apple.log`): 150-168 s, 1.8 GB, 1.29 M distinct colours solved; output 10-bit HEVC; through the
+forward LUT the result matches the Rec.709 composite, and in Log the generated blacks sit at the footage's Log black
+(0.125) instead of Log 0 (fixed after the first try showed a darker silhouette around the person).
+Side-by-side of run 3: `Jobs/20261011-135854-d6spCMcfkew-218f/side-by-side-hires.jpg`.
+
 ## Not used (on purpose)
 
 No Enhancor, Seedance, Replicate or any hosted API; no vocal split / pitch shift (the original
@@ -159,5 +230,7 @@ Fixed the same day:
 - **Soft background with vace**: the whole frame came from the 360p generation. Now the generated pixels are composited only
   inside the feathered mask over the original full-resolution frames.
 
-Still open: vace motion fidelity (hands) and end-of-window glitches; mesh mode doing depth work it does not use; the identity
-swap with a *different* person is untested (all tests used the presenter's own face).
+Still open: vace motion fidelity (hands) and end-of-window glitches (the full-resolution composite above makes the
+person sharp, not the hands right); mesh mode doing depth work it does not use; the identity swap with a *different*
+person (tested 2026-10-11, job 218f, three runs above) does not reproduce the reference: a person following the pose
+at best, with invented clothes and hair.

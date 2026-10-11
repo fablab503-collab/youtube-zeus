@@ -55,7 +55,7 @@ The last line is either `{"done":true,"job":"<dir>","result":{…}}` or
 | `prepare --input <file or YouTube URL> [--start S] [--duration D≤10] --mode depth\|depth_mesh\|mesh\|pose\|depth_pose [--job DIR] [--cookies FILE] [--motion]` | Download/trim, normalize, depth (not in `pose`), masks, face mesh, motion capture (pose modes, or `--motion`), composite. Creates the job. |
 | `motion --job DIR [--json]` | Summary of the job's motion capture for agents: frames with a body, each hand and the face, average visibility, limbs tracked, the BVH (joints, channels, fps) and file paths. |
 | `approve --job DIR` | Records the review: SHA-256 of every prepared artifact into `job.json.review`. |
-| `generate --job DIR --engine vace\|faceswap --ref IMG [--ref IMG2] [--ref-pack DIR.c101face] [--prompt TEXT] [--consent] [--frames N] [--steps N] [--size 480p\|360p] [--seed N]` | Refuses without `--consent`, without approval, or if any approved artifact hash changed. Writes `result-raw.mp4` then `final.mp4` (original audio). |
+| `generate --job DIR --engine vace\|faceswap --ref IMG [--ref IMG2] [--ref-pack DIR.c101face] [--prompt TEXT] [--consent] [--frames N] [--steps N] [--size 480p\|360p] [--seed N] [--upscale fast\|best\|lanczos]` | Refuses without `--consent`, without approval, or if any approved artifact hash changed. Writes `result-raw.mp4` then `final.mp4` (original audio). |
 | `status --job DIR [--json]` | Prints `job.json`. |
 | `list [--json]` | Jobs under `Jobs/`, newest first. |
 
@@ -76,6 +76,8 @@ motion.bvh          BVH body skeleton solved from motion.json (pose modes / --mo
 pose.mp4            OpenPose-style skeleton on black, same frames/size as work.mp4 (pose modes / --motion)
 preview.jpg         contact sheet: 4 frames × (work | depth | mask | [pose] | control) for review (no depth column in mode pose)
 result-raw.mp4      engine output (no audio)
+result-crops/ + result-crops.json   vace: per window the generated crop, the original crop and the mask at the
+                    generation size (wNN/{gen,base,mask}/NNNN.png) + boxes; color/ = Log LUTs when the source is Log
 final.mp4           result-raw + original audio, retimed to source fps; metadata comment as above
 ```
 
@@ -143,6 +145,19 @@ the Third Person template's Manny with an IK Rig per skeleton (chains spine/neck
   separate process (cached), a one-time fp16 `transformer-half/` copy streamed to the GPU block by block, fp16 VAE
   with tiling and a GPU sync per conv, chunked attention, scheduler step on the CPU. Inside the mask the control is
   grey depth; the reference photo is cut out onto white. Details and all measured runs: `ENGINES.md`.
+- **vace at the source resolution** (`zfx/cropbox.py`, `zfx/upscale.py`, `zfx/hires.py`, `zfx/logcolor.py`): each
+  window is generated on a crop around the person (union of the window's main-person mask boxes + 12 % margin, grown to the
+  generation aspect, inside the frame; the whole frame when the person fills most of it; `ZEUS_VACE_CROP=0` turns it
+  off), from source.mp4 at full resolution on work.mp4's 16 fps clock. The crop is upscaled (`--upscale fast` =
+  Real-ESRGAN realesr-animevideov3, `best` = realesrgan-x4plus, `lanczos`; Real-ESRGAN ncnn-vulkan, BSD-3, installed by
+  `setup-engines.sh --upscaler`, Lanczos when missing), colour-matched (Lab mean/std from a ring just outside the mask),
+  given the source's grain (measured in flat areas), and merged inside the mask with a distance feather of ~1.5 % of
+  the box's short side into the original frames at their own size, fps and colour tags: every pixel outside the mask
+  is the original, nothing is time-stretched, the audio is stream-copied. Camera Log (Cinema 101's `c101 probe` on the
+  job's input file and source.mp4, else the colour tags; `ZEUS_FX_LOG_PROFILE` forces a profile or `none`): the model
+  sees a Rec.709 picture through `c101 bake`'s LUT (ffmpeg lut3d) and the patch goes back to Log through the LUT's
+  numerical inverse. job.json's generation records `color` (detection, LUTs, inverse round trip) and `mux`
+  (boxes, upscaler, colour shifts, grain, feather).
 - **faceswap** (face only, fast): FaceFusion 3.x headless (`headless-run`, processors `face_swapper face_enhancer`,
   execution provider `coreml`, fallback `cpu`) on `source.mp4`, then original audio. No depth/mask needed;
   still requires approve + consent.

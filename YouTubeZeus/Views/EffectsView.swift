@@ -1,4 +1,5 @@
 import AVKit
+import ImageIO
 import SwiftData
 import SwiftUI
 import UniformTypeIdentifiers
@@ -67,10 +68,8 @@ private struct EffectsJobRow: View {
         HStack(spacing: 10) {
             ZStack {
                 if let preview = job.file("preview.jpg") {
-                    // The contact sheet's first cell: the first frame of the clip.
-                    EffectsImage(url: preview, stamp: job.stamp)
-                        .frame(width: 72 * 4)
-                        .frame(width: 72, height: 40, alignment: .topLeading)
+                    // The contact sheet's first cell (4 x 4 grid): the first frame of the clip.
+                    EffectsSheetCell(url: preview, stamp: job.stamp)
                 } else {
                     LinearGradient(colors: [.zeus.opacity(0.35), .zeus.opacity(0.12)], startPoint: .topLeading, endPoint: .bottomTrailing)
                     Image(systemName: "wand.and.stars").foregroundStyle(.white.opacity(0.8))
@@ -780,6 +779,34 @@ private struct EffectsImage: View {
     }
 }
 
+/// The top-left cell of preview.jpg (4 columns x 4 rows), cropped and filling its frame: the job's thumbnail.
+private struct EffectsSheetCell: View {
+    let url: URL
+    let stamp: Double
+    @State private var image: NSImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Rectangle().fill(.quaternary)
+            }
+        }
+        .task(id: "\(url.path)|\(stamp)") { image = Self.firstCell(of: url) }
+    }
+
+    nonisolated static func firstCell(of url: URL) -> NSImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let sheet = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              let cell = sheet.cropping(to: CGRect(x: 0, y: 0, width: sheet.width / 4, height: sheet.height / 4))
+        else { return nil }
+        return NSImage(cgImage: cell, size: NSSize(width: cell.width, height: cell.height))
+    }
+}
+
 /// A video of the job, with the system player controls.
 private struct EffectsClip: View {
     let url: URL
@@ -790,7 +817,7 @@ private struct EffectsClip: View {
     var body: some View {
         ZStack {
             Color.black
-            if let player { VideoPlayer(player: player) }
+            if let player { PlayerView(player: player) }
         }
         .frame(maxWidth: .infinity)
         .frame(height: height)

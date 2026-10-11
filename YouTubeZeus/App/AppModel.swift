@@ -227,6 +227,7 @@ final class AppModel {
         }
         if (domain["showEffects"] as? String) != nil {
             openEffects(video: domain["effectsVideo"] as? String)
+            if let job = domain["effectsJob"] as? String { effects.selectedJobID = job }
         }
         if let link = domain["browse"] as? String, let url = URL(string: link) {
             selection = .browser

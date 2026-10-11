@@ -68,6 +68,31 @@ final class MediaPlayer {
     }
 }
 
+/// AVKit's AppKit player view. SwiftUI's `VideoPlayer` aborts at first use on macOS 27 (Swift runtime
+/// `getSuperclassMetadata` fatal error inside _AVKit_SwiftUI, seen in 3.8's Effects tab), so every video uses this.
+struct PlayerView: NSViewRepresentable {
+    let player: AVPlayer
+    var controls: AVPlayerViewControlsStyle = .inline
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.player = player
+        view.controlsStyle = controls
+        view.videoGravity = .resizeAspect
+        return view
+    }
+
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        if view.player !== player { view.player = player }
+        if view.controlsStyle != controls { view.controlsStyle = controls }
+    }
+
+    static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) {
+        view.player?.pause()
+        view.player = nil
+    }
+}
+
 /// The small player at the bottom of the window while an episode or a file plays.
 struct PlayerBar: View {
     @Environment(AppModel.self) private var app
@@ -77,7 +102,7 @@ struct PlayerBar: View {
         if player.isActive {
             HStack(spacing: 12) {
                 if player.isVideo, let avPlayer = player.player {
-                    VideoPlayer(player: avPlayer)
+                    PlayerView(player: avPlayer, controls: .none)
                         .frame(width: 176, height: 99)
                         .clipShape(.rect(cornerRadius: 8))
                 }

@@ -7,8 +7,9 @@ Run with the runtime venv:
   doctor   [--json]
   prepare  --input FILE|URL [--start S] [--duration D<=10] --mode depth|depth_mesh|mesh [--job DIR] [--cookies FILE]
   approve  --job DIR
-  generate --job DIR --engine vace|faceswap --ref IMG [--ref IMG2] [--prompt TEXT] [--consent]
-           [--frames N] [--steps N] [--size 480p|360p] [--seed N]
+  generate --job DIR --engine vace|faceswap (--ref IMG [--ref IMG2] | --ref-pack DIR.c101face | both)
+           [--prompt TEXT] [--consent] [--frames N] [--steps N] [--size 480p|360p] [--seed N]
+  facepack --pack DIR.c101face [--max-refs N] [--json]   (what generate would pick from a face pack)
   status   --job DIR [--json]
   list     [--json]
 
@@ -412,8 +413,14 @@ def cmd_generate(args, progress: Progress) -> int:
         if not p.is_file():
             raise CLIError(f"Reference photo not found: {p}", "generate")
         refs.append(str(p.resolve()))
-    if not refs:
-        raise CLIError("Add at least one reference photo with --ref.", "generate")
+    if args.ref_pack:
+        from zfx.facepack import FacePackError, load_pack
+        try:
+            args.ref_pack = str(load_pack(args.ref_pack).dir)   # refuses early: no consent, paths leaving the pack
+        except FacePackError as exc:
+            raise CLIError(str(exc), "ref-pack")
+    if not refs and not args.ref_pack:
+        raise CLIError("Add at least one reference photo with --ref, or a face pack with --ref-pack.", "generate")
     args.ref = refs
     try:
         from zfx.generate import run_generate
@@ -424,6 +431,35 @@ def cmd_generate(args, progress: Progress) -> int:
     if getattr(progress, "finished", False):
         return 1 if getattr(progress, "failed", False) else 0
     progress.done(job.dir, result if isinstance(result, dict) else {"result": result})
+    return 0
+
+
+def cmd_facepack(args, progress: Progress) -> int:
+    """Validate a Cinema 101 face pack and show which frames generate --ref-pack would use."""
+    from zfx.facepack import MAX_REFS, FacePackError, describe, load_pack, pick_refs
+    try:
+        pack = load_pack(args.pack)
+        picks = pick_refs(pack, max_refs=args.max_refs if args.max_refs is not None else MAX_REFS)
+    except FacePackError as exc:
+        raise CLIError(str(exc), "facepack")
+    report = describe(pack, picks)
+    if not picks:
+        raise CLIError(f"No usable frame in the face pack {pack.name} ({report['frames']} listed, "
+                       f"{report['present']} present, {report['blurry']} too blurry).", "facepack")
+    if args.json:
+        _emit_report(progress, report)
+        return 0
+    who = f" of {report['person']}" if report["person"] else ""
+    lines = [f"Face pack {report['name']}{who} (version {report['version']}, created {report['created'] or '?'})",
+             f"  {report['frames']} frames listed, {report['present']} present, {report['usable']} usable, "
+             f"{report['blurry']} under the sharpness floor ({report['min_sharpness']:.0%} of the sharpest)"]
+    for item in report["skipped"]:
+        lines.append(f"  skipped {item.get('file') or '?'}: {item['reason']}")
+    lines.append(f"  generate --ref-pack would use {len(picks)}:")
+    for i, pick in enumerate(picks, 1):
+        lines.append(f"  {i}. {pick['file']}  {pick['why']}")
+    print("\n".join(lines))
+    progress.finished = True
     return 0
 
 
@@ -488,7 +524,10 @@ def build_parser() -> argparse.ArgumentParser:
     g = sub.add_parser("generate", help="run an engine on an approved job (needs --consent)")
     g.add_argument("--job", required=True)
     g.add_argument("--engine", required=True, choices=("vace", "faceswap"))
-    g.add_argument("--ref", action="append", required=True, help="reference photo (repeat for more)")
+    g.add_argument("--ref", action="append", default=None, help="reference photo (repeat for more)")
+    g.add_argument("--ref-pack", metavar="DIR", default=None,
+                   help="a Cinema 101 face pack (.c101face folder, effects/FACE-PACK.md): its sharpest frontal, "
+                        "±20°, ±40° and smile frames are used (up to 5; 2 for vace). Combines with --ref.")
     g.add_argument("--prompt", default="", help="extra prompt text (vace)")
     g.add_argument("--consent", action="store_true",
                    help="the reference photos show me or people who agreed")
@@ -501,6 +540,11 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--enhance", action="store_true",
                    help="faceswap: also sharpen the face (GFPGAN), about 20x slower")
 
+    fp = sub.add_parser("facepack", help="check a face pack (.c101face) and show the frames generate would pick")
+    fp.add_argument("--pack", required=True, metavar="DIR", help="the .c101face folder")
+    fp.add_argument("--max-refs", type=int, default=None, help="frames to pick (default 5)")
+    fp.add_argument("--json", action="store_true")
+
     s = sub.add_parser("status", help="print job.json")
     s.add_argument("--job", required=True)
     s.add_argument("--json", action="store_true")
@@ -511,7 +555,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 COMMANDS = {"doctor": cmd_doctor, "prepare": cmd_prepare, "approve": cmd_approve, "generate": cmd_generate,
-            "status": cmd_status, "list": cmd_list}
+            "facepack": cmd_facepack, "status": cmd_status, "list": cmd_list}
 
 
 def main(argv=None) -> int:

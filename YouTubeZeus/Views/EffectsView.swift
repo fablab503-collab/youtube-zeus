@@ -578,11 +578,14 @@ private struct EffectsGenerateCard: View {
     var body: some View {
         @Bindable var effects = app.effects
         let installed = effects.isInstalled(effects.generator)
-        let ready = job.isApproved && effects.consent && effects.referencePhoto != nil && !effects.isBusy && installed != false
+        let hasReference = effects.referencePhoto != nil || effects.secondPhoto != nil || effects.facePack != nil
+        let ready = job.isApproved && effects.consent && hasReference && !effects.isBusy && installed != false
+            && effects.readingPack == nil
         VStack(alignment: .leading, spacing: 14) {
             Label("3 · Generate", systemImage: "sparkles").font(.headline)
             HStack(alignment: .top, spacing: 14) {
-                EffectsPhotoSlot(title: "Reference photo", subtitle: "required", url: $effects.referencePhoto) {
+                EffectsPhotoSlot(title: "Reference photo", subtitle: effects.facePack == nil ? "required" : "optional (face pack set)",
+                                 url: $effects.referencePhoto) {
                     app.chooseEffectsPhoto(second: false)
                 }
                 EffectsPhotoSlot(title: "Second photo", subtitle: "optional (another angle)", url: $effects.secondPhoto) {
@@ -610,6 +613,8 @@ private struct EffectsGenerateCard: View {
                     }
                 }
             }
+            EffectsFacePackRow()
+
             DisclosureGroup("Advanced (full replace)", isExpanded: $advanced) {
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
                     GridRow {
@@ -653,7 +658,8 @@ private struct EffectsGenerateCard: View {
             .font(.callout)
 
             Toggle(isOn: $effects.consent) {
-                Text("These photos show me or people who agreed").fontWeight(.medium)
+                Text(effects.facePack == nil ? "These photos show me or people who agreed"
+                     : "This face pack and these photos show me or people who agreed").fontWeight(.medium)
             }
             .toggleStyle(.checkbox)
 
@@ -675,10 +681,101 @@ private struct EffectsGenerateCard: View {
 
     private func hint(_ effects: EffectsEngine, installed: Bool?) -> String {
         if !job.isApproved { return "Approve the mask first (Review, above)." }
-        if effects.referencePhoto == nil { return "Choose a reference photo: a clear, front-facing face works best." }
+        if effects.readingPack != nil { return "Reading the face pack…" }
+        if effects.referencePhoto == nil && effects.secondPhoto == nil && effects.facePack == nil {
+            return "Choose a reference photo or a face pack: a clear, front-facing face works best."
+        }
         if !effects.consent { return "Tick the box: only use photos of yourself or of people who agreed." }
         if installed == false { return "Add this engine first, or pick the other one." }
         return "The result keeps the clip's complete original sound and is marked as AI-generated."
+    }
+}
+
+/// "Use a face pack…": a pack from Cinema 101's Scan my face (several angles of one face, picked by the engine).
+private struct EffectsFacePackRow: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let effects = app.effects
+        HStack(alignment: .center, spacing: 12) {
+            if let pack = effects.facePack {
+                Image(systemName: "face.smiling").font(.title2).foregroundStyle(Color.zeus)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(pack.name).font(.callout.weight(.semibold)).lineLimit(1).truncationMode(.middle)
+                    Text(pack.summary(for: effects.generator)).font(.caption).foregroundStyle(.secondary)
+                }
+                .help(pack.folder.path)
+                HStack(spacing: 6) {
+                    ForEach(Array(pack.picked.enumerated()), id: \.element.id) { index, pick in
+                        EffectsThumb(url: pick.file)
+                            .frame(width: 46, height: 46)
+                            .clipShape(.rect(cornerRadius: 8))
+                            .opacity(effects.generator == .vace && index >= 2 ? 0.35 : 1)
+                            .help(pick.why.capitalizedFirst)
+                    }
+                }
+                Spacer(minLength: 0)
+                Button { effects.facePack = nil } label: { Label("Clear", systemImage: "xmark.circle.fill") }
+                    .buttonStyle(.borderless)
+                    .help("Stop using this face pack")
+            } else if let reading = effects.readingPack {
+                ProgressView().controlSize(.small)
+                Text("Reading \(EffectsFacePacks.title(reading))…").font(.callout).foregroundStyle(.secondary)
+            } else {
+                if effects.foundPacks.isEmpty {
+                    Button { app.chooseEffectsFacePack() } label: { Label("Use a face pack…", systemImage: "face.dashed") }
+                        .buttonStyle(.glass)
+                } else {
+                    Menu {
+                        Section("Found on this Mac") {
+                            ForEach(effects.foundPacks, id: \.self) { url in
+                                Button("\(EffectsFacePacks.title(url)) — \(EffectsFacePacks.place(url))") { app.useEffectsFacePack(url) }
+                            }
+                        }
+                        Divider()
+                        Button("Choose a face pack…") { app.chooseEffectsFacePack() }
+                    } label: {
+                        Label("Use a face pack…", systemImage: "face.dashed")
+                    } primaryAction: {
+                        app.chooseEffectsFacePack()
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(.glass)
+                    .fixedSize()
+                }
+                Text("From Cinema 101 › Scan my face: the sharpest frames from several angles are used.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .task { await effects.findFacePacks() }
+    }
+}
+
+/// A small picture from a local file (ImageIO thumbnail, never the full photo).
+private struct EffectsThumb: View {
+    let url: URL
+    @State private var image: NSImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image).resizable().scaledToFill()
+            } else {
+                Rectangle().fill(.quaternary)
+            }
+        }
+        .task(id: url) { image = Self.thumbnail(url) }
+    }
+
+    nonisolated static func thumbnail(_ url: URL, size: Int = 160) -> NSImage? {
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                        kCGImageSourceCreateThumbnailWithTransform: true,
+                                        kCGImageSourceThumbnailMaxPixelSize: size]
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
     }
 }
 

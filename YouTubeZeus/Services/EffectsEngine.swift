@@ -468,11 +468,12 @@ nonisolated enum EffectsArguments {
         return arguments
     }
 
-    static func generate(job: URL, engine: EffectsGenerator, references: [URL], prompt: String, consent: Bool,
-                         frames: Int, steps: Int, size: String, seed: Int?, enhance: Bool = false) -> [String] {
+    static func generate(job: URL, engine: EffectsGenerator, references: [URL], facePack: URL? = nil, prompt: String,
+                         consent: Bool, frames: Int, steps: Int, size: String, seed: Int?, enhance: Bool = false) -> [String] {
         var arguments = ["generate", "--job", job.path, "--engine", engine.rawValue]
         if engine == .faceswap && enhance { arguments.append("--enhance") }
         for reference in references { arguments += ["--ref", reference.path] }
+        if let facePack { arguments += ["--ref-pack", facePack.path] }
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty { arguments += ["--prompt", text] }
         if consent { arguments.append("--consent") }
@@ -483,6 +484,115 @@ nonisolated enum EffectsArguments {
 
     static func number(_ value: Double) -> String {
         value == value.rounded() ? String(Int(value)) : String(format: "%.2f", value)
+    }
+}
+
+// MARK: - Face packs
+
+/// A face pack from Cinema 101's "Scan my face" (`<Name>.c101face`, effects/FACE-PACK.md), as the engine read it
+/// (`facepack --pack <dir> --json`): the frames generate --ref-pack will use.
+nonisolated struct EffectsFacePack: Equatable, Sendable {
+    struct Pick: Equatable, Sendable, Identifiable {
+        var file: URL
+        var slot: String
+        var why: String
+        var id: String { file.path }
+    }
+
+    var folder: URL
+    var name: String
+    var person: String?
+    var frames = 0
+    var usable = 0
+    var picked: [Pick] = []
+
+    /// "12 usable frames of 14 · 5 used" (full replace uses the first 2).
+    func summary(for engine: EffectsGenerator) -> String {
+        let used = engine == .vace ? min(2, picked.count) : picked.count
+        let total = frames > usable ? " of \(frames)" : ""
+        return "\(usable) usable frame\(usable == 1 ? "" : "s")\(total) · \(used) used" + (person.map { " · \($0)" } ?? "")
+    }
+
+    static func parse(_ stdout: String, folder: URL) -> EffectsFacePack? {
+        guard let object = EffectsJSON.output(stdout) as? [String: Any],
+              let picks = object["picked"] as? [[String: Any]], !picks.isEmpty else { return nil }
+        let path = (object["pack"] as? String).map { URL(fileURLWithPath: $0) } ?? folder
+        var pack = EffectsFacePack(folder: path, name: EffectsJSON.string(object["name"]) ?? EffectsFacePacks.title(path),
+                                   person: EffectsJSON.string(object["person"]))
+        pack.frames = Int(EffectsJSON.number(object["frames"]) ?? 0)
+        pack.usable = Int(EffectsJSON.number(object["usable"]) ?? 0)
+        pack.picked = picks.compactMap { pick in
+            guard let file = pick["path"] as? String else { return nil }
+            return Pick(file: URL(fileURLWithPath: file), slot: EffectsJSON.string(pick["slot"]) ?? "",
+                        why: EffectsJSON.string(pick["why"]) ?? "")
+        }
+        return pack.picked.isEmpty ? nil : pack
+    }
+}
+
+/// Face packs on this Mac: AirDrop lands in Downloads, iCloud Drive syncs the Cinema 101 folder. Only the top two
+/// levels of each place are listed (by extension, nothing is opened), never a deep scan.
+nonisolated enum EffectsFacePacks {
+    static let pathExtension = "c101face"
+
+    static func isPack(_ url: URL) -> Bool { url.pathExtension.lowercased() == pathExtension }
+
+    /// The pack's name without the extension ("Daniel 2026-10-11 16-00").
+    static func title(_ url: URL) -> String { url.deletingPathExtension().lastPathComponent }
+
+    static var places: [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let mobile = home.appendingPathComponent("Library/Mobile Documents", isDirectory: true)
+        let drive = mobile.appendingPathComponent("com~apple~CloudDocs", isDirectory: true)
+        var list = [home.appendingPathComponent("Downloads", isDirectory: true), drive,
+                    drive.appendingPathComponent("Cinema 101/Face Packs", isDirectory: true)]
+        // Cinema 101's own iCloud container, if it has one (iCloud~…cinema…/Documents).
+        let containers = (try? FileManager.default.contentsOfDirectory(at: mobile, includingPropertiesForKeys: nil)) ?? []
+        for container in containers where container.lastPathComponent.lowercased().contains("cinema") {
+            let documents = container.appendingPathComponent("Documents", isDirectory: true)
+            list += [documents, documents.appendingPathComponent("Face Packs", isDirectory: true)]
+        }
+        return list
+    }
+
+    static func discover(in places: [URL] = places, limit: Int = 20) -> [URL] {
+        let fileManager = FileManager.default
+        let keys: [URLResourceKey] = [.isDirectoryKey, .contentModificationDateKey]
+        func children(_ folder: URL) -> [URL] {
+            (try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys,
+                                                  options: [.skipsHiddenFiles, .skipsPackageDescendants])) ?? []
+        }
+        func isFolder(_ url: URL) -> Bool { (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
+        var found: [URL: Date] = [:]
+        func add(_ url: URL) {
+            guard isPack(url), isFolder(url) else { return }
+            found[url.standardizedFileURL] = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+        }
+        for place in places {
+            for child in children(place) {
+                if isPack(child) { add(child); continue }
+                guard isFolder(child) else { continue }
+                for grandchild in children(child) { add(grandchild) }
+            }
+        }
+        return found.sorted { ($0.value, $1.key.path) > ($1.value, $0.key.path) }.prefix(limit).map(\.key)
+    }
+
+    /// Where a pack was found, for the menu ("Downloads", "iCloud Drive › Cinema 101").
+    static func place(_ url: URL) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        var parent = url.deletingLastPathComponent().path
+        let drive = home + "/Library/Mobile Documents/com~apple~CloudDocs"
+        if parent.hasPrefix(drive) {
+            parent = "iCloud Drive" + parent.dropFirst(drive.count)
+        } else if parent.hasPrefix(home + "/Library/Mobile Documents/") {
+            parent = "iCloud Drive › Cinema 101"
+        } else if parent.hasPrefix(home + "/") {
+            parent = String(parent.dropFirst(home.count + 1))
+        } else if parent.hasPrefix("/") {
+            parent = String(parent.dropFirst())
+        }
+        return parent.replacingOccurrences(of: "/", with: " › ")
     }
 }
 
@@ -686,6 +796,12 @@ final class EffectsEngine {
     // Generate
     var referencePhoto: URL? { didSet { if referencePhoto != oldValue { consent = false } } }
     var secondPhoto: URL? { didSet { if secondPhoto != oldValue { consent = false } } }
+    /// A Cinema 101 face pack (`--ref-pack`): with one, the photos are optional.
+    var facePack: EffectsFacePack? { didSet { if facePack?.folder != oldValue?.folder { consent = false } } }
+    /// The pack being read (`facepack --json`).
+    private(set) var readingPack: URL?
+    /// Packs found in Downloads and iCloud Drive, newest first.
+    private(set) var foundPacks: [URL] = []
     var prompt = ""
     var consent = false
     var generator: EffectsGenerator = .faceswap
@@ -802,15 +918,15 @@ final class EffectsEngine {
             lastError = "Tick “These photos show me or people who agreed” first."
             return false
         }
-        guard let first = referencePhoto else {
-            lastError = "Choose a reference photo first."
+        let references = [referencePhoto, secondPhoto].compactMap { $0 }
+        guard !references.isEmpty || facePack != nil else {
+            lastError = "Choose a reference photo or a face pack first."
             return false
         }
-        let references = [first] + (secondPhoto.map { [$0] } ?? [])
         let seed = Int(seedText.trimmingCharacters(in: .whitespaces))
-        let arguments = EffectsArguments.generate(job: job.folder, engine: generator, references: references, prompt: prompt,
-                                                  consent: consent, frames: frames, steps: steps, size: size, seed: seed,
-                                                  enhance: enhanceFace)
+        let arguments = EffectsArguments.generate(job: job.folder, engine: generator, references: references,
+                                                  facePack: facePack?.folder, prompt: prompt, consent: consent,
+                                                  frames: frames, steps: steps, size: size, seed: seed, enhance: enhanceFace)
         let (ok, _) = await run(.generate, EffectsPaths.python, [script.path] + arguments)
         reload(job.folder)
         return ok
@@ -818,6 +934,24 @@ final class EffectsEngine {
 
     func cancel() {
         running?.cancel()
+    }
+
+    /// Reads a face pack with the engine (validation, consent, the frames it will use) and keeps it for Generate.
+    func useFacePack(_ folder: URL) async -> Bool {
+        readingPack = folder
+        defer { readingPack = nil }
+        let result = await collect(["facepack", "--pack", folder.path, "--json"])
+        guard result.status == 0, let pack = EffectsFacePack.parse(result.stdout, folder: folder) else {
+            lastError = result.error ?? "\(folder.lastPathComponent) could not be read as a face pack."
+            return false
+        }
+        facePack = pack
+        return true
+    }
+
+    /// Lists the face packs in Downloads and iCloud Drive (top two levels).
+    func findFacePacks() async {
+        foundPacks = await Task.detached { EffectsFacePacks.discover() }.value
     }
 
     /// Copies final.mp4 to ~/Movies/YouTube Zeus Effects/ (never over an earlier copy).

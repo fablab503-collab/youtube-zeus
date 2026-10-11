@@ -1,12 +1,14 @@
 """generate: consent + review gates, engine dispatch, final mux with the untouched original audio.
 
     run_generate(args, job_dir, progress) -> result dict
-        args: engine ('vace' | 'faceswap'), ref (list of photo paths), prompt, consent (bool),
+        args: engine ('vace' | 'faceswap'), ref (list of photo paths), ref_pack (a .c101face face pack folder,
+              optional; see effects/FACE-PACK.md and zfx/facepack.py), prompt, consent (bool),
               frames, steps, size ('480p' | '360p'), seed
         progress: callable(stage, progress 0..1, message) (zfx.progress.Progress works as is)
 
 Order: refuse without consent -> refuse unless the review approval still matches the prepared
-files -> engine writes result-raw.mp4 (video only) -> final.mp4 = result-raw retimed to the
+files -> references: the face pack's picks (refused unless its manifest says consent: true) then the --ref
+photos, all copied into <job>/refs/ -> engine writes result-raw.mp4 (video only) -> final.mp4 = result-raw retimed to the
 source fps/duration and scaled to the source size + audio.m4a stream-copied untouched, with
 metadata comment "AI-generated with YouTube Zeus Effects (<engine>)" -> record in job.json.
 Raises GenerateError (plain English) on refusal or failure; the CLI turns it into the JSON error line.
@@ -32,6 +34,9 @@ CONSENT_TEXT = "Tick: the photos show me or people who agreed"
 AI_COMMENT = "AI-generated with YouTube Zeus Effects ({engine})"
 REF_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif"}
 MAX_REFS = 4
+# Frames a face pack adds per engine. VACE prepends every reference as an extra latent frame to every window
+# (more memory and time on a 16 GB Mac), so it gets the frontal and one side; FaceFusion averages them all.
+PACK_REFS = {"faceswap": 5, "vace": 2}
 
 Progress = Callable[[str, float, str], None]
 
@@ -187,11 +192,57 @@ def check_review(job_dir: Path) -> tuple[bool, str]:
     return _fallback_verify(job_dir)
 
 
-def prepare_refs(refs, job_dir: Path) -> list[Path]:
+def _copy_ref(src: Path, dst_stem: Path) -> Path:
+    """Copy one photo to <dst_stem>.<ext> (HEIC -> JPEG with sips)."""
+    ext = src.suffix.lower()
+    if ext in (".heic", ".heif"):
+        dst = dst_stem.with_suffix(".jpg")
+        proc = subprocess.run(["/usr/bin/sips", "-s", "format", "jpeg", str(src), "--out", str(dst)],
+                              capture_output=True, text=True)
+        if proc.returncode != 0 or not dst.is_file():
+            raise GenerateError(f"Could not convert {src.name} to JPEG.")
+        return dst
+    dst = dst_stem.with_suffix(".jpg" if ext == ".jpeg" else ext)
+    if src.resolve() != dst.resolve():
+        shutil.copyfile(src, dst)
+    return dst
+
+
+def prepare_pack_refs(pack_path, job_dir: Path, engine: str) -> tuple[list[Path], dict]:
+    """Load + validate a face pack, pick its frames and copy them into <job>/refs/pack-N.<ext>.
+    Returns (copies, record for job.json). Refuses a pack without consent or with a path leaving the pack."""
+    from . import facepack
+    try:
+        pack = facepack.load_pack(pack_path)
+        picks = facepack.pick_refs(pack, max_refs=PACK_REFS.get(engine, facepack.MAX_REFS))
+    except facepack.FacePackError as exc:
+        raise GenerateError(str(exc)) from exc
+    if not picks:
+        raise GenerateError(f"No usable frame in the face pack {pack.name}: scan again, slowly, in good light.")
+    out_dir = job_dir / "refs"
+    out_dir.mkdir(exist_ok=True)
+    for old in out_dir.glob("pack-*"):
+        old.unlink(missing_ok=True)
+    copies = []
+    for i, pick in enumerate(picks, 1):
+        dst = _copy_ref(Path(pick["path"]), out_dir / f"pack-{i}")
+        pick["ref"] = str(dst.relative_to(job_dir))
+        copies.append(dst)
+    info = facepack.describe(pack, picks)
+    record = {k: info[k] for k in ("pack", "name", "person", "created", "version", "device", "app", "frames",
+                                   "usable", "min_sharpness", "manifest_sha256")}
+    record["picked"] = [{k: p.get(k) for k in ("file", "bin", "slot", "why", "yaw", "pitch", "expression",
+                                                "sharpness", "ref")} for p in picks]
+    return copies, record
+
+
+def prepare_refs(refs, job_dir: Path, required: bool = True) -> list[Path]:
     """Validate the reference photos and copy them into <job>/refs/ (HEIC -> JPEG with sips)."""
     refs = [r for r in (refs or []) if r]
     if not refs:
-        raise GenerateError("Add at least one reference photo (--ref).")
+        if not required:
+            return []
+        raise GenerateError("Add at least one reference photo (--ref) or a face pack (--ref-pack).")
     if len(refs) > MAX_REFS:
         raise GenerateError(f"Use at most {MAX_REFS} reference photos.")
     out_dir = job_dir / "refs"
@@ -204,17 +255,7 @@ def prepare_refs(refs, job_dir: Path) -> list[Path]:
         ext = src.suffix.lower()
         if ext not in REF_EXTENSIONS:
             raise GenerateError(f"{src.name} is not a photo (use JPEG, PNG, HEIC or WebP).")
-        if ext in (".heic", ".heif"):
-            dst = out_dir / f"ref-{i}.jpg"
-            proc = subprocess.run(["/usr/bin/sips", "-s", "format", "jpeg", str(src), "--out", str(dst)],
-                                  capture_output=True, text=True)
-            if proc.returncode != 0 or not dst.is_file():
-                raise GenerateError(f"Could not convert {src.name} to JPEG.")
-        else:
-            dst = out_dir / f"ref-{i}{'.jpg' if ext == '.jpeg' else ext}"
-            if src.resolve() != dst.resolve():
-                shutil.copyfile(src, dst)
-        copies.append(dst)
+        copies.append(_copy_ref(src, out_dir / f"ref-{i}"))
     return copies
 
 
@@ -343,7 +384,12 @@ def run_generate(args, job_dir, progress: Optional[Progress] = None) -> dict:
     ok, why = check_review(job_path)
     if not ok:
         raise GenerateError(f"Generation refused: {why}")
-    refs = prepare_refs(getattr(args, "ref", None), job_path)
+    photos = [r for r in (getattr(args, "ref", None) or []) if r]
+    pack_path = getattr(args, "ref_pack", None)
+    if not photos and not pack_path:
+        raise GenerateError("Add at least one reference photo (--ref) or a face pack (--ref-pack).")
+    pack_refs, pack_record = prepare_pack_refs(pack_path, job_path, engine_name) if pack_path else ([], None)
+    refs = pack_refs + prepare_refs(photos, job_path, required=not pack_refs)
 
     engine = get_engine(engine_name)
     st = engine.status()
@@ -393,6 +439,7 @@ def run_generate(args, job_dir, progress: Optional[Progress] = None) -> dict:
         "consent_text": CONSENT_TEXT,
         "refs": [str(r.relative_to(job_path)) for r in refs],
         "ref_sha256": [sha256_file(r) for r in refs],
+        **({"face_pack": pack_record} if pack_record else {}),
         "options": {k: v for k, v in options.items() if v not in (None, "")},
         "result_raw": raw.name,
         "final": final.name,
@@ -407,5 +454,8 @@ def run_generate(args, job_dir, progress: Optional[Progress] = None) -> dict:
         d["status"] = "generated"
         d.pop("last_error", None)
     update_job(job_path, save)
-    return {"engine": engine_name, "final": str(final), "result_raw": str(raw), "seconds": seconds,
-            "generation": len(load_job(job_path).get("generations") or []), "info": info, "mux": mux}
+    result = {"engine": engine_name, "final": str(final), "result_raw": str(raw), "seconds": seconds,
+              "generation": len(load_job(job_path).get("generations") or []), "info": info, "mux": mux}
+    if pack_record:
+        result["face_pack"] = {"name": pack_record["name"], "frames": [p["file"] for p in pack_record["picked"]]}
+    return result

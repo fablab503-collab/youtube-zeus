@@ -110,6 +110,36 @@ extension AppModel {
         effects.sourceVideoID = nil
     }
 
+    /// "Use a face pack…": a `.c101face` folder (or package) from Cinema 101's Scan my face.
+    func chooseEffectsFacePack() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseFiles = true                 // a pack registered as a package shows as a file
+        panel.canChooseDirectories = true
+        panel.treatsFilePackagesAsDirectories = false
+        panel.allowedContentTypes = [.directory]    // folders and packages only
+        panel.prompt = "Use Face Pack"
+        panel.message = "Choose a face pack (.c101face) from Cinema 101 › Scan my face: you, or someone who agreed."
+        if let latest = effects.foundPacks.first {
+            panel.directoryURL = latest.deletingLastPathComponent()
+        } else {
+            panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        useEffectsFacePack(url)
+    }
+
+    func useEffectsFacePack(_ url: URL) {
+        let effects = self.effects
+        Task {
+            if await effects.useFacePack(url), let pack = effects.facePack {
+                show("Face pack “\(pack.name)”: \(pack.picked.count) of its \(pack.usable) usable frames will be used.")
+            } else if let error = effects.lastError {
+                show(error, error: true)
+            }
+        }
+    }
+
     func chooseEffectsPhoto(second: Bool) {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false

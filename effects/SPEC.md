@@ -52,7 +52,7 @@ The last line is either `{"done":true,"job":"<dir>","result":{…}}` or
 | `doctor [--json]` | Python, torch+MPS, ffmpeg, yt-dlp, pyobjc Vision, weights present per engine, free RAM/disk. Never downloads. |
 | `prepare --input <file or YouTube URL> [--start S] [--duration D≤10] --mode depth\|depth_mesh\|mesh [--job DIR] [--cookies FILE]` | Download/trim, normalize, depth, masks, composite, mesh. Creates the job. |
 | `approve --job DIR` | Records the review: SHA-256 of every prepared artifact into `job.json.review`. |
-| `generate --job DIR --engine vace\|faceswap --ref IMG [--ref IMG2] [--prompt TEXT] [--consent] [--frames N] [--steps N] [--size 480p\|360p] [--seed N]` | Refuses without `--consent`, without approval, or if any approved artifact hash changed. Writes `result-raw.mp4` then `final.mp4` (original audio). |
+| `generate --job DIR --engine vace\|faceswap --ref IMG [--ref IMG2] [--ref-pack DIR.c101face] [--prompt TEXT] [--consent] [--frames N] [--steps N] [--size 480p\|360p] [--seed N]` | Refuses without `--consent`, without approval, or if any approved artifact hash changed. Writes `result-raw.mp4` then `final.mp4` (original audio). |
 | `status --job DIR [--json]` | Prints `job.json`. |
 | `list [--json]` | Jobs under `Jobs/`, newest first. |
 
@@ -86,6 +86,20 @@ final.mp4           result-raw + original audio, retimed to source fps; metadata
 - **faceswap** (face only, fast): FaceFusion 3.x headless (`headless-run`, processors `face_swapper face_enhancer`,
   execution provider `coreml`, fallback `cpu`) on `source.mp4`, then original audio. No depth/mask needed;
   still requires approve + consent.
+
+## Face packs (`--ref-pack`)
+
+`generate --ref-pack <Name>.c101face` takes the references from a face pack made by Cinema 101's "Scan my face"
+(TrueDepth camera on the iPhone; layout and manifest in `FACE-PACK.md`), alone or with `--ref` photos.
+`zfx/facepack.py` refuses a pack whose manifest is not `format` "c101face" `version` 1, whose `consent` is not
+exactly `true`, or that names any path leaving the pack folder (absolute, `..`, or a link out); missing frames are
+skipped and unknown fields ignored. It picks up to 5 frames in this order: the sharpest frontal neutral frame
+(|yaw| < 8°, |pitch| < 10°), the sharpest near +20° and −20° yaw, near +40° and −40°, then a smile, skipping frames
+under 35 % of the pack's sharpest; ties go to the frame closest to the angle, then the file name. vace uses only the
+first 2 (each reference is an extra latent frame in every window). The picks are copied to `refs/pack-N.jpg` (before
+any `--ref` photos) and the generation record gets `face_pack` (pack path, name, person, manifest SHA-256, and each
+frame with why it was chosen). `facepack --pack <dir> [--max-refs N] [--json]` shows the same choice without
+generating. `--consent` is still required: the pack's own consent does not replace it.
 
 ## Zeus app integration (Swift)
 

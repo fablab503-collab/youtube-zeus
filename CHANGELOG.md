@@ -28,6 +28,12 @@ Newest first.
   about twice as slow. Faces shown on screens or posters are left out of the mask (`--min-person-ratio`).
 - **Fix:** opening a video no longer crashes on macOS 27: SwiftUI's `VideoPlayer` aborts there, so every player (Effects
   and the player bar of podcasts and your files) now uses AVKit's AppKit player view.
+- **Face packs.** Generate › **Use a face pack…** takes a `.c101face` folder from Cinema 101's *Scan my face* (the
+  iPhone's TrueDepth camera, several angles of your face; packs in Downloads and iCloud Drive are offered in the menu).
+  The engine refuses a pack saved without consent or pointing outside its folder, then uses up to 5 of its sharpest
+  frames (frontal, about ±20° and ±40°, a smile; 2 for full replace), shown as thumbnails; the photos become
+  optional and the job records which frames were used. Agents: `zeus effects generate … --ref-pack <pack>` and
+  `zeus effects facepack --pack <pack> --json`.
 - **Face swap is about 20 times faster**: 33 s instead of 11 min for 3 s of 1080p, because the face sharpening (GFPGAN)
   is now off by default; tick **Sharpen the face** to use it. **Lips stay in sync**: the result is no longer stretched
   to the video track's length (it drifted ~0.1 s by the end of 3 s). **Full replace keeps the background sharp**: only

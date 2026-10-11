@@ -475,9 +475,11 @@ nonisolated enum EffectsArguments {
     }
 
     static func generate(job: URL, engine: EffectsGenerator, references: [URL], facePack: URL? = nil, prompt: String,
-                         consent: Bool, frames: Int, steps: Int, size: String, seed: Int?, enhance: Bool = false) -> [String] {
+                         consent: Bool, frames: Int, steps: Int, size: String, seed: Int?, enhance: Bool = false,
+                         quality: String? = nil) -> [String] {
         var arguments = ["generate", "--job", job.path, "--engine", engine.rawValue]
         if engine == .faceswap && enhance { arguments.append("--enhance") }
+        if engine == .faceswap, let quality { arguments += ["--quality", quality] }
         for reference in references { arguments += ["--ref", reference.path] }
         if let facePack { arguments += ["--ref-pack", facePack.path] }
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -816,6 +818,7 @@ final class EffectsEngine {
     var size = "360p"   // 480p fits 16 GB but takes ~2x longer and looked worse (effects/ENGINES.md)
     var seedText = ""
     var enhanceFace = false   // face swap: GFPGAN sharpening, ~20x slower (33 s vs 11 min for 3 s of 1080p)
+    var faceQuality = "natural"   // face swap: natural (pixel boost 512 + real inside of the mouth) or fast
 
     var isBusy: Bool { work != nil }
     var isSetUp: Bool { EffectsPaths.isSetUp }
@@ -932,7 +935,8 @@ final class EffectsEngine {
         let seed = Int(seedText.trimmingCharacters(in: .whitespaces))
         let arguments = EffectsArguments.generate(job: job.folder, engine: generator, references: references,
                                                   facePack: facePack?.folder, prompt: prompt, consent: consent,
-                                                  frames: frames, steps: steps, size: size, seed: seed, enhance: enhanceFace)
+                                                  frames: frames, steps: steps, size: size, seed: seed, enhance: enhanceFace,
+                                                  quality: faceQuality)
         let (ok, _) = await run(.generate, EffectsPaths.python, [script.path] + arguments)
         reload(job.folder)
         return ok

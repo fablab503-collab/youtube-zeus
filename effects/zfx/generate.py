@@ -462,6 +462,7 @@ def run_generate(args, job_dir, progress: Optional[Progress] = None) -> dict:
         "size": getattr(args, "size", None),
         "seed": getattr(args, "seed", None),
         "enhance": bool(getattr(args, "enhance", False)),
+        "quality": getattr(args, "quality", None),
         "upscale": upscale_mode if engine_name == "vace" else None,
     }
     t0 = time.monotonic()

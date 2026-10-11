@@ -970,3 +970,33 @@ class ChunkedAttentionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FaceSwapQualityTests(unittest.TestCase):
+    def cmd(self, quality):
+        return faceswap.build_command(Path("/ff"), [Path("/r/a.jpg")], Path("/j/source.mp4"), Path("/j/out.mp4"),
+                                      Path("/j/tmp"), Path("/j/jobs"), quality=quality)
+
+    def test_fast_has_no_extra_flags(self):
+        self.assertNotIn("--face-swapper-pixel-boost", self.cmd("fast"))
+
+    def test_natural_keeps_the_real_mouth(self):
+        cmd = self.cmd("natural")
+        self.assertEqual(cmd[cmd.index("--face-swapper-pixel-boost") + 1], "512x512")
+        i = cmd.index("--face-mask-regions")
+        regions = []
+        for part in cmd[i + 1:]:
+            if part.startswith("--"):
+                break
+            regions.append(part)
+        self.assertNotIn("mouth", regions)          # the inside of the mouth (teeth, tongue) stays original
+        self.assertIn("upper-lip", regions)
+        self.assertIn("left-eye", regions)          # eyes are swapped; blinks follow the original anyway
+        self.assertIn("region", cmd[cmd.index("--face-mask-types") + 1:i])
+
+    def test_unknown_quality_refused(self):
+        with self.assertRaises(EngineError):
+            self.cmd("ultra")
+
+    def test_default_quality_is_natural(self):
+        self.assertEqual(faceswap.DEFAULT_QUALITY, "natural")

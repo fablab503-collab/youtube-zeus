@@ -613,6 +613,16 @@ private struct EffectsGenerateCard: View {
                     Text(effects.generator.explanation).font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     if effects.generator == .faceswap {
+                        Picker("Quality", selection: $effects.faceQuality) {
+                            Text("Natural").tag("natural")
+                            Text("Fast").tag("fast")
+                        }
+                        .pickerStyle(.segmented)
+                        .fixedSize()
+                        Text(effects.faceQuality == "natural"
+                             ? "Sharper face, real teeth: the inside of the mouth stays the original. About 3 times slower."
+                             : "Quickest: the whole face is redrawn, teeth included.")
+                            .font(.caption).foregroundStyle(.secondary)
                         Toggle("Sharpen the face (about 20 times slower)", isOn: $effects.enhanceFace)
                             .font(.caption)
                     }

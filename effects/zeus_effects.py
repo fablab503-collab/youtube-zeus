@@ -674,6 +674,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "animevideov3, best = realesrgan-x4plus, lanczos = no model; default fast)")
     g.add_argument("--enhance", action="store_true",
                    help="faceswap: also sharpen the face (GFPGAN), about 20x slower")
+    g.add_argument("--quality", choices=("natural", "fast"), default=None,
+                   help="faceswap: natural (default: pixel boost 512, the real inside of the mouth kept) or fast")
 
     fp = sub.add_parser("facepack", help="check a face pack (.c101face) and show the frames generate would pick")
     fp.add_argument("--pack", required=True, metavar="DIR", help="the .c101face folder")

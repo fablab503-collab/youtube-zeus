@@ -119,8 +119,8 @@ nonisolated enum EffectsGenerator: String, CaseIterable, Identifiable, Sendable 
 
     var explanation: String {
         switch self {
-        case .faceswap: "FaceFusion swaps the face only, on the original clip (CoreML on this Mac). About a minute."
-        case .vace: "Wan2.1-VACE 1.3B redraws the whole person from the depth and the mask. Slow on a laptop: count tens of minutes."
+        case .faceswap: "FaceFusion swaps the face only, on the original clip, at full quality. About 10 s per second of video."
+        case .vace: "Wan2.1-VACE 1.3B redraws the whole person from the depth and the mask. About 10 minutes per second of video at 360p; still experimental (hands can smear)."
         }
     }
 }
@@ -469,8 +469,9 @@ nonisolated enum EffectsArguments {
     }
 
     static func generate(job: URL, engine: EffectsGenerator, references: [URL], prompt: String, consent: Bool,
-                         frames: Int, steps: Int, size: String, seed: Int?) -> [String] {
+                         frames: Int, steps: Int, size: String, seed: Int?, enhance: Bool = false) -> [String] {
         var arguments = ["generate", "--job", job.path, "--engine", engine.rawValue]
+        if engine == .faceswap && enhance { arguments.append("--enhance") }
         for reference in references { arguments += ["--ref", reference.path] }
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty { arguments += ["--prompt", text] }
@@ -692,6 +693,7 @@ final class EffectsEngine {
     var steps = 20
     var size = "360p"   // 480p fits 16 GB but takes ~2x longer and looked worse (effects/ENGINES.md)
     var seedText = ""
+    var enhanceFace = false   // face swap: GFPGAN sharpening, ~20x slower (33 s vs 11 min for 3 s of 1080p)
 
     var isBusy: Bool { work != nil }
     var isSetUp: Bool { EffectsPaths.isSetUp }
@@ -807,7 +809,8 @@ final class EffectsEngine {
         let references = [first] + (secondPhoto.map { [$0] } ?? [])
         let seed = Int(seedText.trimmingCharacters(in: .whitespaces))
         let arguments = EffectsArguments.generate(job: job.folder, engine: generator, references: references, prompt: prompt,
-                                                  consent: consent, frames: frames, steps: steps, size: size, seed: seed)
+                                                  consent: consent, frames: frames, steps: steps, size: size, seed: seed,
+                                                  enhance: enhanceFace)
         let (ok, _) = await run(.generate, EffectsPaths.python, [script.path] + arguments)
         reload(job.folder)
         return ok

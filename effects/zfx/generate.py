@@ -240,25 +240,51 @@ def probe_video(path: Path) -> dict:
         frames = round(duration * float(fps))
     if (not duration) and frames and fps:
         duration = frames / float(fps)
+    def _float(x) -> float:
+        try:
+            return float(x or 0.0)
+        except ValueError:
+            return 0.0
+
+    fmt = info.get("format", {})
+    container = _float(fmt.get("duration"))
     return {"width": int(v.get("width") or 0), "height": int(v.get("height") or 0), "fps": fps,
-            "duration": duration, "frames": frames, "codec": v.get("codec_name"), "has_audio": a is not None}
+            "duration": duration, "container_duration": container or duration, "frames": frames,
+            "video_start": _float(v.get("start_time")) - _float(fmt.get("start_time")),
+            "codec": v.get("codec_name"), "has_audio": a is not None}
 
 
-def mux_final(raw: Path, source: Path, audio: Optional[Path], out: Path, engine: str) -> dict:
-    """final = raw video retimed to source fps/duration, scaled to source size + original audio (stream copy)."""
+def mux_final(raw: Path, source: Path, audio: Optional[Path], out: Path, engine: str,
+              mask: Optional[Path] = None) -> dict:
+    """final = raw video at the source fps and size, on the source's clock, + original audio (stream copy).
+
+    With `mask` (vace): the generated pixels are kept only inside the feathered person mask, over the original
+    full-resolution frames, so everything outside the person stays sharp (VACE only redraws the mask anyway, but at
+    360p for the whole frame).
+
+    The raw video is never time-stretched: it is resampled to the source fps, then padded (last frame held) or trimmed
+    to the source *file* duration, the clock the audio follows. Stretching it to the video stream's duration made lips
+    drift up to ~0.1 s by the end of a 3 s clip (found 2026-10-11). vace: work.mp4 is padded so frame i is time i/16
+    from the start of the file, so its output starts at 0. faceswap: FaceFusion's frame 0 is the source's first video
+    frame, which YouTube files show ~33 ms after the audio starts, so its output starts at that same offset."""
     raw_i, src_i = probe_video(raw), probe_video(source)
+    offset = max(0.0, src_i["video_start"]) if engine == "faceswap" else 0.0
     src_fps = src_i["fps"] or Fraction(30)
-    src_dur = src_i["duration"] or (raw_i["duration"] or 0.0)
+    src_dur = src_i["container_duration"] or (raw_i["duration"] or 0.0)
     raw_dur = (raw_i["frames"] / float(raw_i["fps"])) if raw_i["frames"] and raw_i["fps"] else raw_i["duration"]
     if not raw_dur or not src_dur:
         raise GenerateError("Could not read the clip durations for the final mux.")
-    factor = src_dur / raw_dur
+    factor = 1.0
     w, h = src_i["width"] - src_i["width"] % 2, src_i["height"] - src_i["height"] % 2
-    same = (abs(factor - 1.0) < 1e-3 and raw_i["fps"] == src_fps and (raw_i["width"], raw_i["height"]) == (w, h)
-            and raw_i["codec"] == "h264")
+    composite = mask is not None and Path(mask).is_file()
+    same = (not composite and abs(raw_dur - src_dur) <= 1.5 / float(src_fps) and raw_i["fps"] == src_fps
+            and (raw_i["width"], raw_i["height"]) == (w, h) and raw_i["codec"] == "h264")
     comment = AI_COMMENT.format(engine=engine)
     tmp = out.with_name(out.stem + ".partial" + out.suffix)
-    cmd = [_tool("ffmpeg"), "-y", "-v", "error", "-i", str(raw)]
+    cmd = [_tool("ffmpeg"), "-y", "-v", "error"]
+    if offset > 1e-4:
+        cmd += ["-itsoffset", f"{offset:.6f}"]
+    cmd += ["-i", str(raw)]
     audio_src = None
     if audio and Path(audio).is_file():
         audio_src = Path(audio)
@@ -266,14 +292,31 @@ def mux_final(raw: Path, source: Path, audio: Optional[Path], out: Path, engine:
         audio_src = source  # no audio.m4a: copy the source's own audio stream
     if audio_src is not None:
         cmd += ["-i", str(audio_src)]
-    cmd += ["-map", "0:v:0"]
+    rate = f"{src_fps.numerator}/{src_fps.denominator}"
+    hold = f"tpad=stop_mode=clone:stop_duration=1,trim=end={src_dur:.6f}"
+    if composite:
+        si = 2 if audio_src is not None else 1
+        cmd += ["-i", str(source), "-i", str(mask)]
+        lead = max(0.0, src_i["video_start"])   # the source's own video starts that late on the file's clock
+        sigma = max(2.0, w / 320.0)              # feather ~6 px at 1080p
+        graph = (f"[0:v]setpts=PTS-STARTPTS,fps={rate},{hold},scale={w}:{h}:flags=lanczos,format=gbrp[gen];"
+                 f"[{si + 1}:v]setpts=PTS-STARTPTS,fps={rate},{hold},scale={w}:{h}:flags=bilinear,"
+                 f"format=gray,gblur=sigma={sigma:.1f},format=gbrp[m];"
+                 f"[{si}:v]setpts=PTS-STARTPTS,tpad=start_mode=clone:start_duration={lead:.6f},fps={rate},{hold},"
+                 f"scale={w}:{h},format=gbrp[base];"
+                 f"[base][gen][m]maskedmerge,format=yuv420p[v]")
+        cmd += ["-filter_complex", graph, "-map", "[v]"]
+    else:
+        cmd += ["-map", "0:v:0"]
     if audio_src is not None:
         cmd += ["-map", "1:a:0", "-c:a", "copy"]
-    if same:
+    if composite:
+        cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "17"]
+    elif same:
         cmd += ["-c:v", "copy"]
     else:
-        vf = (f"setpts={factor:.8f}*(PTS-STARTPTS),fps={src_fps.numerator}/{src_fps.denominator},"
-              f"tpad=stop_mode=clone:stop_duration=1,trim=duration={src_dur:.6f},setpts=PTS-STARTPTS,"
+        vf = (f"setpts=PTS-STARTPTS+{offset:.6f}/TB,fps={src_fps.numerator}/{src_fps.denominator},"
+              f"tpad=stop_mode=clone:stop_duration=1,trim=end={src_dur:.6f},"
               f"scale={w}:{h}:flags=lanczos,format=yuv420p")
         cmd += ["-vf", vf, "-c:v", "libx264", "-preset", "medium", "-crf", "17"]
     cmd += ["-map_metadata", "-1", "-metadata", f"comment={comment}", "-movflags", "+faststart", str(tmp)]
@@ -283,7 +326,8 @@ def mux_final(raw: Path, source: Path, audio: Optional[Path], out: Path, engine:
         raise GenerateError("Final mux failed: " + (proc.stderr.strip().splitlines() or ["?"])[-1][:300])
     os.replace(tmp, out)
     return {"retime_factor": round(factor, 5), "fps": f"{src_fps.numerator}/{src_fps.denominator}",
-            "duration": round(src_dur, 3), "width": w, "height": h, "video_stream_copy": same,
+            "duration": round(src_dur, 3), "video_offset": round(offset, 4), "width": w, "height": h,
+            "video_stream_copy": same, "composited_in_mask": composite,
             "audio": audio_src.name if audio_src else None, "comment": comment}
 
 
@@ -321,13 +365,16 @@ def run_generate(args, job_dir, progress: Optional[Progress] = None) -> dict:
         "steps": getattr(args, "steps", None),
         "size": getattr(args, "size", None),
         "seed": getattr(args, "seed", None),
+        "enhance": bool(getattr(args, "enhance", False)),
     }
     t0 = time.monotonic()
     report("generate", 0.0, f"starting {engine.LABEL}")
     try:
         info = engine.run(job_path, refs, raw, report, **options)
         report("mux", 0.0, "putting the original audio back")
-        mux = mux_final(raw, source, audio if audio.is_file() else None, final, engine_name)
+        mask = job_path / "mask.mp4"
+        mux = mux_final(raw, source, audio if audio.is_file() else None, final, engine_name,
+                        mask=mask if engine_name == "vace" and mask.is_file() else None)
         report("mux", 1.0, "final.mp4 ready")
     except (EngineError, GenerateError) as exc:
         update_job(job_path, lambda d: d.update(status=previous_status or "approved", last_error=str(exc)))

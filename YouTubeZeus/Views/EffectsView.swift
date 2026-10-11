@@ -599,6 +599,10 @@ private struct EffectsGenerateCard: View {
                     .labelsHidden()
                     Text(effects.generator.explanation).font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if effects.generator == .faceswap {
+                        Toggle("Sharpen the face (about 20 times slower)", isOn: $effects.enhanceFace)
+                            .font(.caption)
+                    }
                     if installed == false {
                         Label("Not installed yet: add it in Engine, above.", systemImage: "arrow.up.circle")
                             .font(.caption)

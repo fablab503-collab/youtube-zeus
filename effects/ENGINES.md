@@ -137,3 +137,27 @@ Overrides: `ZEUS_VACE_DIR`, `ZEUS_VACE_DEVICE`, `ZEUS_VACE_DTYPE` (fp16/bf16/fp3
 
 No Enhancor, Seedance, Replicate or any hosted API; no vocal split / pitch shift (the original
 audio is always copied back untouched).
+
+## End-to-end check, 2026-10-11 (M2 Pro 16 GB, Zeus + Ollama running, ~1.6 GB free at start)
+
+| Step | Result |
+|---|---|
+| doctor | all ok (Python 3.12.13, torch 2.11 MPS, weights, both engines) |
+| prepare, YouTube, depth, 2 s | 30 s, 4.9 GB peak |
+| prepare, YouTube, mesh, 3 s | 40 s, 5.3 GB (mesh mode still computes depth + mask it does not need) |
+| prepare, local file, depth_mesh, 3 s | 35 s, 5.3 GB |
+| generate before approve / without --consent / after a prepared file changed | all refused with a clear message |
+| faceswap with face_enhancer, 3 s 1080p30 | 697 s; CoreML requested; audio byte-identical; AI comment set |
+| faceswap without enhancer (now the default) | **33 s**, visually the same at normal size; `--enhance` keeps the old path |
+| vace, 2 s at 360p / 33 frames / 20 steps | 1180 s, 5.0 GB peak; a plausible person, but hands do not follow the control and the last frames can glitch (colour noise) |
+| `YouTube Zeus --cli effects doctor/list` | ok |
+
+Fixed the same day:
+- **Lip drift**: `mux_final` stretched the raw video to the source's video-stream duration (2.97 s) instead of the file's
+  (3.02 s): final frame k drifted to source frame k+3 by the end of 3 s (~0.1 s). Now never time-stretched; faceswap output
+  starts at the source's video start (33 ms on YouTube files). Measured after the fix: 0 frames off along the whole clip.
+- **Soft background with vace**: the whole frame came from the 360p generation. Now the generated pixels are composited only
+  inside the feathered mask over the original full-resolution frames.
+
+Still open: vace motion fidelity (hands) and end-of-window glitches; mesh mode doing depth work it does not use; the identity
+swap with a *different* person is untested (all tests used the presenter's own face).

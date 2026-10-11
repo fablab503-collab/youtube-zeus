@@ -46,7 +46,10 @@ from . import EngineError
 
 NAME = "faceswap"
 LABEL = "Face swap · fast (FaceFusion, local)"
-PROCESSORS = ("face_swapper", "face_enhancer")
+PROCESSORS = ("face_swapper",)
+# The face enhancer (GFPGAN) sharpens the swapped face but is ~20x slower on the M2 Pro (measured 2026-10-11, 3 s of
+# 1080p30: 33 s without, 697 s with) and barely visible at normal size: opt-in with --enhance.
+ENHANCED_PROCESSORS = ("face_swapper", "face_enhancer")
 # Optional override of the swapper model, e.g. ghost_2_256 (Apache-2.0) instead of hyperswap_1a_256.
 SWAPPER_ENV = "ZEUS_FACESWAP_MODEL"
 TIMEOUT_S = 3 * 3600
@@ -99,12 +102,13 @@ def status() -> dict:
 # ----------------------------------------------------------------------------- command
 def build_command(ff_dir: Path, refs: Sequence[Path], target: Path, output: Path, temp_dir: Path,
                   jobs_dir: Path, providers: Sequence[str] = ("coreml", "cpu"),
-                  selector: str = "one", swapper_model: Optional[str] = None) -> list[str]:
+                  selector: str = "one", swapper_model: Optional[str] = None,
+                  processors: Sequence[str] = PROCESSORS) -> list[str]:
     cmd = [str(facefusion_python(ff_dir)), "facefusion.py", "headless-run",
            "--source-paths", *[str(r) for r in refs],
            "--target-path", str(target),
            "--output-path", str(output),
-           "--processors", *PROCESSORS,
+           "--processors", *processors,
            "--execution-providers", *providers,
            "--face-selector-mode", selector,
            "--temp-path", str(temp_dir),
@@ -180,8 +184,9 @@ def _progress_wrapper(progress: Optional[Progress]) -> Progress:
 
 # ----------------------------------------------------------------------------- run
 def run(job_dir, refs: Sequence, out_path, progress: Optional[Progress] = None, *,
-        target: Optional[Path] = None, selector: str = "one", **_ignored) -> dict:
+        target: Optional[Path] = None, selector: str = "one", enhance: bool = False, **_ignored) -> dict:
     """Swap the reference face onto source.mp4 -> out_path (video; FaceFusion's own audio is ignored)."""
+    processors = ENHANCED_PROCESSORS if enhance else PROCESSORS
     job_dir = Path(job_dir)
     out_path = Path(out_path)
     report = _progress_wrapper(progress)
@@ -213,7 +218,8 @@ def run(job_dir, refs: Sequence, out_path, progress: Optional[Progress] = None, 
             report("generate", None, f"FaceFusion starting ({', '.join(providers)})")
             # FaceFusion keeps job state in --jobs-path; a fresh folder per attempt avoids stale ids.
             shutil.rmtree(jobs_dir, ignore_errors=True)
-            cmd = build_command(ff, refs, target, tmp_out, temp_dir, jobs_dir, providers, selector, swapper)
+            cmd = build_command(ff, refs, target, tmp_out, temp_dir, jobs_dir, providers, selector, swapper,
+                                processors)
             code, last_tail = _run_streaming(cmd, ff, report, log_file)
             if code == 0 and tmp_out.is_file() and tmp_out.stat().st_size > 0:
                 used = providers
@@ -242,7 +248,7 @@ def run(job_dir, refs: Sequence, out_path, progress: Optional[Progress] = None, 
         "engine": NAME,
         "seconds": seconds,
         "execution_providers": list(used),
-        "processors": list(PROCESSORS),
+        "processors": list(processors),
         "swapper_model": swapper or "hyperswap_1a_256",
         "face_selector_mode": selector,
         "target": target.name,

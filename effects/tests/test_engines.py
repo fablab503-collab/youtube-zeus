@@ -265,6 +265,76 @@ class MuxTests(unittest.TestCase):
         self.assertTrue(mux["video_stream_copy"])
         self.assertEqual(audio_packets_sha(out), audio_packets_sha(audio))
 
+    def test_mux_composites_generated_pixels_only_inside_mask(self):
+        try:
+            import numpy as np
+        except ImportError:  # pragma: no cover
+            self.skipTest("numpy not available")
+        src = self.tmp / "source.mp4"
+        make_source(src, seconds=1.0, size="320x180")
+        audio = self.tmp / "audio.m4a"
+        _run([_bin("ffmpeg"), "-y", "-v", "error", "-i", str(src), "-vn", "-c:a", "copy", str(audio)])
+        raw = self.tmp / "raw.mp4"    # the engine's output: low resolution, 16 fps, all red
+        _run([_bin("ffmpeg"), "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=red:size=160x90:rate=16",
+              "-frames:v", "17", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(raw)])
+        mask = self.tmp / "mask.mp4"  # white box in the middle = the person
+        _run([_bin("ffmpeg"), "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=black:size=160x90:rate=16",
+              "-frames:v", "17", "-vf", "drawbox=x=50:y=25:w=60:h=40:color=white:t=fill",
+              "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(mask)])
+        out = self.tmp / "final.mp4"
+        mux = generate.mux_final(raw, src, audio, out, "vace", mask=mask)
+        self.assertTrue(mux["composited_in_mask"])
+
+        def frame(p, index=10):
+            data = subprocess.run([_bin("ffmpeg"), "-v", "error", "-i", str(p), "-vf", f"select=eq(n\\,{index})",
+                                   "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                                  check=True, capture_output=True).stdout
+            return np.frombuffer(data, np.uint8).reshape(180, 320, 3).astype(int)
+
+        f, s = frame(out), frame(src)
+        centre = f[90, 160]
+        self.assertGreater(centre[0], 180)
+        self.assertLess(centre[1], 80)                              # generated (red) inside the mask
+        self.assertLess(np.abs(f[10:30, 10:60] - s[10:30, 10:60]).mean(), 6)   # original outside it
+        self.assertEqual(audio_packets_sha(out), audio_packets_sha(audio))
+
+    def test_mux_never_time_stretches(self):
+        """YouTube sources start their video ~33 ms after the audio, so the video stream is shorter than the file.
+        Raw frames are on the file's clock: frame k of the final must be frame k of the raw (no drift)."""
+        try:
+            import numpy as np
+        except ImportError:  # pragma: no cover
+            self.skipTest("numpy not available")
+        src = self.tmp / "source.mp4"
+        _run([_bin("ffmpeg"), "-y", "-v", "error",
+              "-itsoffset", "0.0333", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=30:duration=2.9667",
+              "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3.02",
+              "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", str(src)])
+        audio = self.tmp / "audio.m4a"
+        _run([_bin("ffmpeg"), "-y", "-v", "error", "-i", str(src), "-vn", "-c:a", "copy", str(audio)])
+        raw = self.tmp / "raw.mp4"   # 91 frames from t=0, like FaceFusion's output for that source
+        _run([_bin("ffmpeg"), "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30",
+              "-frames:v", "91", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-an", str(raw)])
+        out = self.tmp / "final.mp4"
+        mux = generate.mux_final(raw, src, audio, out, "faceswap")
+        self.assertEqual(mux["retime_factor"], 1.0)
+        # FaceFusion's frame 0 is the source's first video frame: the final video starts where the source's does
+        self.assertAlmostEqual(generate.probe_video(out)["video_start"], generate.probe_video(src)["video_start"],
+                               delta=0.002)
+
+        def frames(p):  # the stored frames, in order (passthrough: no frames added to fill the start)
+            data = subprocess.run([_bin("ffmpeg"), "-v", "error", "-i", str(p), "-fps_mode", "passthrough",
+                                   "-vf", "scale=80:45,format=gray", "-f", "rawvideo", "-"],
+                                  check=True, capture_output=True).stdout
+            a = np.frombuffer(data, np.uint8)
+            return a[: len(a) // 3600 * 3600].reshape(-1, 45, 80).astype(np.float32)
+
+        f, r = frames(out), frames(raw)
+        for k in (5, 45, 85):
+            diffs = [float(np.abs(f[k] - r[j]).mean()) for j in range(len(r))]
+            self.assertEqual(int(np.argmin(diffs)), k, f"final frame {k} drifted to raw frame {int(np.argmin(diffs))}")
+        self.assertEqual(audio_packets_sha(out), audio_packets_sha(audio))
+
 
 @unittest.skipIf(vace is None, "numpy not available")
 class WindowPlanTests(unittest.TestCase):
@@ -831,9 +901,14 @@ class FaceSwapCommandTests(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--target-path") + 1], "/j/source.mp4")
         self.assertEqual(cmd[cmd.index("--output-path") + 1], "/j/out.mp4")
         i = cmd.index("--processors")
-        self.assertEqual(cmd[i + 1:i + 3], ["face_swapper", "face_enhancer"])
+        self.assertEqual(cmd[i + 1:i + 2], ["face_swapper"])       # fast by default: no enhancer
+        self.assertNotIn("face_enhancer", cmd)
         i = cmd.index("--execution-providers")
         self.assertEqual(cmd[i + 1:i + 3], ["coreml", "cpu"])
+        enhanced = faceswap.build_command(Path("/ff"), [Path("/r/a.jpg")], Path("/j/source.mp4"), Path("/j/out.mp4"),
+                                          Path("/j/tmp"), Path("/j/jobs"), processors=faceswap.ENHANCED_PROCESSORS)
+        i = enhanced.index("--processors")
+        self.assertEqual(enhanced[i + 1:i + 3], ["face_swapper", "face_enhancer"])
 
     def test_progress_regex(self):
         line = "processing:  78%|=======   | 70/90 [03:16<00:31,  1.57s/frame, execution_providers=['coreml']]"

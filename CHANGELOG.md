@@ -22,6 +22,12 @@ Newest first.
 - **For agents:** `zeus effects <doctor|prepare|approve|generate|status|list|setup> [args…]` passes everything to the
   engine and streams its JSON lines; `youtubezeus://effects?video=<id>` opens the tab with that video. The agent guide
   has a new Effects section (consent is always the user's).
+- **Measured on a 16 GB M2 Pro (2026-10-11).** Prepare: ~40 s for 4 s of video, 5 GB peak. Full replace at 360p,
+  33 frames, 20 steps: ~16 min per 2 s, 5 GB peak (fp16 transformer copy streamed to the GPU block by block, prompt
+  encoding on the CPU in its own process, scheduler step on the CPU because UniPC diverges on MPS). 480p fits but is
+  about twice as slow. Faces shown on screens or posters are left out of the mask (`--min-person-ratio`).
+- **Fix:** opening a video no longer crashes on macOS 27: SwiftUI's `VideoPlayer` aborts there, so every player (Effects
+  and the player bar of podcasts and your files) now uses AVKit's AppKit player view.
 
 ## 3.7 — 2026-10-08
 

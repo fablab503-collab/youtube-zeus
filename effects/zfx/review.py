@@ -1,8 +1,9 @@
 """Review gate: approval bound to SHA-256 hashes of the prepared artifacts.
 
 approve(job)  hashes source.mp4, audio.m4a, work.mp4, depth.mp4 (not in mode pose), mask.mp4, control.mp4,
-              face-landmarks.json (mesh and pose modes), motion.json + pose.mp4 (pose modes), motion.bvh and
-              preview.jpg (when present) into job.json.review.
+              face-landmarks.json (mesh and pose modes), motion.json + pose.mp4 (pose modes), the parts map
+              (parts.mp4, parts.npz, parts.json, control-parts.mp4: required in mode depth_parts), motion.bvh,
+              preview.jpg and preview-parts.jpg (when present) into job.json.review.
 verify(job)   used by generate: raises ReviewError (plain English) unless the job was
               approved and every approved file still has the same hash. Returns the hashes.
 """
@@ -13,7 +14,7 @@ import hashlib
 from pathlib import Path
 from typing import Union
 
-from . import MESH_MODES, POSE_MODES
+from . import MESH_MODES, PARTS_MODES, POSE_MODES
 from .jobs import Job, now_iso
 
 HASH_CHUNK = 1 << 20
@@ -40,17 +41,21 @@ def required_artifacts(job: Job) -> list[str]:
         names.append("landmarks")
     if job.mode in POSE_MODES:
         names += ["motion", "pose"]
+    if job.mode in PARTS_MODES:     # the full replace follows control-parts.mp4 in this mode
+        names += ["parts", "parts_index", "parts_json", "control_parts"]
     if job.get("has_audio"):
         names.append("audio")
     return names
 
 
-OPTIONAL_REVIEWED = ("audio", "preview", "depth", "landmarks", "motion", "pose", "bvh")
+OPTIONAL_REVIEWED = ("audio", "preview", "depth", "landmarks", "motion", "pose", "bvh",
+                     "parts", "parts_index", "parts_json", "control_parts", "preview_parts")
 
 
 def reviewed_artifacts(job: Job) -> list[str]:
     """Everything that gets hashed: required + the optional files present (preview, motion.bvh, the motion
-    assets of a non-pose mode prepared with --motion)."""
+    assets of a non-pose mode prepared with --motion, the parts map of a job prepared with --parts or given one
+    by the parts command before approval)."""
     names = required_artifacts(job)
     for optional in OPTIONAL_REVIEWED:
         if optional not in names and job.artifact(optional) is not None:

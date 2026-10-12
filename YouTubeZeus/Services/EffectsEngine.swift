@@ -84,6 +84,7 @@ nonisolated enum EffectsMode: String, CaseIterable, Identifiable, Sendable {
     case mesh
     case pose
     case depthPose = "depth_pose"
+    case depthParts = "depth_parts"
 
     var id: String { rawValue }
 
@@ -94,6 +95,7 @@ nonisolated enum EffectsMode: String, CaseIterable, Identifiable, Sendable {
         case .mesh: "Face mesh"
         case .pose: "Pose"
         case .depthPose: "Depth + pose"
+        case .depthParts: "Depth + parts"
         }
     }
 
@@ -104,8 +106,12 @@ nonisolated enum EffectsMode: String, CaseIterable, Identifiable, Sendable {
         case .mesh: "The original picture with the face mesh on top: the lightest guide."
         case .pose: "Whole-body motion capture (body, hands, face): the coloured skeleton on black guides the model, so the new subject can have any shape. Also saves the movement as motion.json and motion.bvh."
         case .depthPose: "Grey depth of the people with the coloured body and hand skeleton on top, plus the saved movement (motion.json, motion.bvh)."
+        case .depthParts: "Depth + pose, plus a parts map: every body part, the face in detail (eyes, mouth, hair, hat…), the things you name and the background get their own tone. Full replace then follows that map (control-parts.mp4). About half a minute more."
         }
     }
+
+    /// The parts map (effects/PARTS.md) is built in this mode (`--things` names things for it).
+    var hasParts: Bool { self == .depthParts }
 
     static func label(_ raw: String) -> String { EffectsMode(rawValue: raw)?.label ?? raw }
 }
@@ -323,7 +329,7 @@ nonisolated struct EffectsMakeMe: Hashable, Sendable {
 
     static func explanation(_ step: String) -> String {
         switch step {
-        case "prepare": "Download or trim the clip, depth, people mask and face mesh."
+        case "prepare": "Download or trim the clip, depth, people mask and face mesh (and the parts map when it is on)."
         case "refs": "The reference frames (face pack, self-video or photos) and the voice sample."
         case "approve": "Recorded automatically: you consented and chose the clip."
         case "faceswap": "FaceFusion puts your face on, quality natural."
@@ -424,6 +430,95 @@ nonisolated struct EffectsGeneration: Hashable, Sendable {
     var final: String?
 }
 
+/// `parts_info` of job.json (effects/PARTS.md): what the parts map found — the classes and their share of the frame,
+/// the things named and how often they were found, the gaze.
+nonisolated struct EffectsParts: Hashable, Sendable {
+    nonisolated struct Share: Hashable, Sendable, Identifiable {
+        var name: String
+        /// Mean share of the frame, in percent.
+        var percent: Double
+        var id: String { name }
+    }
+
+    nonisolated struct Thing: Hashable, Sendable, Identifiable {
+        var name: String
+        /// Share of the frames where it was found (outside the person unless asked otherwise).
+        var rate: Double
+        var frames: Int
+        var framesAnywhere: Int
+        var id: String { name }
+    }
+
+    nonisolated struct Count: Hashable, Sendable, Identifiable {
+        var name: String
+        var count: Int
+        var id: String { name }
+    }
+
+    var frames = 0
+    var classes: [Share] = []        // biggest first
+    var things: [Thing] = []         // in the order of the prompt
+    var thingsPrompt = ""
+    var gazeDirections: [Count] = [] // most frequent first
+    var blinkFrames: Int?
+    var meanOpenness: Double?
+    var warnings: [String] = []
+
+    init?(_ object: [String: Any]?) {
+        guard let object else { return nil }
+        frames = Int(EffectsJSON.number(object["frames"]) ?? 0)
+        let rawClasses = object["classes"] as? [String: Any] ?? [:]
+        classes = rawClasses.compactMap { name, value in EffectsJSON.number(value).map { Share(name: name, percent: $0) } }
+            .sorted { ($0.percent, $1.name) > ($1.percent, $0.name) }
+        thingsPrompt = EffectsJSON.string(object["things_prompt"]) ?? ""
+        let rawThings = object["things"] as? [String: Any] ?? [:]
+        let order = thingsPrompt.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        things = rawThings.compactMap { name, value -> Thing? in
+            guard let item = value as? [String: Any] else { return nil }
+            return Thing(name: name, rate: EffectsJSON.number(item["rate"]) ?? 0,
+                         frames: Int(EffectsJSON.number(item["frames"]) ?? 0),
+                         framesAnywhere: Int(EffectsJSON.number(item["frames_anywhere"]) ?? 0))
+        }
+        .sorted { (order.firstIndex(of: $0.name) ?? order.count, $0.name) < (order.firstIndex(of: $1.name) ?? order.count, $1.name) }
+        if let gaze = object["gaze"] as? [String: Any] {
+            let directions = gaze["directions"] as? [String: Any] ?? [:]
+            gazeDirections = directions.compactMap { name, value in EffectsJSON.number(value).map { Count(name: name, count: Int($0)) } }
+                .sorted { ($0.count, $1.name) > ($1.count, $0.name) }
+            blinkFrames = EffectsJSON.number(gaze["blink_frames"]).map { Int($0) }
+            meanOpenness = EffectsJSON.number(gaze["mean_openness"])
+        }
+        warnings = (object["warnings"] as? [Any] ?? []).compactMap { EffectsJSON.string($0) }
+    }
+
+    /// "torso 3.4 % · face-skin 0.9 % · head 0.7 %": the biggest classes of the person (the background bands left out).
+    var classesText: String {
+        let person = classes.filter { !$0.name.hasPrefix("background") && !$0.name.hasPrefix("thing:") }
+        let shown = person.prefix(6).map { "\($0.name) \(String(format: $0.percent >= 10 ? "%.0f" : "%.1f", $0.percent)) %" }
+        let more = person.count - shown.count
+        return shown.joined(separator: " · ") + (more > 0 ? " · \(more) more" : "")
+    }
+
+    /// "laptop 100 % · microphone 14 % (on the person 47 %)": how often each named thing was found.
+    var thingsText: String {
+        things.map { thing in
+            var text = "\(thing.name) \(Int((thing.rate * 100).rounded())) %"
+            if thing.framesAnywhere > thing.frames, frames > 0 {
+                text += " (anywhere \(Int((Double(thing.framesAnywhere) / Double(frames) * 100).rounded())) %)"
+            }
+            return text
+        }.joined(separator: " · ")
+    }
+
+    /// "centre 64/64 · 3 blinks · openness 0.63", nil without the gaze.
+    var gazeText: String? {
+        guard !gazeDirections.isEmpty else { return nil }
+        var parts = gazeDirections.prefix(3).map { "\($0.name) \($0.count)/\(frames)" }
+        if let blinkFrames { parts.append("\(blinkFrames) blink frame\(blinkFrames == 1 ? "" : "s")") }
+        if let meanOpenness { parts.append("openness \(String(format: "%.2f", meanOpenness))") }
+        return parts.joined(separator: " · ")
+    }
+}
+
 /// One job folder (`Jobs/<id>/job.json` and the files SPEC lists).
 nonisolated struct EffectsJob: Identifiable, Hashable, Sendable {
     var id: String
@@ -439,6 +534,8 @@ nonisolated struct EffectsJob: Identifiable, Hashable, Sendable {
     var generations: [EffectsGeneration] = []
     /// The one-button job (Make it me), when job.json has a `makeme` section.
     var makeMe: EffectsMakeMe?
+    /// What the parts map found (effects/PARTS.md), when job.json has a `parts_info` section.
+    var partsInfo: EffectsParts?
     /// job.json's modification time: players and pictures reload when it changes.
     var stamp: Double = 0
 
@@ -453,6 +550,7 @@ nonisolated struct EffectsJob: Identifiable, Hashable, Sendable {
         mode = EffectsJSON.string(object["mode"]) ?? ""
         status = EffectsJSON.string(object["status"]) ?? ""
         makeMe = EffectsMakeMe(object["makeme"] as? [String: Any])
+        partsInfo = EffectsParts(object["parts_info"] as? [String: Any])
         if let review = object["review"] as? [String: Any] {
             let hashes = review["hashes"] as? [String: Any] ?? [:]
             approvedAt = EffectsJSON.string(review["approved_at"]) ?? (hashes.isEmpty ? nil : "")
@@ -499,6 +597,11 @@ nonisolated struct EffectsJob: Identifiable, Hashable, Sendable {
     }
     var compare: URL? { file("compare.mp4") }
     var swapResult: URL? { file("final-swap.mp4") }
+    /// The parts map's files (effects/PARTS.md), when the job has them.
+    var partsPreview: URL? { file("preview-parts.jpg") }
+    var partsVideo: URL? { file("parts.mp4") }
+    var partsControl: URL? { file("control-parts.mp4") }
+    var hasPartsMap: Bool { partsControl != nil || partsVideo != nil }
 
     var youtubeID: String? {
         if case .video(let id) = YouTubeLink.parse(input), input.lowercased().hasPrefix("http") || input.count == 11 { return id }
@@ -584,9 +687,13 @@ nonisolated enum EffectsJobs {
 nonisolated enum EffectsArguments {
     static let maxDuration = 10.0
 
-    static func prepare(input: String, start: Double, duration: Double, mode: EffectsMode, cookies: URL?) -> [String] {
+    /// `things` ("microphone, laptop, cap") names things for the parts map; only the Depth + parts mode builds one.
+    static func prepare(input: String, start: Double, duration: Double, mode: EffectsMode, cookies: URL?,
+                        things: String = "") -> [String] {
         var arguments = ["prepare", "--input", input, "--start", number(max(0, start)),
                          "--duration", number(min(maxDuration, max(0.5, duration))), "--mode", mode.rawValue]
+        let names = things.trimmingCharacters(in: .whitespacesAndNewlines)
+        if mode.hasParts, !names.isEmpty { arguments += ["--things", names] }
         if let cookies, input.lowercased().hasPrefix("http") { arguments += ["--cookies", cookies.path] }
         return arguments
     }
@@ -607,10 +714,11 @@ nonisolated enum EffectsArguments {
         return arguments
     }
 
-    /// `makeme` (effects/MAKE-IT-ME.md): the whole job in one go. `me` is a face pack folder, a self-video or photos.
+    /// `makeme` (effects/MAKE-IT-ME.md): the whole job in one go. `me` is a face pack folder, a self-video or photos;
+    /// `parts` adds the parts map to its prepare step (`--parts`).
     static func makeMe(input: String, start: Double, duration: Double, me: EffectsMe, voice: URL?, voiceOn: Bool,
                        quality: String, hat: Bool, hair: String, person: String, consent: Bool, job: URL?,
-                       cookies: URL?) -> [String] {
+                       cookies: URL?, parts: Bool = false) -> [String] {
         var arguments = ["makeme", "--input", input, "--start", number(max(0, start)),
                          "--duration", number(min(maxDuration, max(0.5, duration)))]
         switch me {
@@ -625,6 +733,7 @@ nonisolated enum EffectsArguments {
         if !hairText.isEmpty { arguments += ["--hair", hairText] }
         let name = person.trimmingCharacters(in: .whitespacesAndNewlines)
         if !name.isEmpty { arguments += ["--person", name] }
+        if parts { arguments.append("--parts") }
         if consent { arguments.append("--consent") }
         if let job { arguments += ["--job", job.path] }
         if let cookies, input.lowercased().hasPrefix("http") { arguments += ["--cookies", cookies.path] }
@@ -652,7 +761,7 @@ nonisolated enum EffectsArguments {
                       voiceOn: record.options["voice_on"] != "false", quality: record.options["quality"] ?? "natural",
                       hat: record.options["hat"] == "remove", hair: record.options["hair"] ?? "",
                       person: record.options["person"] ?? "", consent: record.options["consent"] == "true",
-                      job: job.folder, cookies: cookies)
+                      job: job.folder, cookies: cookies, parts: record.options["parts"] == "true")
     }
 
     static func number(_ value: Double) -> String {
@@ -1026,6 +1135,8 @@ final class EffectsEngine {
     var startText = "0"
     var length: Double = 5
     var mode: EffectsMode = .depthMesh
+    /// Depth + parts: the things the parts map should find ("microphone, laptop, cap"), passed as `--things`.
+    var thingsText = ""
 
     // Generate
     var referencePhoto: URL? { didSet { if referencePhoto != oldValue { consent = false } } }
@@ -1056,6 +1167,8 @@ final class EffectsEngine {
     var hatRemove = false
     var hairText = ""
     var personName = ""
+    /// "Parts map": the prepare step also builds the parts map (`--parts`, effects/PARTS.md). Off by default.
+    var makeMeParts = false
     var makeMeConsent = false
 
     /// Who the person becomes, from the form (nil when nothing is chosen yet).
@@ -1149,7 +1262,8 @@ final class EffectsEngine {
             return nil
         }
         let cookies = FileManager.default.fileExists(atPath: YouTubeAccount.cookieFile.path) ? YouTubeAccount.cookieFile : nil
-        let arguments = EffectsArguments.prepare(input: input, start: startSeconds, duration: length, mode: mode, cookies: cookies)
+        let arguments = EffectsArguments.prepare(input: input, start: startSeconds, duration: length, mode: mode, cookies: cookies,
+                                                 things: thingsText)
         let (ok, path) = await run(.prepare, EffectsPaths.python, [script.path] + arguments)
         await refreshJobs()
         guard let path else { return nil }
@@ -1217,7 +1331,8 @@ final class EffectsEngine {
         let cookies = FileManager.default.fileExists(atPath: YouTubeAccount.cookieFile.path) ? YouTubeAccount.cookieFile : nil
         let arguments = EffectsArguments.makeMe(input: input, start: startSeconds, duration: length, me: who, voice: voice,
                                                 voiceOn: voiceOn, quality: makeMeQuality, hat: hatRemove, hair: hairText,
-                                                person: personName, consent: makeMeConsent, job: nil, cookies: cookies)
+                                                person: personName, consent: makeMeConsent, job: nil, cookies: cookies,
+                                                parts: makeMeParts)
         let (ok, path) = await run(.makeMe, EffectsPaths.python, [script.path] + arguments)
         await refreshJobs()
         guard let path else { return nil }

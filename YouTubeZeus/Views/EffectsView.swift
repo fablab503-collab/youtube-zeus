@@ -396,6 +396,15 @@ struct EffectsSourceCard: View {
                 }
             }
             Text(effects.mode.explanation).font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if effects.mode.hasParts {
+                TextField("Things to find (optional): microphone, laptop, cap", text: $effects.thingsText)
+                    .textFieldStyle(.roundedBorder)
+                    .help("Comma-separated names; each gets its own tone in the parts map (CLIPSeg on this Mac, about 600 MB downloaded once)")
+                Text("Each thing you name gets its own tone in the parts map (CLIPSeg on this Mac, free; its weights are downloaded once). Leave it empty for the body, the face and the background only.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             HStack(spacing: 12) {
                 Button { app.prepareEffect() } label: { Label("Prepare", systemImage: "wand.and.stars") }
@@ -416,6 +425,9 @@ struct EffectsSourceCard: View {
     private func hint(_ effects: EffectsEngine) -> String {
         if !effects.isSetUp { return "Set up the engine first (above)." }
         if app.effectsSourceInput == nil { return "Pick a video of the library, choose a file, or drop one here." }
+        if effects.mode.hasParts {
+            return "Download and trim, then depth, people mask, face mesh, pose and the parts map on this Mac. A 5-second clip takes two to three minutes."
+        }
         return "Download and trim, then depth, people mask and face mesh on this Mac. A 5-second clip takes a minute or two."
     }
 
@@ -519,6 +531,7 @@ private struct EffectsJobHeader: View {
                 Chip(text: job.range, symbol: "timer")
                 Chip(text: job.statusLabel, symbol: job.final != nil ? "film.fill" : (job.isApproved ? "checkmark.seal.fill" : "circle.dashed"),
                      tint: job.final != nil ? .green : (job.isApproved ? .zeus : .secondary))
+                if job.hasPartsMap { Chip(text: "Parts map", symbol: "paintpalette") }
                 if let created = job.created { Chip(text: created.formatted(date: .abbreviated, time: .shortened), symbol: "calendar") }
                 Spacer()
                 Button { NSWorkspace.shared.activateFileViewerSelecting([job.folder]) } label: { Image(systemName: "folder") }
@@ -546,6 +559,10 @@ private struct EffectsReviewCard: View {
     var body: some View {
         let clips = [("Control (what the model follows)", "control.mp4"), ("Depth", "depth.mp4"), ("Mask (white = replaced)", "mask.mp4"), ("Pose (body, hands, face)", "pose.mp4")]
             .compactMap { title, name in job.file(name).map { (title, $0) } }
+        // The parts map (effects/PARTS.md): its own contact sheet and two videos, when the job has one.
+        let partsClips = [("Parts (one tone per part, thing and depth band)", "parts.mp4"),
+                          ("Parts control (depth with tones: what Full replace follows)", "control-parts.mp4")]
+            .compactMap { title, name in job.file(name).map { (title, $0) } }
         VStack(alignment: .leading, spacing: 14) {
             Label("2 · Review", systemImage: "eye").font(.headline)
             Text("Check what the models will see before anything is generated. The white mask is what gets replaced; depth and the face mesh carry the movement. If it looks wrong, start a new effect with another start, length or mode.")
@@ -566,6 +583,26 @@ private struct EffectsReviewCard: View {
                         }
                     }
                 }
+            }
+            if let partsPreview = job.partsPreview {
+                Label("Parts map", systemImage: "paintpalette").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                EffectsImage(url: partsPreview, stamp: job.stamp)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(.rect(cornerRadius: 14))
+                    .help("4 frames: work · depth · mask · parts · control-parts, and the legend of the classes found")
+            }
+            if !partsClips.isEmpty {
+                HStack(alignment: .top, spacing: 10) {
+                    ForEach(partsClips, id: \.1) { title, url in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                            EffectsClip(url: url, stamp: job.stamp, height: 170)
+                        }
+                    }
+                }
+            }
+            if let parts = job.partsInfo {
+                EffectsPartsSummary(parts: parts)
             }
             if job.isApproved {
                 Label(approvedText, systemImage: "checkmark.seal.fill")
@@ -895,6 +932,34 @@ private struct EffectsResultCard: View {
 }
 
 // MARK: - Small pieces
+
+/// What the parts map found (job.json `parts_info`, effects/PARTS.md): the biggest classes, the things named, the gaze.
+struct EffectsPartsSummary: View {
+    let parts: EffectsParts
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if !parts.classesText.isEmpty {
+                Text("Classes (share of the frame): \(parts.classesText)")
+            }
+            if !parts.things.isEmpty {
+                Text("Things found: \(parts.thingsText)")
+            } else if !parts.thingsPrompt.isEmpty {
+                Text("Things named: \(parts.thingsPrompt)")
+            }
+            if let gaze = parts.gazeText {
+                Text("Gaze: \(gaze)")
+            }
+            ForEach(parts.warnings, id: \.self) { warning in
+                Label(warning, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .textSelection(.enabled)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
 
 /// A picture from a local file, loaded again when the job changes.
 struct EffectsImage: View {

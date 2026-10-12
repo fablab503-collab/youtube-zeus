@@ -28,6 +28,14 @@ top of the 3.9 posts, YouTube pages and Spotify below.
   (legend, per-frame stats, gaze), `control-parts.mp4` (a control video for the full replace: the depth tinted per
   part, the original outside the person) and `preview-parts.jpg`. Measured: 28 s for 4 s of video, 0.5 GB.
   `python -m zfx.parts_cli --job <dir> [--things "…"] [--gaze]`.
+- **Parts map, wired in.** A mode **Depth + parts** in Effects (depth + pose + the map, gaze on, with a "Things to
+  find" field), and `prepare --parts [--things "…"] [--gaze]` on any depth mode; the review pane shows
+  `preview-parts.jpg`, plays `parts.mp4` and `control-parts.mp4` and sums up what the map found (classes, things
+  found, gaze — `parts_info` in `job.json`); **Full replace** follows `control-parts.mp4` for such a job
+  (`generate --control parts` for any other, `--control control` to go back); Make it me has a **Parts map** toggle
+  (off by default) that adds `--parts` to its prepare step. Approval hashes the five files (required in that mode);
+  `zeus effects parts --job <dir>` builds the map for a job already prepared; `doctor` reports CLIPSeg and the face
+  parser. Engine 1.2.0, tests in `effects/tests/test_parts_wiring.py`.
 
 ## 3.9 — 2026-10-11
 

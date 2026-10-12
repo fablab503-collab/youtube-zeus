@@ -133,11 +133,17 @@ struct EffectsMakeMeCard: View {
                 .pickerStyle(.segmented)
                 .fixedSize()
                 Toggle("Remove the hat or cap", isOn: $effects.hatRemove)
+                Toggle("Parts map", isOn: $effects.makeMeParts)
+                    .help("The prepare step also builds the parts map (effects/PARTS.md): parts.mp4, control-parts.mp4, preview-parts.jpg")
             }
             if effects.hatRemove {
                 TextField("Your hair, for the new hair (optional): e.g. short dark brown hair", text: $effects.hairText)
                     .textFieldStyle(.roundedBorder)
                 Text("A hat or cap found on the head is replaced with hair: BiSeNet hat mask, VACE and a full-resolution composite — about an hour for 6 seconds on this Mac. Skipped with a note when no hat is found.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            if effects.makeMeParts {
+                Text("Prepare also builds the parts map: one tone per body part, the face in detail, hair or hat, the background by depth (parts.mp4, parts.npz, parts.json, control-parts.mp4 and preview-parts.jpg in the job folder) — about half a minute more. The face swap, hat and voice do not use it; it is there for models that replace regions.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if effects.meSource == .selfVideo {
@@ -188,6 +194,7 @@ struct EffectsMakeMeCard: View {
         if voiceFileMissing { return "Choose the voice file, or keep the original voice." }
         if !effects.makeMeConsent { return "Tick the box: your clip, your face, your voice (or of people who agreed)." }
         var parts = ["Face swap about 10 s per second of video"]
+        if effects.makeMeParts { parts.append("the parts map about half a minute") }
         if effects.hatRemove { parts.append("the hat about an hour") }
         if effects.voiceSource != .keep { parts.append("the voice about a minute") }
         return parts.joined(separator: "; ") + ". The result is marked as AI-generated."
@@ -387,6 +394,16 @@ struct EffectsMakeMeJobCard: View {
                                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                             }
                         }
+                    }
+                }
+                if let parts = job.partsInfo {
+                    Label("Parts map", systemImage: "paintpalette").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                    EffectsPartsSummary(parts: parts)
+                    if let partsPreview = job.partsPreview {
+                        EffectsImage(url: partsPreview, stamp: job.stamp)
+                            .frame(maxWidth: .infinity)
+                            .clipShape(.rect(cornerRadius: 14))
+                            .help("4 frames: work · depth · mask · parts · control-parts, and the legend of the classes found")
                     }
                 }
                 if let error = makeMe.error, !makeMe.isDone {

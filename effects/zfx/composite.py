@@ -79,7 +79,7 @@ def control_frame(mode: str, work: np.ndarray, depth: Optional[np.ndarray], mask
     """pose: the skeleton frame on black (zfx.pose.draw_pose) for the pose modes."""
     if mode == "pose":
         return pose if pose is not None else np.zeros_like(work)
-    if mode == "depth_pose":
+    if mode in ("depth_pose", "depth_parts"):     # depth_parts: the same control.mp4, zfx.parts runs afterwards
         base = gray_depth_frame(work, depth, mask)
         return base if pose is None else overlay_inside(base, pose, mask)
     if mode == "mesh":

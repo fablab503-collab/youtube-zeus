@@ -10,10 +10,16 @@ Inputs (all optional except the clip and the consent):
 - `me`: how the person looks — a `.c101face` face pack (Cinema 101 / The Swap "Scan my face"), **or a self-video**
   (the app extracts the best frames: sharp, eyes open, front/±20°/±40°/smile; see "Film yourself"), or photos.
 - `voice`: a voice sample (wav/m4a, 10–60 s) — or the speech found in the self-video.
-- options: `quality` natural|fast, `hat` remove|keep, `voice` yes|no, `consent` true (required).
+- options: `quality` natural|fast, `hat` remove|keep, `voice` yes|no, `parts` on|off (off by default, 4.0),
+  `consent` true (required).
 
 Steps, in order, each with progress 0–1 and a plain-English message (JSON lines, same style as `zeus_effects.py`):
-1. `prepare` — download/trim, depth, masks, face mesh (needed by the hat step).
+1. `prepare` — download/trim, depth, masks, face mesh (needed by the hat step). With **Parts map** on (`--parts`)
+   it also builds the parts map (`PARTS.md`): one tone per body part, the face in detail, hair or hat, three
+   background depth bands → `parts.mp4`, `parts.npz`, `parts.json`, `control-parts.mp4`, `preview-parts.jpg` in the
+   job folder, about half a minute more; the face swap, hat and voice steps do not use it (it is a map for a model
+   that replaces regions, and the control `Full replace · slow` follows). Turning it on later re-runs prepare (the
+   step's hash includes it); the five files are part of the step's outputs.
 2. `refs` — pick the reference frames (from pack / self-video / photos) and the voice sample (cleaned: Demucs vocals,
    silences trimmed, normalized).
 3. `approve` — automatic in this flow (the user consented and chose the clip; the preview is still saved for the record).
@@ -25,7 +31,7 @@ Steps, in order, each with progress 0–1 and a plain-English message (JSON line
 7. `final` — `final.mp4` (+ `final-voice.mp4` when voice ran), AI comment, side-by-side preview `compare.mp4`.
 
 CLI: `zeus_effects.py makeme --input <clip|url> [--start S --duration D] (--ref-pack DIR | --self-video FILE | --ref IMG…)
-[--voice FILE] [--quality natural|fast] [--hat remove|keep] [--no-voice] --consent [--job DIR]`.
+[--voice FILE] [--quality natural|fast] [--hat remove|keep] [--no-voice] [--parts] --consent [--job DIR]`.
 Resumable: re-running with the same job dir skips finished steps (hashes). `cancel` kills the job's process group.
 
 ## Mac assist by shared folder (no network service — same pattern as Cinema 101's render farm)
@@ -52,8 +58,10 @@ also come from the TrueDepth scan (richer). Consent line before saving.
 
 ## Zeus app
 Sidebar › Effects › **Make it me** card: clip (library video or file) · Me (face pack / self-video / photos) · Voice
-(file or "from the self-video") · options · consent · one button · progress with the step names · result player +
-side by side · Save to Movies. Jobs list shows them like other jobs.
+(file or "from the self-video") · options (quality, Remove the hat or cap, **Parts map** — off by default, adds
+`--parts` to the prepare step) · consent · one button · progress with the step names · result player + side by side ·
+Save to Movies. Jobs list shows them like other jobs; a job with a parts map shows what it found (classes, things,
+gaze) under its steps.
 
 ## The Swap (iPhone)
 New tab **Make it me**: pick a clip (Photos/Files) · Me (Scan my face / Film yourself / photos) · Voice · options ·

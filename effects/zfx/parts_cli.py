@@ -4,8 +4,10 @@
         [--no-things] [--things-over-person] [--things-fps 2] [--things-threshold 0.4]
         [--things-template "{}"] [--things-no-zoom] [--no-face-detail] [--no-preview] [--device mps|cpu] [-v]
 
-Run it from the effects/ folder (or with effects/ on PYTHONPATH). Needs a job prepared in a depth mode (work.mp4,
-mask.mp4, depth.mp4); the pose and the face mesh are taken from motion.json / face-landmarks.json or computed.
+The same command is `zeus_effects.py parts …` (and `zeus effects parts …` from the app): `add_arguments` puts the
+options on that sub-parser and `run` does the work with its Progress. Run it from the effects/ folder (or with
+effects/ on PYTHONPATH). Needs a job prepared in a depth mode (work.mp4, mask.mp4, depth.mp4); the pose and the
+face mesh are taken from motion.json / face-landmarks.json or computed.
 
 stdout: JSON lines like every Zeus Effects command: {"stage","progress","message","overall"}, then
 {"done":true,"job":"<dir>","result":{...}} or {"error":"...","stage":"..."} (exit 1). The summary (classes found,
@@ -26,21 +28,31 @@ HERE = Path(__file__).resolve().parent.parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from zfx.io import MediaError  # noqa: E402
-from zfx.jobs import Job, JobError  # noqa: E402
-from zfx.parts import Backends, PartsError, run_parts, summary_lines  # noqa: E402
-from zfx.progress import Progress, setup_logging  # noqa: E402
-from zfx.things import TEMPLATE, THINGS_FPS, THRESHOLD, ThingsError, parse_things  # noqa: E402
-
+# The parts step's own stages, in order, with their share of the whole step (measured on an M2 Pro).
 STAGE_WEIGHTS = {"load": 0.06, "landmarks": 0.10, "faceparse": 0.24, "things": 0.22, "parts": 0.16,
                  "render": 0.18, "preview": 0.04}
+_TOTAL_WEIGHT = sum(STAGE_WEIGHTS.values())
+_OFFSETS: dict = {}
+_acc = 0.0
+for _stage, _weight in STAGE_WEIGHTS.items():
+    _OFFSETS[_stage] = _acc
+    _acc += _weight
 
 
-def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="zfx.parts_cli",
-                                description="Parts map of a prepared Zeus Effects job: a tone per body part, "
-                                            "face detail, gaze, named things and depth bands.")
-    p.add_argument("--job", required=True, help="job folder (or a job id under Jobs/)")
+def overall_fraction(stage: str, fraction: float) -> float:
+    """0..1 of the whole parts step when `stage` (load, landmarks, faceparse, things, parts, render, preview) is at
+    `fraction`; an unknown stage keeps the fraction as it is."""
+    frac = max(0.0, min(1.0, float(fraction or 0.0)))
+    if stage not in STAGE_WEIGHTS:
+        return frac
+    return round((_OFFSETS[stage] + STAGE_WEIGHTS[stage] * frac) / _TOTAL_WEIGHT, 4)
+
+
+def add_arguments(p: argparse.ArgumentParser, job: bool = True) -> argparse.ArgumentParser:
+    """The parts options on a parser (the standalone command, or the `parts` sub-command of zeus_effects.py)."""
+    from zfx.things import TEMPLATE, THINGS_FPS, THRESHOLD
+    if job:
+        p.add_argument("--job", required=True, help="job folder (or a job id under Jobs/)")
     p.add_argument("--things", default="",
                    help='things to find, comma-separated ("microphone, laptop, cap"); one tone each (CLIPSeg)')
     p.add_argument("--no-things", action="store_true", help="ignore --things (no CLIPSeg run)")
@@ -59,24 +71,30 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-face-detail", action="store_true", help="skip the BiSeNet face parser (coarse head only)")
     p.add_argument("--no-preview", action="store_true", help="do not write preview-parts.jpg")
     p.add_argument("--device", choices=("mps", "cpu"), default=None, help="where CLIPSeg runs (default: mps)")
+    return p
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="zfx.parts_cli",
+                                description="Parts map of a prepared Zeus Effects job: a tone per body part, "
+                                            "face detail, gaze, named things and depth bands.")
+    add_arguments(p)
     p.add_argument("-v", "--verbose", action="store_true", help="debug logs on stderr")
     return p
 
 
-def main(argv: Optional[list] = None, backends: Optional[Backends] = None, stream=None) -> int:
-    args = build_parser().parse_args(argv)
-    setup_logging(args.verbose)
+def run(args, progress, backends=None) -> int:
+    """The parts command with parsed `args` (add_arguments) and a zfx.progress.Progress: 0 when done, 1 on an
+    error (one JSON error line, like the other commands), 130 when cancelled."""
+    from zfx.io import MediaError
+    from zfx.jobs import Job, JobError
+    from zfx.parts import PartsError, run_parts, summary_lines
+    from zfx.things import ThingsError, parse_things
+
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
-    progress = Progress(stream)
-    offsets, acc = {}, 0.0
-    for stage, weight in STAGE_WEIGHTS.items():
-        offsets[stage] = acc
-        acc += weight
 
     def say(stage: str, frac: float, message: str = "") -> None:
-        frac = max(0.0, min(1.0, float(frac)))
-        overall = (offsets.get(stage, 0.0) + STAGE_WEIGHTS.get(stage, 0.0) * frac) / acc
-        progress.update(stage, frac, message, overall=round(overall, 4))
+        progress.update(stage, max(0.0, min(1.0, float(frac))), message, overall=overall_fraction(stage, frac))
 
     job = None
     try:
@@ -109,6 +127,13 @@ def main(argv: Optional[list] = None, backends: Optional[Backends] = None, strea
         progress.log(line)
     progress.done(job.dir, result)
     return 0
+
+
+def main(argv: Optional[list] = None, backends=None, stream=None) -> int:
+    from zfx.progress import Progress, setup_logging
+    args = build_parser().parse_args(argv)
+    setup_logging(args.verbose)
+    return run(args, Progress(stream), backends=backends)
 
 
 if __name__ == "__main__":

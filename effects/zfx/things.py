@@ -117,14 +117,20 @@ class ClipSegBackend:
     size = CLIPSEG_SIZE
 
     def __init__(self, device: Optional[str] = None, report: Optional[Callable[[float, str], None]] = None):
-        import torch
-        from transformers import CLIPSegForImageSegmentation, CLIPSegProcessor
+        import contextlib
+        import sys
+        # stdout carries only the JSON lines (effects/SPEC.md): what the libraries print while they load
+        # ("xFormers not available", loading bars) goes to stderr with the other logs
+        with contextlib.redirect_stdout(sys.stderr):
+            import torch
+            from transformers import CLIPSegForImageSegmentation, CLIPSegProcessor
         folder = ensure_clipseg(report)
         self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
         if report:
             report(0.0, f"loading CLIPSeg on {self.device}")
-        self.processor = CLIPSegProcessor.from_pretrained(str(folder))
-        self.model = CLIPSegForImageSegmentation.from_pretrained(str(folder), dtype=torch.float32)
+        with contextlib.redirect_stdout(sys.stderr):
+            self.processor = CLIPSegProcessor.from_pretrained(str(folder))
+            self.model = CLIPSegForImageSegmentation.from_pretrained(str(folder), dtype=torch.float32)
         self.model = self.model.to(self.device).eval()
         self.revision = CLIPSEG_REVISION
         self.repo = CLIPSEG_REPO

@@ -533,6 +533,7 @@ final class EatEngine {
         switch video.source {
         case .autoCaptions, .whisper: return true
         case .captions, .published: return settings.polishCaptionsToo
+        case .post: return false       // the words of a post as written (3.9): nothing to clean up
         case .none: return false
         }
     }

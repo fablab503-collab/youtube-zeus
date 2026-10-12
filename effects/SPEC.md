@@ -30,6 +30,7 @@ effects/zeus_effects.py    CLI entry point (argparse), subcommands below
 effects/zfx/               package: io.py (download/trim/normalize/audio), depth.py,
                            masks.py (Apple Vision via pyobjc), composite.py, mesh.py,
                            pose.py (body + hands motion capture), bvh.py (BVH skeleton),
+                           parts.py + things.py + faceparse_worker.py + parts_cli.py (the parts map, PARTS.md),
                            review.py (hash gate), jobs.py, progress.py
 effects/zfx/engines/       vace.py (Wan2.1-VACE-1.3B, diffusers, MPS), faceswap.py (FaceFusion)
 effects/tests/             unittest, runnable without weights (synthetic clips)
@@ -54,13 +55,14 @@ The last line is either `{"done":true,"job":"<dir>","result":{…}}` or
 | Command | What it does |
 |---|---|
 | `doctor [--json]` | Python, torch+MPS, ffmpeg, yt-dlp, pyobjc Vision, weights present per engine (incl. the pose and hand landmarkers), free RAM/disk. Never downloads. |
-| `prepare --input <file or YouTube URL> [--start S] [--duration D≤10] --mode depth\|depth_mesh\|mesh\|pose\|depth_pose [--job DIR] [--cookies FILE] [--motion]` | Download/trim, normalize, depth (not in `pose`), masks, face mesh, motion capture (pose modes, or `--motion`), composite. Creates the job. |
+| `prepare --input <file or YouTube URL> [--start S] [--duration D≤10] --mode depth\|depth_mesh\|mesh\|pose\|depth_pose\|depth_parts [--job DIR] [--cookies FILE] [--motion] [--parts] [--things TEXT] [--gaze] [--things-over-person]` | Download/trim, normalize, depth (not in `pose`), masks, face mesh, motion capture (pose modes, or `--motion`), composite, then the parts map (`PARTS.md`: mode `depth_parts` = `depth_pose` + the map with the gaze; `--parts` adds it to any depth mode, `--things "microphone, laptop"` names things for it, `--gaze` draws the gaze). Creates the job. |
+| `parts --job DIR [--things TEXT] [--gaze] [--no-things] [--things-over-person] [--things-fps N] [--things-threshold P] [--things-template T] [--things-no-zoom] [--no-face-detail] [--no-preview] [--device mps\|cpu]` | The parts map of an existing job prepared in a depth mode (`zfx/parts_cli.py`): writes `parts.mp4`, `parts.npz`, `parts.json`, `control-parts.mp4`, `preview-parts.jpg`, records them in `job.json` (`artifacts`, `parts_info`); the approved files are never touched. |
 | `motion --job DIR [--json]` | Summary of the job's motion capture for agents: frames with a body, each hand and the face, average visibility, limbs tracked, the BVH (joints, channels, fps) and file paths. |
-| `approve --job DIR` | Records the review: SHA-256 of every prepared artifact into `job.json.review`. |
-| `generate --job DIR --engine vace\|faceswap --ref IMG [--ref IMG2] [--ref-pack DIR.c101face] [--prompt TEXT] [--consent] [--frames N] [--steps N] [--size 480p\|360p] [--seed N] [--upscale fast\|best\|lanczos]` | Refuses without `--consent`, without approval, or if any approved artifact hash changed. Writes `result-raw.mp4` then `final.mp4` (original audio). |
+| `approve --job DIR` | Records the review: SHA-256 of every prepared artifact into `job.json.review` (the parts map too when it is there; required in mode `depth_parts`). |
+| `generate --job DIR --engine vace\|faceswap --ref IMG [--ref IMG2] [--ref-pack DIR.c101face] [--prompt TEXT] [--consent] [--frames N] [--steps N] [--size 480p\|360p] [--seed N] [--upscale fast\|best\|lanczos] [--control auto\|control\|parts]` | Refuses without `--consent`, without approval, or if any approved artifact hash changed. Writes `result-raw.mp4` then `final.mp4` (original audio). `--control parts` makes vace follow `control-parts.mp4` (kept as it is, `ZEUS_VACE_CONTROL=as-is`); `auto` (default) does so for a `depth_parts` job and follows `control.mp4` otherwise. |
 | `status --job DIR [--json]` | Prints `job.json`. |
 | `list [--json]` | Jobs under `Jobs/`, newest first. |
-| `makeme --input <clip\|url> [--start S --duration D] (--ref-pack DIR \| --self-video FILE \| --ref IMG…) [--voice FILE] [--quality natural\|fast] [--hat remove\|keep] [--no-voice] [--hair TEXT] --consent [--job DIR]` | **Make it me** (`MAKE-IT-ME.md`, `zfx/makeme.py`): prepare (depth_mesh) → refs (`zfx/refs.py`: face pack / self-video → `me.c101face` + `me-voice.m4a` / photos) → approve (automatic) → faceswap → hat (`zfx/engines/hat.py`, only with `--hat remove` and a hat found) → voice → final (`compare.mp4`). First line `{"stage":"plan","steps":[…]}`, then per step `step`, `progress`, `overall`. Resumable: `.makeme/<step>.json` markers with input hashes; `job.json.makeme` records it all. |
+| `makeme --input <clip\|url> [--start S --duration D] (--ref-pack DIR \| --self-video FILE \| --ref IMG…) [--voice FILE] [--quality natural\|fast] [--hat remove\|keep] [--no-voice] [--hair TEXT] [--parts] --consent [--job DIR]` | **Make it me** (`MAKE-IT-ME.md`, `zfx/makeme.py`): prepare (depth_mesh; `--parts` adds the parts map) → refs (`zfx/refs.py`: face pack / self-video → `me.c101face` + `me-voice.m4a` / photos) → approve (automatic) → faceswap → hat (`zfx/engines/hat.py`, only with `--hat remove` and a hat found) → voice → final (`compare.mp4`). First line `{"stage":"plan","steps":[…]}`, then per step `step`, `progress`, `overall`. Resumable: `.makeme/<step>.json` markers with input hashes; `job.json.makeme` records it all. |
 | `cancel --job DIR` | Stops a running makeme job (pid/pgid from `job.json.makeme`). |
 | `watch [--folder DIR…] [--once] [--poll S] [--clean-days N]` | The Swap's shared-folder worker (`zfx/swapjobs.py`): `*.swapjob/` with `request` → `status.json` → `result.mp4`, `compare.mp4`, `preview.jpg`, `done`; `cancel` → `cancelled`. No network. |
 
@@ -80,6 +82,13 @@ motion.json         whole-body motion capture (pose modes / --motion), see "Moti
 motion.bvh          BVH body skeleton solved from motion.json (pose modes / --motion)
 pose.mp4            OpenPose-style skeleton on black, same frames/size as work.mp4 (pose modes / --motion)
 preview.jpg         contact sheet: 4 frames × (work | depth | mask | [pose] | control) for review (no depth column in mode pose)
+parts.mp4           the parts map rendered (mode depth_parts, --parts, or the parts command; PARTS.md): one hue per
+                    class (body parts, face detail, hair/hat, named things, depth bands), lightness by depth
+parts.npz           the same map as data: index (N, H, W) uint8 = legend id per pixel, plus ids, names, things, fps, size
+parts.json          legend, the things prompt, per-frame stats (pixels per class, things found, gaze, blink), timings
+control-parts.mp4   a control video for vace: the original outside the person and the things, the depth luminance tinted by
+                    the part hue inside (what `generate --control parts` and every depth_parts job follow)
+preview-parts.jpg   contact sheet: 4 frames × (work | depth | mask | parts | control-parts) + the legend of the classes found
 result-raw.mp4      engine output (no audio)
 result-crops/ + result-crops.json   vace: per window the generated crop, the original crop and the mask at the
                     generation size (wNN/{gen,base,mask}/NNNN.png) + boxes; color/ = Log LUTs when the source is Log
@@ -95,10 +104,14 @@ final.mp4           result-raw + original audio, retimed to source fps; metadata
 | `mesh` | the original + white face mesh | as is |
 | `pose` | OpenPose-style skeleton (body, hands, 68 face dots) on black; no depth computed | as is (the background comes back from the source in the final composite) |
 | `depth_pose` | grey depth inside the mask (hard edge, no halo) over the original + the skeleton inside the mask | as is (already grey) |
+| `depth_parts` | the same `control.mp4` as `depth_pose`, plus the parts map (`PARTS.md`, gaze on): `parts.mp4`, `parts.npz`, `parts.json`, `control-parts.mp4`, `preview-parts.jpg`; `--things "…"` names things for it | `control-parts.mp4` as is (the depth tinted per part inside the mask; `--control control` goes back to `control.mp4`) |
 
-`pose` and `depth_pose` always save the motion capture (and run the face mesh, the face is part of it);
-`--motion` adds it to the other modes. Approval then also hashes `motion.json`, `pose.mp4`, `motion.bvh` and
-`face-landmarks.json`.
+`pose`, `depth_pose` and `depth_parts` always save the motion capture (and run the face mesh, the face is part of
+it); `--motion` adds it to the other modes. Approval then also hashes `motion.json`, `pose.mp4`, `motion.bvh` and
+`face-landmarks.json`. `--parts` adds the parts map to `depth`, `depth_mesh` and `depth_pose` (the pose is computed
+by `zfx.parts` when the mode did not track it); approval hashes the map whenever it is there, and requires it in
+`depth_parts`. The `parts` command builds the map for a job already prepared (new files only: an approved job stays
+approved; a job approved *with* a map must be approved again after the map is rebuilt).
 
 ## Motion capture (`zfx/pose.py`, `zfx/bvh.py`)
 
@@ -184,10 +197,12 @@ generating. `--consent` is still required: the pack's own consent does not repla
 ## Zeus app integration (Swift)
 
 - Sidebar item **Effects**: pick an eaten video (uses its YouTube URL) or a local file, choose start/length
-  (≤10 s), mode, Prepare → review (preview.jpg + playable depth/mask/control) → Approve → reference photo(s),
-  consent checkbox, engine (Face swap · fast / Full replace · slow) → Generate → play `final.mp4`,
-  Reveal in Finder, Save to Movies/YouTube Zeus Effects.
+  (≤10 s), mode (**Depth + parts** shows a "Things to find" field → `--things`), Prepare → review (preview.jpg +
+  playable depth/mask/control; with a parts map also preview-parts.jpg, parts.mp4, control-parts.mp4 and the
+  `parts_info` summary: classes, things found, gaze) → Approve → reference photo(s), consent checkbox, engine
+  (Face swap · fast / Full replace · slow) → Generate → play `final.mp4`, Reveal in Finder, Save to Movies/YouTube
+  Zeus Effects. Make it me has a **Parts map** toggle (off by default) that adds `--parts` to its prepare step.
 - `Services/EffectsEngine.swift` runs the CLI as a subprocess, parses JSON lines, exposes progress.
-- Reachable by agents: `zeus effects doctor|prepare|approve|generate|status|list` (pass-through),
+- Reachable by agents: `zeus effects doctor|prepare|parts|approve|generate|status|list` (pass-through),
   `youtubezeus://effects?video=<id>` link, documented in `AgentGuide.swift`.
 - Free first: no cloud engine option at all in this tab.

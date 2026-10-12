@@ -455,6 +455,11 @@ def run_generate(args, job_dir, progress: Optional[Progress] = None) -> dict:
     update_job(job_path, lambda d: d.update(status="generating"))
 
     upscale_mode = (getattr(args, "upscale", None) or "").strip().lower() or None
+    # vace: which control video to follow (--control parts = control-parts.mp4 from zfx.parts; auto = parts for a
+    # depth_parts job, else control.mp4)
+    control_kind = (getattr(args, "control", None) or "").strip().lower() or None
+    if control_kind == "auto":
+        control_kind = None
     options = {
         "prompt": getattr(args, "prompt", None) or "",
         "frames": getattr(args, "frames", None),
@@ -464,6 +469,7 @@ def run_generate(args, job_dir, progress: Optional[Progress] = None) -> dict:
         "enhance": bool(getattr(args, "enhance", False)),
         "quality": getattr(args, "quality", None),
         "upscale": upscale_mode if engine_name == "vace" else None,
+        "control_kind": control_kind if engine_name == "vace" else None,
     }
     t0 = time.monotonic()
     report("generate", 0.0, f"starting {engine.LABEL}")

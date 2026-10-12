@@ -36,6 +36,12 @@ ARTIFACT_FILES = {
     "bvh": "motion.bvh",
     "pose": "pose.mp4",
     "preview": "preview.jpg",
+    # the parts map (zfx.parts, effects/PARTS.md): mode depth_parts, prepare --parts, or the parts command
+    "parts": "parts.mp4",
+    "parts_index": "parts.npz",
+    "parts_json": "parts.json",
+    "control_parts": "control-parts.mp4",
+    "preview_parts": "preview-parts.jpg",
     "result_raw": "result-raw.mp4",
     "final": "final.mp4",
 }

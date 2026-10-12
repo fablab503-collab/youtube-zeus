@@ -145,16 +145,26 @@ openness 0.63 (eyes narrowed in the first half while smiling).
 - The temporal majority vote delays a one-frame event by nothing but removes one-frame flickers, including a
   real one-frame appearance.
 
-## Wiring into `prepare` and the app (to do by the main session)
+## Wired into `prepare`, the engines and the app (4.0, 2026-10-12)
 
-- `zeus_effects.py`: a `--parts` flag (and `--things TEXT`, `--gaze`, `--things-over-person`) on `prepare`, or a
-  mode `depth_parts`; after the composite step call `zfx.parts.run_parts(job, things=parse_things(args.things),
-  gaze=True, report=say)`; add `"parts"`, `"parts_index"`, `"parts_json"`, `"control_parts"`, `"preview_parts"`
-  to `zfx.jobs.ARTIFACT_FILES` and to `zfx.review.OPTIONAL_REVIEWED` so the approval hashes them; a `parts`
-  subcommand that runs `zfx.parts_cli.main` for existing jobs.
-- `engines/vace.py`: when the job has `control_parts` and the mode (or a `--control parts` option) asks for it,
-  use `control-parts.mp4` as the control ("as-is", it is already grey depth inside the mask).
-- Swift (`EffectsEngine.swift`, `EffectsView.swift`): a mode "Depth + parts" (`depth_parts`) in `EffectsMode`
-  with an explanation, a "Things to find" text field passed as `--things`, the review pane showing
-  `preview-parts.jpg` and playing `parts.mp4` / `control-parts.mp4`, and the `parts_info` of `job.json`
-  (classes, things found, gaze) in the job summary.
+- `zeus_effects.py prepare`: mode `depth_parts` (= `depth_pose` + the map, gaze always on) or `--parts` on any
+  depth mode, with `--things "microphone, laptop, cap"`, `--gaze` and `--things-over-person`. The map is built
+  after the composite (stage `parts`, weight 0.50 in the overall progress; its own stages come through as
+  `load: …`, `faceparse: …`, `things: …` messages) and lands in the `done` line as `parts` (= `job.json.parts_info`).
+  `zeus_effects.py parts --job DIR …` (= `python -m zfx.parts_cli`, `zeus effects parts` from the app) builds it for
+  a job already prepared. `doctor` lists `clipseg` and `faceparse` under `weights` and `parts`,
+  `parts_face_detail`, `parts_things` under `engines`.
+- `zfx.jobs.ARTIFACT_FILES` knows `parts`, `parts_index`, `parts_json`, `control_parts`, `preview_parts`;
+  `zfx.review` hashes them whenever they are there (`OPTIONAL_REVIEWED`) and requires the first four in mode
+  `depth_parts`. A map built on an approved job (new files) leaves the approval valid; a map rebuilt after it was
+  approved must be approved again.
+- `engines/vace.py`: `control_video(job_dir, control, kind)` picks the video VACE follows: an explicit path (the hat
+  engine), else `--control parts` → `control-parts.mp4` as is (`ZEUS_VACE_CONTROL=as-is`, an explicit env value
+  still wins and is noted), `--control control` → `control.mp4`, `auto` → parts for a `depth_parts` job. The
+  generation record keeps `control_video`.
+- Make it me: `makeme --parts` (the **Parts map** toggle, off by default) adds `--parts` to the prepare step; the
+  five files join the step's outputs and the hash, so turning it on re-runs prepare (`MAKE-IT-ME.md`).
+- The app (`EffectsEngine.swift`, `EffectsView.swift`, `EffectsMakeMeView.swift`): mode **Depth + parts** with a
+  "Things to find" field (`--things`), the review pane shows `preview-parts.jpg`, plays `parts.mp4` and
+  `control-parts.mp4` and sums up `parts_info` (classes, things found, gaze); the Make it me card has the toggle.
+  Tests: `tests/test_parts_wiring.py`.

@@ -7,7 +7,9 @@
 Steps, in this order, each reported as JSON lines {"stage": <step>, "step": <step>, "progress": 0..1 within the step,
 "overall": 0..1 of the job, "message": …} (the first line is {"stage": "plan", "steps": […], "job": "<dir>"}):
 
-    prepare   download/trim, depth, people mask, face mesh (mode depth_mesh; the mesh feeds the hat step)
+    prepare   download/trim, depth, people mask, face mesh (mode depth_mesh; the mesh feeds the hat step); with
+              --parts also the parts map (zfx.parts: parts.mp4, parts.npz, parts.json, control-parts.mp4,
+              preview-parts.jpg, about half a minute more)
     refs      the reference frames (face pack / self-video -> <job>/me.c101face / photos) into <job>/refs/, and the
               voice sample (<job>/me-voice.m4a: Demucs vocals, silences trimmed, normalized) when there is no --voice
     approve   automatic: the user consented and chose the clip (preview.jpg stays for the record)
@@ -112,6 +114,7 @@ class Options:
     cookies: Optional[str] = None
     enhance: bool = False
     swapjob: Optional[str] = None     # the shared-folder job this run serves (zeus_effects.py watch)
+    parts: bool = False               # --parts: the prepare step also builds the parts map (effects/PARTS.md)
 
     @classmethod
     def from_args(cls, args) -> "Options":
@@ -121,7 +124,7 @@ class Options:
                    no_voice=bool(g("no_voice")), quality=(g("quality") or "natural").lower(),
                    hat=(g("hat") or "keep").lower(), consent=bool(g("consent")), job=g("job"), hair=g("hair"),
                    seed=g("seed"), person=g("person"), cookies=g("cookies"), enhance=bool(g("enhance")),
-                   swapjob=g("swapjob"))
+                   swapjob=g("swapjob"), parts=bool(g("parts")))
 
     @property
     def me_source(self) -> str:
@@ -140,7 +143,7 @@ class Options:
                 "ref_pack": self.ref_pack, "self_video": self.self_video, "refs": list(self.refs), "voice": self.voice,
                 "voice_on": self.wants_voice, "quality": self.quality, "hat": self.hat, "consent": self.consent,
                 "hair": self.hair, "seed": self.seed, "person": self.person, "enhance": self.enhance,
-                "swapjob": self.swapjob}
+                "swapjob": self.swapjob, "parts": self.parts}
 
 
 def validate(opts: Options) -> None:
@@ -514,10 +517,14 @@ def _job_dir(opts: Options) -> Path:
 
 
 # -- prepare -------------------------------------------------------------------------------------------------------
+PARTS_FILES = ("parts.mp4", "parts.npz", "parts.json", "control-parts.mp4", "preview-parts.jpg")
+
+
 def _prepare_inputs(ctx: Context) -> str:
     o = ctx.opts
     src = o.input if "://" in o.input else file_digest(Path(o.input).expanduser())
-    return digest("prepare", src, o.start, ctx.state["duration"], PREPARE_MODE)
+    # "parts" only enters the hash when it is on, so jobs made before the option keep their prepare marker
+    return digest("prepare", src, o.start, ctx.state["duration"], PREPARE_MODE, *(["parts"] if o.parts else []))
 
 
 def _prepare_run(ctx: Context, reporter: StepReporter) -> tuple:
@@ -525,7 +532,8 @@ def _prepare_run(ctx: Context, reporter: StepReporter) -> tuple:
     o = ctx.opts
     ns = SimpleNamespace(input=o.input, start=o.start, duration=ctx.state["duration"], mode=PREPARE_MODE,
                          job=str(ctx.job_dir), cookies=o.cookies, device=None, depth_size=zeus_effects.DEPTH_INPUT_SIZE,
-                         mask_quality="accurate", min_person_ratio=0.25, motion=False)
+                         mask_quality="accurate", min_person_ratio=0.25, motion=False,
+                         parts=o.parts, things="", gaze=False, things_over_person=False)
     try:
         zeus_effects.cmd_prepare(ns, reporter)
     except zeus_effects.CLIError as exc:
@@ -533,11 +541,18 @@ def _prepare_run(ctx: Context, reporter: StepReporter) -> tuple:
     result = reporter.result or {}
     outputs = [ctx.job_dir / n for n in ("source.mp4", "work.mp4", "mask.mp4", "control.mp4", "face-landmarks.json",
                                          "preview.jpg", "job.json")]
+    if o.parts:
+        outputs += [ctx.job_dir / n for n in PARTS_FILES]
     for w in result.get("warnings") or []:
         ctx.warnings.append(f"prepare: {w}")
+    parts = result.get("parts") if o.parts else None
     info = {"frames": result.get("frames"), "fps": result.get("fps"), "size": result.get("size"),
             "duration": result.get("duration"), "has_audio": result.get("has_audio"), "timings": result.get("timings"),
-            "message": f"prepared {result.get('duration')} s, {result.get('frames')} frames at 16 fps"}
+            "message": f"prepared {result.get('duration')} s, {result.get('frames')} frames at 16 fps"
+                       + (" with the parts map" if o.parts else "")}
+    if parts:
+        info["parts"] = {k: parts.get(k) for k in ("classes", "body_frames", "face_frames", "face_detail_frames",
+                                                   "things", "gaze", "warnings")}
     return [p for p in outputs if p.exists()], info, False
 
 

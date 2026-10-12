@@ -12,16 +12,19 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 DEFAULT_HOME = Path.home() / "Library" / "Application Support" / "YouTube Zeus" / "Effects"
 
 WORK_FPS = 16          # what the models see
 WORK_MAX_SIDE = 832    # long side of work.mp4
 MAX_DURATION = 10.0    # seconds per job
-MODES = ("depth", "depth_mesh", "mesh", "pose", "depth_pose")
-POSE_MODES = ("pose", "depth_pose")       # modes that track the whole body (motion.json, motion.bvh, pose.mp4)
-MESH_MODES = ("mesh", "depth_mesh", "pose", "depth_pose")   # modes that run the face mesh
+MODES = ("depth", "depth_mesh", "mesh", "pose", "depth_pose", "depth_parts")
+POSE_MODES = ("pose", "depth_pose", "depth_parts")       # modes that track the whole body (motion.json, motion.bvh, pose.mp4)
+MESH_MODES = ("mesh", "depth_mesh", "pose", "depth_pose", "depth_parts")   # modes that run the face mesh
+# depth_parts = depth_pose + the parts map (zfx.parts: parts.mp4, parts.npz, parts.json, control-parts.mp4,
+# preview-parts.jpg; gaze always on). `prepare --parts` adds the map to any depth mode.
+PARTS_MODES = ("depth_parts",)
 AI_COMMENT = "AI-generated with YouTube Zeus Effects ({engine})"
 
 

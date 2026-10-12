@@ -5,18 +5,22 @@ Run with the runtime venv:
   "$ZEUS_EFFECTS_HOME/.venv/bin/python" effects/zeus_effects.py <command> ...
 
   doctor   [--json]
-  prepare  --input FILE|URL [--start S] [--duration D<=10] --mode depth|depth_mesh|mesh|pose|depth_pose
-           [--job DIR] [--cookies FILE] [--motion]
+  prepare  --input FILE|URL [--start S] [--duration D<=10] --mode depth|depth_mesh|mesh|pose|depth_pose|depth_parts
+           [--job DIR] [--cookies FILE] [--motion] [--parts] [--things "microphone, laptop"] [--gaze]
+           [--things-over-person]   (depth_parts = depth_pose + the parts map, gaze on; --parts adds the map
+           to any depth mode: parts.mp4, parts.npz, parts.json, control-parts.mp4, preview-parts.jpg)
+  parts    --job DIR [--things TEXT] [--gaze] [...]   (the parts map of an existing job, effects/PARTS.md)
   approve  --job DIR
   generate --job DIR --engine vace|faceswap (--ref IMG [--ref IMG2] | --ref-pack DIR.c101face | both)
            [--prompt TEXT] [--consent] [--frames N] [--steps N] [--size 480p|360p] [--seed N]
+           [--control auto|control|parts]   (vace: follow control-parts.mp4; auto = parts for a depth_parts job)
   facepack --pack DIR.c101face [--max-refs N] [--json]   (what generate would pick from a face pack)
   motion   --job DIR [--json]   (the job's motion capture: frames with a body, hands, visibility, limbs)
   status   --job DIR [--json]
   list     [--json]
   voice    --job DIR --voice FILE [--voice FILE2] --consent [...]   (change who speaks, same words and timing)
   makeme   --input FILE|URL [--start S --duration D] (--ref-pack DIR | --self-video FILE | --ref IMG...)
-           [--voice FILE] [--quality natural|fast] [--hat remove|keep] [--no-voice] --consent [--job DIR]
+           [--voice FILE] [--quality natural|fast] [--hat remove|keep] [--no-voice] [--parts] --consent [--job DIR]
            (Make it me, effects/MAKE-IT-ME.md: prepare, refs, approve, faceswap, hat, voice, final; resumable)
   watch    [--folder DIR ...] [--once] [--poll S] [--clean-days N]   (do the .swapjob folders The Swap writes)
   cancel   --job DIR   (stop a running makeme job: its process group)
@@ -44,7 +48,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import zfx  # noqa: E402
-from zfx import MAX_DURATION, MESH_MODES, MODES, POSE_MODES  # noqa: E402
+from zfx import MAX_DURATION, MESH_MODES, MODES, PARTS_MODES, POSE_MODES  # noqa: E402
 from zfx.progress import Progress, setup_logging  # noqa: E402
 
 
@@ -157,6 +161,21 @@ def doctor_report() -> dict:
 
     vace = vace_dir()
     ff = facefusion_dir()
+    # the parts map (effects/PARTS.md): CLIPSeg for the named things (downloaded on first use), FaceFusion's BiSeNet
+    # for the face detail (coarse head only without it)
+    try:
+        from zfx.things import clipseg_dir, clipseg_present
+        clipseg = {"path": str(clipseg_dir()), "present": bool(clipseg_present())}
+    except Exception as exc:
+        clipseg = {"path": str(home / "models" / "clipseg-rd64-refined"), "present": False,
+                   "detail": f"{type(exc).__name__}: {exc}"}
+    try:
+        from zfx.parts import bisenet_model, faceparse_available
+        parse_ok, parse_detail = faceparse_available()
+        faceparse = {"path": str(bisenet_model()), "present": bool(parse_ok), "detail": parse_detail}
+    except Exception as exc:
+        faceparse = {"path": str(ff / ".assets" / "models" / "bisenet_resnet_34.onnx"), "present": False,
+                     "detail": f"{type(exc).__name__}: {exc}"}
     weights = {
         "vda": _file_info(vda_weights()),
         "vda_code": _file_info(vda_code_dir() / "video_depth_anything" / "video_depth.py"),
@@ -166,16 +185,24 @@ def doctor_report() -> dict:
         "vace": {"path": str(vace), "present": (vace / "model_index.json").is_file()},
         "facefusion": {"path": str(ff), "present": (ff / "facefusion.py").is_file(),
                        "venv": (ff / ".venv" / "bin" / "python").exists()},
+        "clipseg": clipseg,
+        "faceparse": faceparse,
     }
     report["weights"] = weights
 
     prepare_ok = all([py_ok, torch_info.get("ok"), report["ffmpeg"]["ok"], report["ffprobe"]["ok"], ok,
                       report["mediapipe"]["ok"], report["opencv"]["ok"], weights["vda"]["present"],
                       weights["vda_code"]["present"], weights["face_landmarker"]["present"]])
+    # pose modes; the two .task files are also fetched on first use (Google's official MediaPipe storage)
+    pose_ok = bool(prepare_ok and weights["pose_landmarker"]["present"] and weights["hand_landmarker"]["present"])
     report["engines"] = {
         "prepare": prepare_ok,
-        # pose modes; the two .task files are also fetched on first use (Google's official MediaPipe storage)
-        "pose": bool(prepare_ok and weights["pose_landmarker"]["present"] and weights["hand_landmarker"]["present"]),
+        "pose": pose_ok,
+        # the parts map (mode depth_parts, prepare --parts, parts): the pose, plus BiSeNet for the face detail and
+        # CLIPSeg for the named things when they are there
+        "parts": pose_ok,
+        "parts_face_detail": bool(pose_ok and faceparse["present"]),
+        "parts_things": bool(pose_ok and clipseg["present"]),
         "download": bool(ytdlp),
         "vace": bool(weights["vace"]["present"] and torch_info.get("ok")),
         "faceswap": bool(weights["facefusion"]["present"] and weights["facefusion"]["venv"]),
@@ -223,8 +250,9 @@ def cmd_doctor(args, progress: Progress) -> int:
 # 518 (the model's native size): 31 s, 9.8 GB peak, too much next to other GPU work.
 DEPTH_INPUT_SIZE = 392
 
+# parts: 28 s measured on 64 frames next to ~55 s for the rest of a depth_pose prepare (effects/PARTS.md)
 STAGE_WEIGHTS = {"download": 0.10, "trim": 0.04, "normalize": 0.04, "depth": 0.37, "masks": 0.20,
-                 "mesh": 0.10, "pose": 0.25, "composite": 0.15}
+                 "mesh": 0.10, "pose": 0.25, "composite": 0.15, "parts": 0.50}
 
 
 def cmd_prepare(args, progress: Progress) -> int:
@@ -251,9 +279,21 @@ def cmd_prepare(args, progress: Progress) -> int:
     want_motion = args.mode in POSE_MODES or bool(getattr(args, "motion", False))
     want_mesh = args.mode in MESH_MODES or want_motion     # the face is part of the motion asset
     want_depth = args.mode != "pose"
+    # the parts map (zfx.parts): always in depth_parts (with the gaze), else with --parts on a depth mode
+    want_parts = args.mode in PARTS_MODES or bool(getattr(args, "parts", False))
+    want_gaze = args.mode in PARTS_MODES or bool(getattr(args, "gaze", False))
+    things: list[str] = []
+    if want_parts:
+        if not want_depth:
+            raise CLIError("--parts needs a depth mode (depth, depth_mesh, depth_pose or depth_parts).", "start")
+        from zfx.things import ThingsError, parse_things
+        try:
+            things = parse_things(getattr(args, "things", "") or "")
+        except ThingsError as exc:
+            raise CLIError(str(exc), "start")
     stages = [s for s in STAGE_WEIGHTS
               if (s != "mesh" or want_mesh) and (s != "pose" or want_motion) and (s != "depth" or want_depth)
-              and (s != "download" or zio.is_url(input_ref))]
+              and (s != "parts" or want_parts) and (s != "download" or zio.is_url(input_ref))]
     total_w = sum(STAGE_WEIGHTS[s] for s in stages)
     offsets, acc = {}, 0.0
     for s in stages:
@@ -383,13 +423,32 @@ def cmd_prepare(args, progress: Progress) -> int:
             job.set_artifact("preview", job.dir / "preview.jpg", save=False)
         job.set_timing("composite", t.seconds, save=False)
         job["composite_info"] = cstats
+        job.save()
+        say("composite", 1.0, f"control.mp4 + preview.jpg in {t.seconds:.1f} s")
+
+        if want_parts:
+            # the parts map after the composite: new files only (parts.mp4, parts.npz, parts.json, control-parts.mp4,
+            # preview-parts.jpg), recorded in job.json with a parts_info summary (effects/PARTS.md)
+            stage = "parts"
+            from zfx.parts import run_parts
+            from zfx.parts_cli import overall_fraction
+            with Timer() as t:
+                say("parts", 0.0, "parts map: body parts, face detail" + (", gaze" if want_gaze else "")
+                    + (", things: " + ", ".join(things) if things else ""))
+                psummary = run_parts(job, things=things, gaze=want_gaze,
+                                     over_person=bool(getattr(args, "things_over_person", False)), device=args.device,
+                                     report=lambda s, f, m: say("parts", overall_fraction(s, f), f"{s}: {m}" if m else s))
+            job.set_timing("parts", t.seconds, save=False)
+            for w in psummary.get("warnings") or []:
+                warnings_out.append(f"parts: {w}")
+            say("parts", 1.0, f"parts.mp4 + control-parts.mp4 + preview-parts.jpg in {t.seconds:.1f} s")
+
         job["review"] = None
         job["warnings"] = warnings_out
         job["error"] = None
         job["status"] = "prepared"
         job.set_timing("total", sum(v for k, v in job["timings"].items() if k != "total"), save=False)
         job.save()
-        say("composite", 1.0, f"control.mp4 + preview.jpg in {t.seconds:.1f} s")
     except Exception as exc:
         if stage == "download":  # io covers download, trim and normalize
             stage = progress.stage if progress.stage in ("download", "trim", "normalize") else stage
@@ -417,12 +476,20 @@ def cmd_prepare(args, progress: Progress) -> int:
         "artifacts": {name: str(job.path(name)) for name in job["artifacts"]},
         "timings": job.get("timings"),
         "warnings": warnings_out,
-        "next": "review preview.jpg, then approve --job",
+        "next": "review preview.jpg" + (" and preview-parts.jpg" if want_parts else "") + ", then approve --job",
     }
     if job.get("motion_info"):
         result["motion"] = job["motion_info"]
+    if job.get("parts_info"):
+        result["parts"] = job["parts_info"]
     progress.done(job.dir, result)
     return 0
+
+
+def cmd_parts(args, progress: Progress) -> int:
+    """The parts map of an existing job (prepared in a depth mode): zfx.parts_cli with this command's Progress."""
+    from zfx import parts_cli
+    return parts_cli.run(args, progress)
 
 
 def _plain(exc: BaseException) -> str:
@@ -706,7 +773,23 @@ def build_parser() -> argparse.ArgumentParser:
                          "(default 0.25; 0 keeps every blob)")
     pr.add_argument("--motion", action="store_true",
                     help="also save the whole-body motion capture (motion.json, motion.bvh, pose.mp4) in the "
-                         "depth/mesh modes (always on in pose and depth_pose)")
+                         "depth/mesh modes (always on in pose, depth_pose and depth_parts)")
+    pr.add_argument("--parts", action="store_true",
+                    help="also build the parts map (effects/PARTS.md: one tone per body part, face detail, named "
+                         "things, depth bands -> parts.mp4, parts.npz, parts.json, control-parts.mp4, "
+                         "preview-parts.jpg) in a depth mode (always on in depth_parts, with the gaze)")
+    pr.add_argument("--things", default="",
+                    help='things for the parts map to find, comma-separated ("microphone, laptop, cap"); one tone '
+                         'each (CLIPSeg, ~600 MB downloaded once)')
+    pr.add_argument("--gaze", action="store_true",
+                    help="parts map: gaze direction and blinks from the irises, drawn in the eyes (on in depth_parts)")
+    pr.add_argument("--things-over-person", action="store_true",
+                    help="parts map: let named things override the body tones (default: outside the person only)")
+
+    pa = sub.add_parser("parts", help="the parts map of an existing job prepared in a depth mode (effects/PARTS.md): "
+                                      "parts.mp4, parts.npz, parts.json, control-parts.mp4, preview-parts.jpg")
+    from zfx.parts_cli import add_arguments as add_parts_arguments
+    add_parts_arguments(pa)
 
     a = sub.add_parser("approve", help="record the review (SHA-256 of every prepared artifact)")
     a.add_argument("--job", required=True)
@@ -734,6 +817,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="faceswap: also sharpen the face (GFPGAN), about 20x slower")
     g.add_argument("--quality", choices=("natural", "fast"), default=None,
                    help="faceswap: natural (default: pixel boost 512, the real inside of the mouth kept) or fast")
+    g.add_argument("--control", choices=("auto", "control", "parts"), default="auto",
+                   help="vace: the video it follows: parts = control-parts.mp4 (the parts map, kept as it is), "
+                        "control = control.mp4; auto (default) = parts for a job prepared in mode depth_parts")
 
     fp = sub.add_parser("facepack", help="check a face pack (.c101face) and show the frames generate would pick")
     fp.add_argument("--pack", required=True, metavar="DIR", help="the .c101face folder")
@@ -795,6 +881,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="the clip, the face and the voice are mine or of people who agreed (required)")
     mm.add_argument("--job", help="job folder (default: Jobs/<new id>); the same folder resumes the job")
     mm.add_argument("--cookies", help="cookies.txt for yt-dlp (default: the Zeus youtube-cookies.txt if present)")
+    mm.add_argument("--parts", action="store_true",
+                    help="also build the parts map in the prepare step (effects/PARTS.md: parts.mp4, parts.npz, "
+                         "parts.json, control-parts.mp4, preview-parts.jpg; about half a minute more)")
     mm.add_argument("--enhance", action="store_true", help=argparse.SUPPRESS)
     mm.add_argument("--swapjob", default=None, help=argparse.SUPPRESS)
 
@@ -813,9 +902,9 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-COMMANDS = {"doctor": cmd_doctor, "prepare": cmd_prepare, "approve": cmd_approve, "generate": cmd_generate,
-            "facepack": cmd_facepack, "motion": cmd_motion, "status": cmd_status, "list": cmd_list,
-            "voice": cmd_voice, "makeme": cmd_makeme, "watch": cmd_watch, "cancel": cmd_cancel}
+COMMANDS = {"doctor": cmd_doctor, "prepare": cmd_prepare, "parts": cmd_parts, "approve": cmd_approve,
+            "generate": cmd_generate, "facepack": cmd_facepack, "motion": cmd_motion, "status": cmd_status,
+            "list": cmd_list, "voice": cmd_voice, "makeme": cmd_makeme, "watch": cmd_watch, "cancel": cmd_cancel}
 
 
 def main(argv=None) -> int:

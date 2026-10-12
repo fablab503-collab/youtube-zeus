@@ -1025,6 +1025,45 @@ def job_mode(job_dir: Path) -> str:
         return "depth"
 
 
+PARTS_CONTROL = "control-parts.mp4"
+CONTROL_KINDS = ("auto", "control", "parts")
+
+
+def job_artifact(job_dir: Path, name: str) -> Optional[Path]:
+    """The path job.json records for an artifact name (relative to the job folder), else None."""
+    try:
+        rel = (json.loads((Path(job_dir) / "job.json").read_text()).get("artifacts") or {}).get(name)
+    except (OSError, ValueError):
+        return None
+    if not rel:
+        return None
+    p = Path(rel)
+    return p if p.is_absolute() else Path(job_dir) / p
+
+
+def control_video(job_dir, control=None, kind: Optional[str] = None) -> tuple[Path, Optional[str]]:
+    """Which video VACE follows, and the control style it forces (None = the mode's default / ZEUS_VACE_CONTROL).
+
+    An explicit `control` path wins (the hat engine passes its own). Else `kind`: "parts" = control-parts.mp4
+    (zfx.parts: the depth tinted per body part, kept as it is), "control" = control.mp4, "auto"/None = parts for a
+    job prepared in mode depth_parts, control.mp4 for every other job."""
+    job_dir = Path(job_dir)
+    if control:
+        return Path(control), None
+    kind = (kind or "auto").strip().lower()
+    if kind not in CONTROL_KINDS:
+        raise EngineError(f"Unknown control '{kind}'. Use one of: {', '.join(CONTROL_KINDS)}.")
+    if kind == "auto":
+        kind = "parts" if job_mode(job_dir) == "depth_parts" else "control"
+    if kind == "parts":
+        path = job_artifact(job_dir, "control_parts") or job_dir / PARTS_CONTROL
+        if not path.is_file():
+            raise EngineError(f"{PARTS_CONTROL} is missing in the job folder: prepare the job with --mode depth_parts "
+                              "(or --parts), or run `zeus_effects.py parts --job <dir>` first.")
+        return path, "as-is"
+    return job_dir / "control.mp4", None
+
+
 def _is_oom(exc: BaseException) -> bool:
     text = str(exc).lower()
     return "out of memory" in text or "mps backend out of memory" in text or "failed to allocate" in text
@@ -1185,15 +1224,18 @@ def run(job_dir, refs: Sequence, out_path, progress: Optional[Progress] = None, 
         prompt: str = "", frames: Optional[int] = None, steps: Optional[int] = None,
         size: Optional[str] = None, seed: Optional[int] = None,
         control: Optional[Path] = None, mask: Optional[Path] = None, crop: Optional[bool] = None,
-        source_lut: Optional[Path] = None, **_ignored) -> dict:
+        source_lut: Optional[Path] = None, control_kind: Optional[str] = None, **_ignored) -> dict:
     """Generate the replacement person. Writes `out_path` (result-raw.mp4, work size, 16 fps) and the per-window
     crops <job>/result-crops/wNN/{gen,base,mask}/NNNN.png + result-crops.json, which zfx.hires composites into the
-    original frames at the source resolution."""
+    original frames at the source resolution.
+
+    control_kind (`generate --control`): "parts" follows control-parts.mp4 (the parts map, kept as it is), "control"
+    follows control.mp4, "auto"/None picks parts for a depth_parts job. An explicit `control` path overrides both."""
     job_dir = Path(job_dir)
     out_path = Path(out_path)
     report: Progress = progress or (lambda *a, **k: None)
     path = check_model()
-    control = Path(control) if control else job_dir / "control.mp4"
+    control, forced_style = control_video(job_dir, control, control_kind)
     mask = Path(mask) if mask else job_dir / "mask.mp4"
     for p in (control, mask):
         if not p.is_file():
@@ -1226,8 +1268,11 @@ def run(job_dir, refs: Sequence, out_path, progress: Optional[Progress] = None, 
     # of 11.4 GB of GPU buffers; same embeddings as on MPS (cosine 0.9996)
     te_device = os.environ.get("ZEUS_VACE_TEXT_DEVICE", "").strip().lower() or "cpu"
     mode = job_mode(job_dir)
-    control_style = os.environ.get("ZEUS_VACE_CONTROL", "").strip().lower() or (
+    control_style = os.environ.get("ZEUS_VACE_CONTROL", "").strip().lower() or forced_style or (
         "gray" if mode in ("depth", "depth_mesh") else "as-is")
+    if forced_style and control_style != forced_style:
+        report("generate", 0.0, f"note: ZEUS_VACE_CONTROL={control_style} overrides the {forced_style} style of "
+                                f"{control.name} (its tones are lost)")
     cropping = crop_enabled(crop)
 
     timings: dict = {}
@@ -1387,6 +1432,7 @@ def run(job_dir, refs: Sequence, out_path, progress: Optional[Progress] = None, 
         "text_encoder_device": te_device,
         "dtype": str(dtype).replace("torch.", ""),
         "control": control_style,
+        "control_video": control.name,
         "reference_cutout": os.environ.get("ZEUS_VACE_REF_CUTOUT", "1").strip() not in ("0", "false", "no"),
         "transformer_weights": transformer_weights,
         "vae_dtype": str(vae_dtype(device)).replace("torch.", ""),

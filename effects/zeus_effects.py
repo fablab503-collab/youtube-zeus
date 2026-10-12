@@ -14,6 +14,12 @@ Run with the runtime venv:
   motion   --job DIR [--json]   (the job's motion capture: frames with a body, hands, visibility, limbs)
   status   --job DIR [--json]
   list     [--json]
+  voice    --job DIR --voice FILE [--voice FILE2] --consent [...]   (change who speaks, same words and timing)
+  makeme   --input FILE|URL [--start S --duration D] (--ref-pack DIR | --self-video FILE | --ref IMG...)
+           [--voice FILE] [--quality natural|fast] [--hat remove|keep] [--no-voice] --consent [--job DIR]
+           (Make it me, effects/MAKE-IT-ME.md: prepare, refs, approve, faceswap, hat, voice, final; resumable)
+  watch    [--folder DIR ...] [--once] [--poll S] [--clean-days N]   (do the .swapjob folders The Swap writes)
+  cancel   --job DIR   (stop a running makeme job: its process group)
 
 stdout: JSON lines {"stage","progress","message"}; last line {"done":true,"job","result"} or
 {"error","stage"} (exit 1). --json on doctor/status/list prints one such "done" line whose
@@ -621,6 +627,58 @@ def cmd_voice(args, progress: Progress) -> int:
     return 0
 
 
+def cmd_makeme(args, progress: Progress) -> int:
+    """Make it me (effects/MAKE-IT-ME.md): one job from the clip to final.mp4 / final-voice.mp4 + compare.mp4."""
+    try:
+        from zfx.makeme import Cancelled, MakeMeError, run_makeme
+    except ImportError as exc:
+        raise CLIError(f"Make it me is not available in this copy (zfx.makeme: {exc}).", "makeme")
+    try:
+        result = run_makeme(args, progress)
+    except Cancelled:
+        raise KeyboardInterrupt
+    except MakeMeError as exc:
+        raise CLIError(str(exc), exc.step)
+    progress.done(result["job"], result)
+    return 0
+
+
+def cmd_watch(args, progress: Progress) -> int:
+    """The shared-folder worker for The Swap (effects/MAKE-IT-ME.md): request -> status.json -> result -> done."""
+    try:
+        from zfx import swapjobs
+    except ImportError as exc:
+        raise CLIError(f"The watcher is not available in this copy (zfx.swapjobs: {exc}).", "watch")
+    folders = [Path(f).expanduser() for f in (args.folder or [])] or swapjobs.default_folders()
+    missing = [str(f) for f in folders if not f.is_dir()]
+    if missing:
+        raise CLIError("Folder not found: " + ", ".join(missing), "watch")
+    try:
+        summary = swapjobs.watch(folders, once=bool(args.once), poll=max(0.5, float(args.poll)),
+                                 clean_days=float(args.clean_days or 0), report=progress.emit)
+    except swapjobs.SwapJobError as exc:
+        raise CLIError(str(exc), "watch")
+    except KeyboardInterrupt:
+        progress.done(None, {"stopped": True})
+        return 0
+    progress.done(None, summary)
+    return 0
+
+
+def cmd_cancel(args, progress: Progress) -> int:
+    """Stop a running makeme job (its pid and process group are in job.json `makeme`)."""
+    from zfx.jobs import Job, JobError
+    from zfx.makeme import MakeMeError, cancel_job
+    try:
+        job = Job.load(args.job)
+        result = cancel_job(job.dir)
+    except (JobError, MakeMeError) as exc:
+        raise CLIError(str(exc), "cancel")
+    progress.update("cancel", 1.0, result["message"])
+    progress.done(job.dir, result)
+    return 0
+
+
 # ---------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="zeus_effects", description="YouTube Zeus Effects (free, local only).")
@@ -714,12 +772,50 @@ def build_parser() -> argparse.ArgumentParser:
     vo.add_argument("--steps", type=int, default=None, help="Chatterbox flow-matching steps (default 10)")
     vo.add_argument("--seed", type=int, default=None,
                     help="seed of the conversion (default 0); another seed = another take of the same voice")
+
+    mm = sub.add_parser("makeme", help="Make it me: the whole job in one go (prepare, refs, approve, faceswap, hat, "
+                                       "voice, final); needs --consent; resumable with the same --job")
+    mm.add_argument("--input", required=True, help="video file or YouTube URL")
+    mm.add_argument("--start", type=float, default=0.0, help="start second (default 0)")
+    mm.add_argument("--duration", type=float, default=None,
+                    help=f"seconds, at most {MAX_DURATION:g} (default: the file up to {MAX_DURATION:g} s; 5 s for a link)")
+    mm.add_argument("--ref-pack", metavar="DIR", default=None, help="a .c101face face pack (Cinema 101 / The Swap)")
+    mm.add_argument("--self-video", metavar="FILE", default=None,
+                    help="a self-video (turn left/right/up/down, talk, smile): frames and the voice sample come from it")
+    mm.add_argument("--ref", action="append", default=None, metavar="IMG", help="reference photo (repeat, at most 4)")
+    mm.add_argument("--voice", metavar="FILE", default=None, help="voice sample (10-60 s of speech); default: the self-video's")
+    mm.add_argument("--no-voice", action="store_true", help="keep the original voice (skip the voice step)")
+    mm.add_argument("--quality", choices=("natural", "fast"), default="natural", help="face swap quality (default natural)")
+    mm.add_argument("--hat", choices=("remove", "keep"), default="keep",
+                    help="remove = find a hat/cap and replace it with hair (VACE, about an hour); default keep")
+    mm.add_argument("--hair", default=None, help="how the hair looks, for the hat step (e.g. 'short dark brown hair')")
+    mm.add_argument("--seed", type=int, default=None, help="seed of the hat step (default fixed)")
+    mm.add_argument("--person", default=None, help="the person's name, written into the pack made from the self-video")
+    mm.add_argument("--consent", action="store_true",
+                    help="the clip, the face and the voice are mine or of people who agreed (required)")
+    mm.add_argument("--job", help="job folder (default: Jobs/<new id>); the same folder resumes the job")
+    mm.add_argument("--cookies", help="cookies.txt for yt-dlp (default: the Zeus youtube-cookies.txt if present)")
+    mm.add_argument("--enhance", action="store_true", help=argparse.SUPPRESS)
+    mm.add_argument("--swapjob", default=None, help=argparse.SUPPRESS)
+
+    wa = sub.add_parser("watch", help="do the .swapjob folders The Swap (iPhone) writes into a shared folder: "
+                                      "request -> status.json -> result.mp4, compare.mp4, preview.jpg, done")
+    wa.add_argument("--folder", action="append", default=None, metavar="DIR",
+                    help="a folder to watch (repeat); default: iCloud Drive/The Swap/Jobs and "
+                         "/Volumes/Volume1/The Swap Jobs when they exist")
+    wa.add_argument("--once", action="store_true", help="do what is pending now, then exit")
+    wa.add_argument("--poll", type=float, default=3.0, help="seconds between looks (default 3)")
+    wa.add_argument("--clean-days", type=float, default=0.0,
+                    help="remove finished jobs older than this many days (default 0 = never)")
+
+    ca = sub.add_parser("cancel", help="stop a running makeme job (kills its process group)")
+    ca.add_argument("--job", required=True)
     return p
 
 
 COMMANDS = {"doctor": cmd_doctor, "prepare": cmd_prepare, "approve": cmd_approve, "generate": cmd_generate,
             "facepack": cmd_facepack, "motion": cmd_motion, "status": cmd_status, "list": cmd_list,
-            "voice": cmd_voice}
+            "voice": cmd_voice, "makeme": cmd_makeme, "watch": cmd_watch, "cancel": cmd_cancel}
 
 
 def main(argv=None) -> int:

@@ -77,6 +77,8 @@ final class AppModel {
     let account = YouTubeAccount()
     /// The Effects tab's engine runs (3.8).
     let effects = EffectsEngine()
+    /// "Do jobs from The Swap": the shared-folder watcher (3.8, effects/MAKE-IT-ME.md).
+    let swapWatcher = SwapWatcher()
     private var browserStorage: BrowserModel?
     /// YouTube pages: several YouTube accounts, one in front (3.9).
     let youtubePages = YouTubePages()
@@ -176,6 +178,7 @@ final class AppModel {
         engine.resumeInterrupted()
         PlaybookFiles.clearMaking()
         watcher.start()
+        startSwapWatcherIfEnabled()
         Task { await openSetupIfNeeded() }
         Task {
             await account.refresh()

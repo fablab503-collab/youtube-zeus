@@ -80,7 +80,7 @@ private struct EffectsJobRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(app.effectsTitle(job)).font(.callout.weight(.medium)).lineLimit(2)
                 HStack(spacing: 5) {
-                    Text(EffectsMode.label(job.mode))
+                    Text(job.makeMe != nil ? "Make it me" : EffectsMode.label(job.mode))
                     Text("·")
                     Text(job.range).monospacedDigit()
                     if let created = job.created {
@@ -93,7 +93,11 @@ private struct EffectsJobRow: View {
                 .lineLimit(1)
             }
             Spacer(minLength: 4)
-            if job.final != nil {
+            if let makeMe = job.makeMe, makeMe.isRunning {
+                ProgressView().controlSize(.mini).help("Make it me is running")
+            } else if let makeMe = job.makeMe, makeMe.canContinue {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).help(makeMe.statusLabel)
+            } else if job.final != nil {
                 Image(systemName: "film.fill").foregroundStyle(.green).help("Generated")
             } else if job.isApproved {
                 Image(systemName: "checkmark.seal.fill").foregroundStyle(.tint).help("Approved")
@@ -117,13 +121,17 @@ struct EffectsView: View {
                 }
                 if let job = effects.selectedJob {
                     EffectsJobHeader(job: job)
-                    if job.isPrepared {
-                        EffectsReviewCard(job: job)
-                        EffectsGenerateCard(job: job)
+                    if job.makeMe != nil {
+                        EffectsMakeMeJobCard(job: job)
+                    } else {
+                        if job.isPrepared {
+                            EffectsReviewCard(job: job)
+                            EffectsGenerateCard(job: job)
+                        }
+                        if let final = job.final { EffectsResultCard(job: job, final: final) }
                     }
-                    if let final = job.final { EffectsResultCard(job: job, final: final) }
                 } else {
-                    EffectsSourceCard()
+                    EffectsNewEffectView()
                 }
                 Text("Free and private: every step runs on this Mac with open models (no paid API, no key, no upload). The idea comes from Sirio Berati's open-source Genjutsu workflow (MIT). Results are marked as AI-generated in their metadata.")
                     .font(.caption)
@@ -266,7 +274,16 @@ private struct EffectsProgressCard: View {
                         .buttonStyle(.glass)
                         .help("Stop the engine and everything it started")
                 }
-                if let fraction = effects.fraction {
+                if !effects.planSteps.isEmpty {
+                    EffectsStepsRow(steps: effects.planSteps, current: effects.stage)
+                }
+                if let overall = effects.overall {
+                    ProgressView(value: overall)
+                    if let fraction = effects.fraction, !effects.stage.isEmpty {
+                        Text("\(EffectsMakeMe.label(effects.stage)) \(Int(fraction * 100)) % · whole job \(Int(overall * 100)) %")
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                } else if let fraction = effects.fraction {
                     ProgressView(value: fraction)
                 }
                 if !effects.message.isEmpty {
@@ -311,7 +328,7 @@ private struct EffectsProgressCard: View {
 
 // MARK: - Source
 
-private struct EffectsSourceCard: View {
+struct EffectsSourceCard: View {
     @Environment(AppModel.self) private var app
     @State private var picking = false
     @State private var targeted = false
@@ -440,7 +457,7 @@ private struct EffectsSourceCard: View {
 }
 
 /// The videos of the library that have a picture (YouTube videos and your own video files).
-private struct EffectsVideoPicker: View {
+struct EffectsVideoPicker: View {
     @Environment(AppModel.self) private var app
     @Query(sort: \Video.addedAt, order: .reverse) private var videos: [Video]
     @State private var search = ""
@@ -712,7 +729,7 @@ private struct EffectsGenerateCard: View {
 }
 
 /// "Use a face pack…": a pack from Cinema 101's Scan my face (several angles of one face, picked by the engine).
-private struct EffectsFacePackRow: View {
+struct EffectsFacePackRow: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
@@ -774,7 +791,7 @@ private struct EffectsFacePackRow: View {
 }
 
 /// A small picture from a local file (ImageIO thumbnail, never the full photo).
-private struct EffectsThumb: View {
+struct EffectsThumb: View {
     let url: URL
     @State private var image: NSImage?
 
@@ -799,7 +816,7 @@ private struct EffectsThumb: View {
     }
 }
 
-private struct EffectsPhotoSlot: View {
+struct EffectsPhotoSlot: View {
     let title: String
     let subtitle: String
     @Binding var url: URL?
@@ -880,7 +897,7 @@ private struct EffectsResultCard: View {
 // MARK: - Small pieces
 
 /// A picture from a local file, loaded again when the job changes.
-private struct EffectsImage: View {
+struct EffectsImage: View {
     let url: URL
     let stamp: Double
     var fill = false
@@ -929,7 +946,7 @@ private struct EffectsSheetCell: View {
 }
 
 /// A video of the job, with the system player controls.
-private struct EffectsClip: View {
+struct EffectsClip: View {
     let url: URL
     let stamp: Double
     var height: CGFloat = 200

@@ -62,6 +62,11 @@ final class AppSettings {
     var digestHour: Int { didSet { save("digestHour", digestHour) } }
     var phoneInboxEnabled: Bool { didSet { save("phoneInboxEnabled", phoneInboxEnabled) } }
 
+    // 3.8: Make it me — "Do jobs from The Swap" (the shared-folder watcher runs with the app)
+    var swapJobsEnabled: Bool { didSet { save("swapJobsEnabled", swapJobsEnabled) } }
+    /// Finished .swapjob folders older than this many days are removed (0 = never).
+    var swapJobsCleanDays: Int { didSet { save("swapJobsCleanDays", swapJobsCleanDays) } }
+
     // 3.2: playbooks
     /// Look at the key frames with a vision model (else the transcript and the text on screen only).
     var playbookVision: Bool { didSet { save("playbookVision", playbookVision) } }
@@ -130,6 +135,8 @@ final class AppSettings {
             "digestWeekday": 1,
             "digestHour": 19,
             "phoneInboxEnabled": true,
+            "swapJobsEnabled": true,
+            "swapJobsCleanDays": 0,
             "playbookVision": true,
             "visionModel": "",
             "playbookFrames": 60,
@@ -185,6 +192,8 @@ final class AppSettings {
         digestWeekday = min(7, max(1, d.integer(forKey: "digestWeekday")))
         digestHour = min(23, max(0, d.integer(forKey: "digestHour")))
         phoneInboxEnabled = d.bool(forKey: "phoneInboxEnabled")
+        swapJobsEnabled = d.bool(forKey: "swapJobsEnabled")
+        swapJobsCleanDays = max(0, d.integer(forKey: "swapJobsCleanDays"))
         playbookVision = d.bool(forKey: "playbookVision")
         visionModel = d.string(forKey: "visionModel") ?? ""
         playbookFrames = min(150, max(10, d.integer(forKey: "playbookFrames")))

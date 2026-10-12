@@ -96,8 +96,34 @@ def pending_jobs(folders: Sequence[Path]) -> list[Path]:
             status = read_status(child)
             if status.get("error") and status.get("finished"):
                 continue
+            if not files_complete(child):
+                continue  # iCloud may sync `request` before the big files: wait until every listed file is whole
             found.append(child)
     return sorted(found, key=lambda p: p.name)
+
+
+def files_complete(swapjob: Path) -> bool:
+    """True when every file listed in job.json's `files` {relative path: bytes} exists with that size.
+    Jobs without a `files` map (hand-made, or an older phone app) are always considered complete."""
+    try:
+        data = json.loads((Path(swapjob) / "job.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return True
+    files = data.get("files") if isinstance(data, dict) else None
+    if not isinstance(files, dict):
+        return True
+    for rel, size in files.items():
+        if not isinstance(rel, str) or rel in ("...", "") or not isinstance(size, (int, float)) or isinstance(size, bool):
+            continue
+        if ".." in Path(rel).parts or Path(rel).is_absolute():
+            continue  # never look outside the job folder
+        path = Path(swapjob) / rel
+        try:
+            if path.stat().st_size != int(size):
+                return False
+        except OSError:
+            return False
+    return True
 
 
 def read_status(swapjob: Path) -> dict:
@@ -190,6 +216,11 @@ def read_job(swapjob: Path) -> dict:
             raise SwapJobError(f"job.json could not be read: {exc}")
         if not isinstance(options, dict):
             raise SwapJobError("job.json is not a JSON object.")
+        # The Swap (iPhone) nests quality/hat/voice under "options" (effects/MAKE-IT-ME.md appendix); flat keys
+        # are accepted too, nested ones win.
+        nested = options.get("options")
+        if isinstance(nested, dict):
+            options = {**options, **nested}
     clip = next((swapjob / n for n in CLIP_FILES if (swapjob / n).is_file()), None)
     if clip is not None:
         job["input"] = str(clip)

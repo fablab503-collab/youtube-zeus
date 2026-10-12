@@ -163,6 +163,39 @@ class WatcherTests(unittest.TestCase):
         self.assertEqual(S.pending_jobs([self.root / "missing"]), [])
         _ = later
 
+    def test_phone_job_json_shape(self):
+        """The Swap nests quality/hat/voice under "options" and adds a `files` size map (MAKE-IT-ME.md appendix)."""
+        job = self.make_swapjob(name="20261012-102000-Phone", options={
+            "format": "swapjob", "format_version": 1, "name": "Beach", "app": "The Swap", "version": "1.0 (1)",
+            "device": "iPhone19,2", "clip": "clip.mp4", "clip_seconds": 8.5, "me": "me.c101face", "me_kind": "pack",
+            "voice": "voice.m4a", "options": {"quality": "fast", "hat": "remove", "voice": True},
+            "consent": True, "consent_text": "This reference is me, or someone who agreed."})
+        # the flat "hat" is absent in the phone's file: only the nested one says remove
+        data = json.loads((job / "job.json").read_text())
+        data.pop("hat", None)
+        (job / "job.json").write_text(json.dumps(data))
+        read = S.read_job(job)
+        self.assertEqual((read["quality"], read["hat"], read["voice_on"], read["consent"]), ("fast", "remove", True, True))
+        self.assertEqual(read["me"]["kind"], "face-pack")
+        self.assertEqual(Path(read["voice"]).name, "voice.m4a")
+        self.assertEqual(read["app"], "The Swap")
+
+    def test_pending_waits_for_listed_files(self):
+        job = self.make_swapjob(name="20261012-102100-Sync", options={
+            "files": {"clip.mp4": 12345, "voice.m4a": 7, "...": 0}})   # not the sizes on disk
+        # sizes in job.json do not match what is on disk yet (iCloud still uploading) -> not pending
+        self.assertFalse(S.files_complete(job))
+        self.assertEqual(S.pending_jobs([self.folder]), [])
+        data = json.loads((job / "job.json").read_text())
+        data["files"] = {"clip.mp4": (job / "clip.mp4").stat().st_size, "voice.m4a": (job / "voice.m4a").stat().st_size,
+                         "me.c101face/manifest.json": (job / "me.c101face" / "manifest.json").stat().st_size}
+        (job / "job.json").write_text(json.dumps(data))
+        self.assertTrue(S.files_complete(job))
+        self.assertEqual([p.name for p in S.pending_jobs([self.folder])], ["20261012-102100-Sync.swapjob"])
+        data["files"]["missing.bin"] = 10
+        (job / "job.json").write_text(json.dumps(data))
+        self.assertFalse(S.files_complete(job))
+
     # -- the whole protocol -------------------------------------------------------------------------------------
     def test_request_status_result_done(self):
         job = self.make_swapjob()

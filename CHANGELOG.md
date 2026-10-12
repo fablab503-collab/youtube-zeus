@@ -22,6 +22,18 @@ Newest first.
 - **For agents:** `zeus effects <doctor|prepare|approve|generate|status|list|setup> [args…]` passes everything to the
   engine and streams its JSON lines; `youtubezeus://effects?video=<id>` opens the tab with that video. The agent guide
   has a new Effects section (consent is always the user's).
+- **Make it me** (2026-10-12, `effects/MAKE-IT-ME.md`): one button in Effects. Pick the clip (library or file, up to
+  10 s), say who you are (a **self-video** — Zeus keeps the sharpest frames per angle with open eyes and takes your voice
+  from it — a `.c101face` face pack, or photos), choose the voice (from the self-video, a file, or keep the original),
+  the quality, **Remove the hat or cap** (a hat found on the head is replaced with hair: BiSeNet mask, VACE, hi-res
+  composite — about an hour), tick the consent and click **Make it me**: prepare → references → approve (automatic) →
+  face swap (natural) → hat → voice → final, with the step names and the overall progress; then play the result, the
+  side-by-side `compare.mp4`, Save to Movies. A stopped job continues where it was (`Continue`). CLI:
+  `zeus effects makeme …` (resumable with the same `--job`, `zeus effects cancel --job …`).
+- **Do jobs from The Swap** (Settings › Extras): the iPhone app writes a `<stamp>-<name>.swapjob` folder into iCloud
+  Drive › The Swap › Jobs (or the NAS); Zeus, while open, does it on this Mac (`zeus effects watch`): `status.json`
+  every few seconds, then `result.mp4`, `compare.mp4`, `preview.jpg` and `done`; a `cancel` marker stops it. No server,
+  no port: only a shared folder. Such jobs appear in the Effects jobs list like the others.
 - **Measured on a 16 GB M2 Pro (2026-10-11).** Prepare: ~40 s for 4 s of video, 5 GB peak. Full replace at 360p,
   33 frames, 20 steps: ~16 min per 2 s, 5 GB peak (fp16 transformer copy streamed to the GPU block by block, prompt
   encoding on the CPU in its own process, scheduler step on the CPU because UniPC diverges on MPS). 480p fits but is

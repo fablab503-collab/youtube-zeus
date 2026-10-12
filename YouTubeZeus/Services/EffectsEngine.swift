@@ -205,9 +205,11 @@ nonisolated enum EffectsJSON {
     }
 }
 
-/// One line of the engine's stdout (SPEC: progress lines, then `done` or `error`).
+/// One line of the engine's stdout (SPEC: progress lines, then `done` or `error`). Make it me (MAKE-IT-ME.md) adds a
+/// first `plan` line with the step names and an `overall` 0–1 of the whole job on every progress line.
 nonisolated enum EffectsEvent: Equatable, Sendable {
-    case progress(stage: String, fraction: Double?, message: String)
+    case progress(stage: String, fraction: Double?, message: String, overall: Double?)
+    case plan(steps: [String], job: String?)
     case done(job: String?)
     case failed(message: String, stage: String?)
     /// Anything that is not one of the JSON lines above (kept for the details log).
@@ -223,10 +225,113 @@ nonisolated enum EffectsEvent: Equatable, Sendable {
             return .done(job: (object["job"] as? String) ?? (result?["job"] as? String) ?? (result?["dir"] as? String))
         }
         if let stage = object["stage"] as? String {
+            if stage == "plan", let steps = object["steps"] as? [String] {
+                return .plan(steps: steps, job: object["job"] as? String)
+            }
             let fraction = EffectsJSON.number(object["progress"]).map { min(1, max(0, $0)) }
-            return .progress(stage: stage, fraction: fraction, message: EffectsJSON.string(object["message"]) ?? "")
+            let overall = EffectsJSON.number(object["overall"]).map { min(1, max(0, $0)) }
+            return .progress(stage: stage, fraction: fraction, message: EffectsJSON.string(object["message"]) ?? "",
+                             overall: overall)
         }
         return .text(line)
+    }
+}
+
+// MARK: - Make it me
+
+/// The `makeme` section of job.json (effects/MAKE-IT-ME.md): the one-button job's steps and result.
+nonisolated struct EffectsMakeMe: Hashable, Sendable {
+    nonisolated struct Step: Hashable, Sendable, Identifiable {
+        var name: String
+        var status: String       // pending · running · done · skipped · failed · cancelled
+        var seconds: Double?
+        var message: String?
+        var id: String { name }
+        var label: String { EffectsMakeMe.label(name) }
+    }
+
+    var status = ""              // running · done · failed · cancelled
+    var plan: [String] = []
+    var steps: [Step] = []
+    var result: String?          // final.mp4 or final-voice.mp4
+    var compare: String?
+    var comment: String?
+    var error: String?
+    var swapJob: String?
+    /// The options the job was started with (input, start, duration, self_video, ref_pack, refs, voice, quality,
+    /// hat, hair, person…): what "Continue" passes again.
+    var options: [String: String] = [:]
+    var photos: [String] = []
+    var hatFound: Bool?
+
+    init?(_ object: [String: Any]?) {
+        guard let object else { return nil }
+        status = EffectsJSON.string(object["status"]) ?? ""
+        plan = object["plan"] as? [String] ?? []
+        let table = object["steps"] as? [String: Any] ?? [:]
+        let names = plan.isEmpty ? table.keys.sorted() : plan
+        steps = names.map { name in
+            let item = table[name] as? [String: Any] ?? [:]
+            return Step(name: name, status: EffectsJSON.string(item["status"]) ?? "pending",
+                        seconds: EffectsJSON.number(item["seconds"]), message: EffectsJSON.string(item["message"]))
+        }
+        result = EffectsJSON.string(object["result"])
+        compare = EffectsJSON.string(object["compare"])
+        comment = EffectsJSON.string(object["comment"])
+        error = EffectsJSON.string(object["error"])
+        swapJob = EffectsJSON.string(object["swapjob"])
+        let raw = object["options"] as? [String: Any] ?? [:]
+        for (key, value) in raw {
+            if let bool = EffectsJSON.bool(value) { options[key] = bool ? "true" : "false" }
+            else if let text = EffectsJSON.string(value) { options[key] = text }
+        }
+        photos = raw["refs"] as? [String] ?? []
+        if let hat = table["hat"] as? [String: Any], let status = EffectsJSON.string(hat["status"]) {
+            hatFound = status == "done" ? true : (status == "skipped" ? false : nil)
+        }
+    }
+
+    var isRunning: Bool { status == "running" }
+    var isDone: Bool { status == "done" }
+    var canContinue: Bool { status == "failed" || status == "cancelled" }
+    var fromTheSwap: Bool { swapJob != nil }
+
+    var statusLabel: String {
+        switch status {
+        case "running": "Make it me · running"
+        case "done": "Make it me · done"
+        case "failed": "Make it me · failed"
+        case "cancelled": "Make it me · cancelled"
+        default: "Make it me"
+        }
+    }
+
+    static func label(_ step: String) -> String {
+        switch step {
+        case "plan": "Plan"
+        case "prepare": "Prepare"
+        case "refs": "References"
+        case "approve": "Approve"
+        case "faceswap": "Face swap"
+        case "hat": "Hat"
+        case "voice": "Voice"
+        case "final": "Final"
+        case "waiting": "Waiting"
+        default: step.capitalized
+        }
+    }
+
+    static func explanation(_ step: String) -> String {
+        switch step {
+        case "prepare": "Download or trim the clip, depth, people mask and face mesh."
+        case "refs": "The reference frames (face pack, self-video or photos) and the voice sample."
+        case "approve": "Recorded automatically: you consented and chose the clip."
+        case "faceswap": "FaceFusion puts your face on, quality natural."
+        case "hat": "A hat or cap found on the head is replaced with hair (VACE, about an hour)."
+        case "voice": "Your voice says the same words with the same timing."
+        case "final": "final.mp4, final-voice.mp4 and the side-by-side compare.mp4."
+        default: ""
+        }
     }
 }
 
@@ -332,6 +437,8 @@ nonisolated struct EffectsJob: Identifiable, Hashable, Sendable {
     var approvedAt: String?
     var artifacts: [String: String] = [:]
     var generations: [EffectsGeneration] = []
+    /// The one-button job (Make it me), when job.json has a `makeme` section.
+    var makeMe: EffectsMakeMe?
     /// job.json's modification time: players and pictures reload when it changes.
     var stamp: Double = 0
 
@@ -345,6 +452,7 @@ nonisolated struct EffectsJob: Identifiable, Hashable, Sendable {
         duration = EffectsJSON.number(object["duration"]) ?? 0
         mode = EffectsJSON.string(object["mode"]) ?? ""
         status = EffectsJSON.string(object["status"]) ?? ""
+        makeMe = EffectsMakeMe(object["makeme"] as? [String: Any])
         if let review = object["review"] as? [String: Any] {
             let hashes = review["hashes"] as? [String: Any] ?? [:]
             approvedAt = EffectsJSON.string(review["approved_at"]) ?? (hashes.isEmpty ? nil : "")
@@ -383,6 +491,14 @@ nonisolated struct EffectsJob: Identifiable, Hashable, Sendable {
     var isApproved: Bool { approvedAt != nil }
     var isPrepared: Bool { file("control.mp4") != nil || file("preview.jpg") != nil }
     var final: URL? { file("final.mp4") }
+    /// What to play and save: Make it me's result (final-voice.mp4 when the voice ran), else final.mp4.
+    var resultVideo: URL? {
+        if let name = makeMe?.result, let url = file(name) { return url }
+        if makeMe != nil, let voice = file("final-voice.mp4") { return voice }
+        return final
+    }
+    var compare: URL? { file("compare.mp4") }
+    var swapResult: URL? { file("final-swap.mp4") }
 
     var youtubeID: String? {
         if case .video(let id) = YouTubeLink.parse(input), input.lowercased().hasPrefix("http") || input.count == 11 { return id }
@@ -398,6 +514,7 @@ nonisolated struct EffectsJob: Identifiable, Hashable, Sendable {
     var range: String { "\(start.timestamp)–\((start + duration).timestamp)" }
 
     var statusLabel: String {
+        if let makeMe { return makeMe.statusLabel }
         if final != nil { return "Generated" }
         if isApproved { return "Approved" }
         return status.isEmpty ? (isPrepared ? "Prepared" : "Not ready") : status.replacingOccurrences(of: "_", with: " ").capitalized
@@ -490,8 +607,103 @@ nonisolated enum EffectsArguments {
         return arguments
     }
 
+    /// `makeme` (effects/MAKE-IT-ME.md): the whole job in one go. `me` is a face pack folder, a self-video or photos.
+    static func makeMe(input: String, start: Double, duration: Double, me: EffectsMe, voice: URL?, voiceOn: Bool,
+                       quality: String, hat: Bool, hair: String, person: String, consent: Bool, job: URL?,
+                       cookies: URL?) -> [String] {
+        var arguments = ["makeme", "--input", input, "--start", number(max(0, start)),
+                         "--duration", number(min(maxDuration, max(0.5, duration)))]
+        switch me {
+        case .facePack(let folder): arguments += ["--ref-pack", folder.path]
+        case .selfVideo(let file): arguments += ["--self-video", file.path]
+        case .photos(let files): for file in files { arguments += ["--ref", file.path] }
+        }
+        if let voice { arguments += ["--voice", voice.path] }
+        if !voiceOn { arguments.append("--no-voice") }
+        arguments += ["--quality", quality, "--hat", hat ? "remove" : "keep"]
+        let hairText = hair.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !hairText.isEmpty { arguments += ["--hair", hairText] }
+        let name = person.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty { arguments += ["--person", name] }
+        if consent { arguments.append("--consent") }
+        if let job { arguments += ["--job", job.path] }
+        if let cookies, input.lowercased().hasPrefix("http") { arguments += ["--cookies", cookies.path] }
+        return arguments
+    }
+
+    /// The same job again, from what job.json `makeme.options` recorded (a failed or cancelled job continues where
+    /// it stopped: finished steps are kept by the engine's hash markers).
+    static func continueMakeMe(_ job: EffectsJob, cookies: URL?) -> [String]? {
+        guard let record = job.makeMe, let input = record.options["input"], !input.isEmpty else { return nil }
+        let me: EffectsMe
+        if let pack = record.options["ref_pack"], !pack.isEmpty {
+            me = .facePack(URL(fileURLWithPath: pack))
+        } else if let video = record.options["self_video"], !video.isEmpty {
+            me = .selfVideo(URL(fileURLWithPath: video))
+        } else if !record.photos.isEmpty {
+            me = .photos(record.photos.map { URL(fileURLWithPath: $0) })
+        } else {
+            return nil
+        }
+        let start = Double(record.options["start"] ?? "") ?? job.start
+        let duration = Double(record.options["duration"] ?? "") ?? max(0.5, job.duration)
+        let voice = record.options["voice"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+        return makeMe(input: input, start: start, duration: duration, me: me, voice: voice,
+                      voiceOn: record.options["voice_on"] != "false", quality: record.options["quality"] ?? "natural",
+                      hat: record.options["hat"] == "remove", hair: record.options["hair"] ?? "",
+                      person: record.options["person"] ?? "", consent: record.options["consent"] == "true",
+                      job: job.folder, cookies: cookies)
+    }
+
     static func number(_ value: Double) -> String {
         value == value.rounded() ? String(Int(value)) : String(format: "%.2f", value)
+    }
+}
+
+/// Who the person becomes, for Make it me.
+nonisolated enum EffectsMe: Equatable, Sendable {
+    case facePack(URL)
+    case selfVideo(URL)
+    case photos([URL])
+}
+
+nonisolated enum EffectsMeSource: String, CaseIterable, Identifiable, Sendable {
+    case selfVideo = "self-video"
+    case facePack = "face-pack"
+    case photos
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .selfVideo: "Self-video"
+        case .facePack: "Face pack"
+        case .photos: "Photos"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .selfVideo: "Film yourself 30–60 s, chest up, soft light, no hat: turn left and right, up and down, talk for 20 seconds, smile. Zeus keeps the sharpest frames per angle (eyes open) and takes your voice from it."
+        case .facePack: "A .c101face pack from Cinema 101 or The Swap (Scan my face): several angles of your face."
+        case .photos: "One to four clear photos of the face, front and sides."
+        }
+    }
+}
+
+nonisolated enum EffectsVoiceSource: String, CaseIterable, Identifiable, Sendable {
+    case selfVideo = "self-video"
+    case file
+    case keep
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .selfVideo: "From the self-video"
+        case .file: "Voice file"
+        case .keep: "Keep the original voice"
+        }
     }
 }
 
@@ -762,6 +974,7 @@ final class EffectsEngine {
         case prepare
         case approve
         case generate
+        case makeMe
 
         var label: String {
             switch self {
@@ -769,8 +982,18 @@ final class EffectsEngine {
             case .prepare: "Preparing the clip"
             case .approve: "Recording your approval"
             case .generate: "Generating on this Mac"
+            case .makeMe: "Making it you"
             }
         }
+    }
+
+    /// Which form the tab shows for a new effect: the one-button job, or the step-by-step flow.
+    enum Flow: String, CaseIterable, Identifiable {
+        case makeMe
+        case stepByStep
+
+        var id: String { rawValue }
+        var label: String { self == .makeMe ? "Make it me" : "Step by step" }
     }
 
     // Engine status (doctor)
@@ -787,6 +1010,9 @@ final class EffectsEngine {
     private(set) var work: Work?
     private(set) var stage = ""
     private(set) var fraction: Double?
+    /// Make it me: 0–1 of the whole job, and the planned steps (from the engine's first line).
+    private(set) var overall: Double?
+    private(set) var planSteps: [String] = []
     private(set) var message = ""
     var lastError: String?
     /// Human output (stderr, setup scripts), last lines.
@@ -819,6 +1045,29 @@ final class EffectsEngine {
     var seedText = ""
     var enhanceFace = false   // face swap: GFPGAN sharpening, ~20x slower (33 s vs 11 min for 3 s of 1080p)
     var faceQuality = "natural"   // face swap: natural (pixel boost 512 + real inside of the mouth) or fast
+
+    // Make it me (effects/MAKE-IT-ME.md): one button
+    var flow: Flow = .makeMe
+    var meSource: EffectsMeSource = .selfVideo
+    var selfVideo: URL? { didSet { if selfVideo != oldValue { makeMeConsent = false } } }
+    var voiceSource: EffectsVoiceSource = .selfVideo
+    var voiceFile: URL?
+    var makeMeQuality = "natural"
+    var hatRemove = false
+    var hairText = ""
+    var personName = ""
+    var makeMeConsent = false
+
+    /// Who the person becomes, from the form (nil when nothing is chosen yet).
+    var makeMeWho: EffectsMe? {
+        switch meSource {
+        case .selfVideo: return selfVideo.map { .selfVideo($0) }
+        case .facePack: return facePack.map { .facePack($0.folder) }
+        case .photos:
+            let photos = [referencePhoto, secondPhoto].compactMap { $0 }
+            return photos.isEmpty ? nil : .photos(photos)
+        }
+    }
 
     var isBusy: Bool { work != nil }
     var isSetUp: Bool { EffectsPaths.isSetUp }
@@ -942,6 +1191,59 @@ final class EffectsEngine {
         return ok
     }
 
+    /// Make it me: the whole job (prepare, refs, approve, faceswap, hat, voice, final) with one command.
+    func makeMe(input: String) async -> EffectsJob? {
+        guard let script = EffectsPaths.script else {
+            lastError = "The Effects engine is missing from this copy of the app."
+            return nil
+        }
+        guard let who = makeMeWho else {
+            lastError = "Say who you are: a self-video, a face pack or photos."
+            return nil
+        }
+        guard makeMeConsent else {
+            lastError = "Tick the consent box first: the clip, the face and the voice are yours or of people who agreed."
+            return nil
+        }
+        let voiceOn: Bool
+        var voice: URL?
+        switch voiceSource {
+        case .selfVideo: voiceOn = meSource == .selfVideo
+        case .file:
+            voiceOn = voiceFile != nil
+            voice = voiceFile
+        case .keep: voiceOn = false
+        }
+        let cookies = FileManager.default.fileExists(atPath: YouTubeAccount.cookieFile.path) ? YouTubeAccount.cookieFile : nil
+        let arguments = EffectsArguments.makeMe(input: input, start: startSeconds, duration: length, me: who, voice: voice,
+                                                voiceOn: voiceOn, quality: makeMeQuality, hat: hatRemove, hair: hairText,
+                                                person: personName, consent: makeMeConsent, job: nil, cookies: cookies)
+        let (ok, path) = await run(.makeMe, EffectsPaths.python, [script.path] + arguments)
+        await refreshJobs()
+        guard let path else { return nil }
+        let folder = EffectsJobs.folder(path)
+        let job = jobs.first { $0.folder.standardizedFileURL == folder } ?? EffectsJob.load(folder)
+        if let job {
+            if !jobs.contains(where: { $0.id == job.id }) { jobs.insert(job, at: 0) }
+            selectedJobID = job.id
+        }
+        return ok ? job : nil
+    }
+
+    /// A failed or cancelled Make it me job again, in the same folder: the engine keeps the steps already done.
+    func continueMakeMe(_ job: EffectsJob) async -> Bool {
+        guard let script = EffectsPaths.script else { return false }
+        let cookies = FileManager.default.fileExists(atPath: YouTubeAccount.cookieFile.path) ? YouTubeAccount.cookieFile : nil
+        guard let arguments = EffectsArguments.continueMakeMe(job, cookies: cookies) else {
+            lastError = "This job did not record what it was started with; start a new Make it me."
+            return false
+        }
+        selectedJobID = job.id
+        let (ok, _) = await run(.makeMe, EffectsPaths.python, [script.path] + arguments)
+        reload(job.folder)
+        return ok
+    }
+
     func cancel() {
         running?.cancel()
     }
@@ -964,12 +1266,13 @@ final class EffectsEngine {
         foundPacks = await Task.detached { EffectsFacePacks.discover() }.value
     }
 
-    /// Copies final.mp4 to ~/Movies/YouTube Zeus Effects/ (never over an earlier copy).
+    /// Copies the result (Make it me: final-voice.mp4 when the voice ran, else final.mp4) to
+    /// ~/Movies/YouTube Zeus Effects/ (never over an earlier copy).
     func saveToMovies(_ job: EffectsJob) throws -> URL {
-        guard let final = job.final else { throw CocoaError(.fileNoSuchFile) }
+        guard let final = job.resultVideo else { throw CocoaError(.fileNoSuchFile) }
         let folder = EffectsPaths.movies
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let engine = job.generations.last.map { " (\($0.engine))" } ?? ""
+        let engine = job.makeMe != nil ? " (Make it me)" : (job.generations.last.map { " (\($0.engine))" } ?? "")
         let base = ("Zeus Effect " + job.id + engine).replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
         var target = folder.appendingPathComponent(base + ".mp4")
         var number = 2
@@ -992,6 +1295,8 @@ final class EffectsEngine {
         self.work = work
         stage = ""
         fraction = nil
+        overall = nil
+        planSteps = []
         message = work.label + "…"
         lastError = nil
         output.removeAll()
@@ -1017,14 +1322,19 @@ final class EffectsEngine {
             switch item {
             case .stdout(let line):
                 switch EffectsEvent.parse(line) {
-                case .progress(let newStage, let newFraction, let text):
+                case .progress(let newStage, let newFraction, let text, let newOverall):
                     if newStage != stage { fraction = nil }
                     stage = newStage
                     if let newFraction { fraction = newFraction }
+                    if let newOverall { overall = newOverall }
                     if !text.isEmpty { message = text }
+                case .plan(let steps, let path):
+                    planSteps = steps
+                    if let path { job = path }
                 case .done(let path):
-                    job = path
+                    job = path ?? job
                     fraction = 1
+                    overall = 1
                 case .failed(let text, let failedStage):
                     failure = text
                     if let failedStage { stage = failedStage }

@@ -64,11 +64,13 @@ enum ZeusCLI {
       zeus entity <name>        every item that names someone or something, with the moments
       zeus digest [--week 2026-W39|--last] [--save] [--no-ai]
                                 the weekly digest: what was eaten, best ideas, open questions, new repositories
-      zeus effects <doctor|prepare|approve|generate|facepack|motion|status|list|setup> [args…]
+      zeus effects <doctor|prepare|approve|generate|facepack|motion|voice|makeme|watch|cancel|status|list|setup> [args…]
                                 Effects, a free local Genjutsu (keep the movement, replace the person with a photo,
                                 keep the sound): runs the engine on this Mac and prints its JSON lines as they come;
                                 exit code 1 on error. `zeus effects setup [--faceswap|--vace]` installs it.
-                                generate needs --consent (the photos show the user or people who agreed) and an approve
+                                generate needs --consent (the photos show the user or people who agreed) and an approve.
+                                makeme = Make it me in one go (--input, --self-video|--ref-pack|--ref, --hat remove,
+                                --consent); watch = do the .swapjob folders The Swap writes; cancel = stop a makeme job
       zeus mcp                  run YouTube Zeus as an MCP server (stdio) for Claude, Codex, Cursor, LM Studio…
       zeus shortcut [--no-open] make the "Eat with Zeus" shortcut for the iPhone/iPad share sheet (opens Shortcuts)
       zeus setup [--install] [--model <tag>] [--json]
@@ -502,13 +504,13 @@ enum ZeusCLI {
 
     // MARK: Effects
 
-    static let effectsCommands: Set<String> = ["doctor", "prepare", "approve", "generate", "facepack", "motion", "voice", "status", "list", "setup"]
+    static let effectsCommands: Set<String> = ["doctor", "prepare", "approve", "generate", "facepack", "motion", "voice", "makeme", "watch", "cancel", "status", "list", "setup"]
 
     /// `zeus effects …`: a pass-through to the local engine (effects/zeus_effects.py, see effects/SPEC.md). Its JSON
     /// lines go straight to stdout, its logs to stderr; the engine's exit code is returned.
     static func effects(_ arguments: [String]) async -> Int32 {
         guard let command = arguments.first, effectsCommands.contains(command) else {
-            return fail("zeus effects <doctor|prepare|approve|generate|facepack|motion|status|list|setup> [args…]. Free and local; `zeus guide` explains it.")
+            return fail("zeus effects <doctor|prepare|approve|generate|facepack|motion|voice|makeme|watch|cancel|status|list|setup> [args…]. Free and local; `zeus guide` explains it.")
         }
         guard let engine = EffectsPaths.engine, let script = EffectsPaths.script else {
             return fail("The Zeus Effects engine was not found (the app's Resources/effects, or effects/ in the repository).")

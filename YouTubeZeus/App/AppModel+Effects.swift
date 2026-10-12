@@ -45,10 +45,98 @@ extension AppModel {
         Task {
             if await effects.setUp(setup) {
                 show(setup == .main ? "The Effects engine is set up on this Mac." : "\(setup.label.replacingOccurrences(of: "Adding", with: "Added")).")
+                if setup == .main { startSwapWatcherIfEnabled() }
             } else if let error = effects.lastError {
                 show(error, error: true)
             }
         }
+    }
+
+    // MARK: Make it me (effects/MAKE-IT-ME.md)
+
+    /// One button: prepare, references, approve, face swap, hat, voice, final — on this Mac, with consent.
+    func makeMeEffect() {
+        guard let input = effectsSourceInput else {
+            show("Pick a video of the library or a video file first.", error: true)
+            return
+        }
+        let effects = self.effects
+        Task {
+            if let job = await effects.makeMe(input: input) {
+                if settings.notifyWhenEaten { Notifier.post(title: "Make it me is done", body: effectsTitle(job)) }
+                show("Done: “\(effectsTitle(job))” is you now. Play it, compare, or save it to Movies.")
+            } else if let error = effects.lastError {
+                show(error, error: true)
+            }
+        }
+    }
+
+    /// A failed or cancelled Make it me job goes on from the step that stopped.
+    func continueMakeMe(_ job: EffectsJob) {
+        let effects = self.effects
+        Task {
+            if await effects.continueMakeMe(job) {
+                show("Done: “\(effectsTitle(job))” is finished.")
+            } else if let error = effects.lastError {
+                show(error, error: true)
+            }
+        }
+    }
+
+    func chooseEffectsSelfVideo() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.movie]
+        panel.message = "Choose your self-video (30–60 s, chest up, soft light, no hat: turn left and right, up and down, talk, smile)."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        effects.selfVideo = url
+        effects.meSource = .selfVideo
+    }
+
+    func chooseEffectsVoiceFile() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.audio, .movie]
+        panel.message = "Choose a recording of the voice: 10–60 seconds of clear speech, yours or of someone who agreed."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        effects.voiceFile = url
+        effects.voiceSource = .file
+    }
+
+    // MARK: Do jobs from The Swap
+
+    /// Starts the shared-folder watcher when the setting is on and the engine is set up (at launch, after set-up,
+    /// when the setting is turned on).
+    func startSwapWatcherIfEnabled() {
+        guard settings.swapJobsEnabled, EffectsPaths.isSetUp else { return }
+        let effects = self.effects
+        swapWatcher.onJob = { [weak self] event in
+            guard let self else { return }
+            Task { await effects.refreshJobs() }
+            if event.status == "done" {
+                show("The Swap: “\(event.name)” is done; the result is in the shared folder.")
+                if settings.notifyWhenEaten { Notifier.post(title: "The Swap job is done", body: event.name) }
+            } else if event.status == "error" {
+                show("The Swap: “\(event.name)” failed — \(event.message)", error: true)
+            }
+        }
+        swapWatcher.start(cleanDays: settings.swapJobsCleanDays)
+    }
+
+    func setSwapJobs(enabled: Bool) {
+        settings.swapJobsEnabled = enabled
+        if enabled {
+            startSwapWatcherIfEnabled()
+        } else {
+            swapWatcher.stop()
+        }
+    }
+
+    func setSwapJobsCleanDays(_ days: Int) {
+        settings.swapJobsCleanDays = days
+        if settings.swapJobsEnabled, swapWatcher.isRunning { swapWatcher.restart(cleanDays: days) }
     }
 
     func prepareEffect() {
@@ -97,6 +185,24 @@ extension AppModel {
         } catch {
             show("Could not save it: \(error.localizedDescription)", error: true)
         }
+    }
+
+    /// Stops a running Make it me job of the engine (`cancel --job`), when it was not started by this app.
+    func cancelMakeMe(_ job: EffectsJob) {
+        if effects.isBusy, effects.selectedJobID == job.id {
+            effects.cancel()
+            return
+        }
+        guard let script = EffectsPaths.script else { return }
+        let process = Process()
+        process.executableURL = EffectsPaths.python
+        process.arguments = [script.path, "cancel", "--job", job.folder.path]
+        process.environment = EffectsPaths.environment()
+        process.currentDirectoryURL = EffectsPaths.engine
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+        show("Stopping “\(effectsTitle(job))”…")
     }
 
     func chooseEffectsFile() {

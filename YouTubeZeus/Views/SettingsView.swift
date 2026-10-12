@@ -686,6 +686,50 @@ private struct ExtrasSettings: View {
                 Text("Zeus makes a shortcut that appears in the share sheet of the YouTube app, Safari and Podcasts. It saves the link in iCloud Drive; this Mac eats it within a minute (Zeus must be running). \(app.phoneLinksEaten > 0 ? "\(app.phoneLinksEaten) link\(app.phoneLinksEaten == 1 ? "" : "s") eaten from the phone since launch." : "")")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("The Swap (Make it me on the iPhone)") {
+                Toggle("Do jobs from The Swap", isOn: Binding(get: { settings.swapJobsEnabled }, set: { app.setSwapJobs(enabled: $0) }))
+                let watcher = app.swapWatcher
+                let folders = watcher.isRunning ? watcher.folders : SwapFolders.existing
+                if folders.isEmpty {
+                    Text("Watches: iCloud Drive › The Swap › Jobs (appears once The Swap has written a job) and Volume1 › The Swap Jobs on the NAS when it is mounted.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ForEach(folders, id: \.self) { folder in
+                        HStack {
+                            Image(systemName: "folder").foregroundStyle(.secondary)
+                            Text("Watches \(SwapFolders.place(folder))").font(.caption)
+                            Spacer()
+                            Button("Show") { NSWorkspace.shared.open(folder) }.controlSize(.small)
+                        }
+                    }
+                }
+                HStack(spacing: 8) {
+                    Image(systemName: watcher.isRunning ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(watcher.isRunning ? .green : .secondary)
+                    if let current = watcher.current {
+                        Text("Doing “\(current.name)”: \(EffectsMakeMe.label(current.step ?? "")) — \(current.message)")
+                            .font(.caption).lineLimit(2)
+                    } else if watcher.isRunning {
+                        Text("Watching. A job the phone writes (its `request` marker) starts within seconds; the phone follows status.json and gets result.mp4, compare.mp4 and preview.jpg back.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else if let error = watcher.lastError, settings.swapJobsEnabled {
+                        Text(error).font(.caption).foregroundStyle(.orange)
+                        Spacer()
+                        Button("Start again") { app.startSwapWatcherIfEnabled() }.controlSize(.small)
+                    } else {
+                        Text(settings.swapJobsEnabled ? "Starts when the Effects engine is set up." : "Off: jobs from the phone wait until this is on.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Toggle("Remove finished jobs older than 14 days from the shared folder",
+                       isOn: Binding(get: { settings.swapJobsCleanDays > 0 }, set: { app.setSwapJobsCleanDays($0 ? 14 : 0) }))
+                if !watcher.recent.isEmpty {
+                    Text(watcher.recent.prefix(3).map { "\($0.name): \($0.status)" }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+                Text("No server and no port: the phone and this Mac only share a folder. Everything the job needs (the clip, your face pack or self-video, the voice sample) stays in that folder; the Mac does the face swap, the hat and the voice, one job at a time.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("MCP server (zeus mcp)") {
                 ForEach(MCPConnect.Client.allCases) { client in
                     let installed = MCPConnect.isInstalled(client)

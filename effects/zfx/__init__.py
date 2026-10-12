@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 DEFAULT_HOME = Path.home() / "Library" / "Application Support" / "YouTube Zeus" / "Effects"
 

@@ -60,6 +60,9 @@ The last line is either `{"done":true,"job":"<dir>","result":{…}}` or
 | `generate --job DIR --engine vace\|faceswap --ref IMG [--ref IMG2] [--ref-pack DIR.c101face] [--prompt TEXT] [--consent] [--frames N] [--steps N] [--size 480p\|360p] [--seed N] [--upscale fast\|best\|lanczos]` | Refuses without `--consent`, without approval, or if any approved artifact hash changed. Writes `result-raw.mp4` then `final.mp4` (original audio). |
 | `status --job DIR [--json]` | Prints `job.json`. |
 | `list [--json]` | Jobs under `Jobs/`, newest first. |
+| `makeme --input <clip\|url> [--start S --duration D] (--ref-pack DIR \| --self-video FILE \| --ref IMG…) [--voice FILE] [--quality natural\|fast] [--hat remove\|keep] [--no-voice] [--hair TEXT] --consent [--job DIR]` | **Make it me** (`MAKE-IT-ME.md`, `zfx/makeme.py`): prepare (depth_mesh) → refs (`zfx/refs.py`: face pack / self-video → `me.c101face` + `me-voice.m4a` / photos) → approve (automatic) → faceswap → hat (`zfx/engines/hat.py`, only with `--hat remove` and a hat found) → voice → final (`compare.mp4`). First line `{"stage":"plan","steps":[…]}`, then per step `step`, `progress`, `overall`. Resumable: `.makeme/<step>.json` markers with input hashes; `job.json.makeme` records it all. |
+| `cancel --job DIR` | Stops a running makeme job (pid/pgid from `job.json.makeme`). |
+| `watch [--folder DIR…] [--once] [--poll S] [--clean-days N]` | The Swap's shared-folder worker (`zfx/swapjobs.py`): `*.swapjob/` with `request` → `status.json` → `result.mp4`, `compare.mp4`, `preview.jpg`, `done`; `cancel` → `cancelled`. No network. |
 
 ## Job folder
 

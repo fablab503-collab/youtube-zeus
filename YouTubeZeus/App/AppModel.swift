@@ -314,8 +314,9 @@ final class AppModel {
     }
 
     func eat(_ raw: String) async {
-        // X, Instagram, Facebook, Threads posts and Spotify episodes (3.8).
-        if YouTubeLink.parse(raw) == nil, let site = SocialSite.of(raw) {
+        // Posts (X, Instagram, Facebook, Threads, Telegram, TikTok, LinkedIn, Reddit…), Spotify episodes and any other
+        // page yt-dlp knows (3.8, 4.3). Podcast feeds keep their own path.
+        if YouTubeLink.parse(raw) == nil, !PodcastFeed.looksLikePodcast(raw), let site = SocialSite.of(raw) {
             await eatSocial(raw, site: site)
             return
         }

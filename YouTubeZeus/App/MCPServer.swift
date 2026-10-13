@@ -381,10 +381,10 @@ enum MCPServer {
             let url: URL
             if FileManager.default.fileExists(atPath: path) {
                 url = URL(string: BrainLinks.zeusEatFile(path))!
-            } else if YouTubeLink.parse(link) == nil, let site = SocialSite.of(link) {
+            } else if YouTubeLink.parse(link) == nil, !PodcastFeed.looksLikePodcast(link), let site = SocialSite.of(link) {
                 ZeusCLI.openInApp(URL(string: BrainLinks.zeusEat(link))!, raw: true)
                 if site != .spotify, let id = SocialLinks.id(for: link) {
-                    return "YouTube Zeus is eating the \(site.name) post (id \(id)). Follow it with item_status (video: \(id))."
+                    return "YouTube Zeus is eating the \(site.itemName) (id \(id)). Follow it with item_status (video: \(id))."
                 }
                 return "YouTube Zeus is eating the Spotify episode from its public podcast feed."
             } else if YouTubeLink.parse(link) == nil, PodcastFeed.looksLikePodcast(link) {

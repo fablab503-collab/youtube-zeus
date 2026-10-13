@@ -4,11 +4,17 @@ import SwiftData
 import SwiftUI
 import WebKit
 
-/// X, Instagram, Facebook, Threads and Spotify links (3.8).
+/// Posts and pages from X, Instagram, Facebook, Threads, Telegram, TikTok, LinkedIn, Reddit, Bluesky, Vimeo, Twitch,
+/// SoundCloud… and Spotify podcasts (3.8, 4.3).
 extension AppModel {
     func eatSocial(_ link: String, site: SocialSite) async {
         if site == .spotify {
             await eatSpotify(link)
+            return
+        }
+        // Any other page: a podcast feed without a telltale address is still followed as a podcast.
+        if site == .web, let url = SocialLinks.url(link), (try? await PodcastFeed.fetch(url)) != nil {
+            await followPodcast(link)
             return
         }
         guard let id = engine.addPost(link) else {
@@ -18,7 +24,8 @@ extension AppModel {
         if selection == .skills || selection == .trash { selection = .library }
         selectedVideoID = id
         let signedIn = account.socialSignedIn.contains(site)
-        show("Eating the \(site.name) post." + (signedIn || site == .x ? "" : " If it needs an account, sign in to \(site.name) in Settings › Accounts."))
+        let what = site == .web ? "the page" : "the \(site.itemName)"
+        show("Eating \(what)." + (signedIn || site.signInURL == nil || site == .x ? "" : " If it needs an account, sign in to \(site.name) in Settings › Accounts."))
     }
 
     /// A Spotify episode or show: found by name in Apple's free podcast directory, eaten from its public feed.
@@ -88,11 +95,14 @@ struct SocialAccountsView: View {
                 Text("Public posts work without an account. Sign in for private accounts, stories and posts a site only shows to members. The sign-in stays inside YouTube Zeus on this Mac.")
             }
             Section {
+                Label("Telegram: messages of public channels (t.me/<channel>/<number>), text and video.", systemImage: SocialSite.telegram.symbol)
+                Label("Bluesky, Twitch, Kick, SoundCloud, Dailymotion, Rumble, Pinterest: public posts, videos and streams.", systemImage: "globe")
+                Label("Any other link yt-dlp knows (about 1,800 sites): Zeus takes its words and listens to its sound.", systemImage: SocialSite.web.symbol)
                 Label("Spotify podcasts are eaten from their public feed: no account needed. Music and Spotify-only shows cannot be eaten.", systemImage: SocialSite.spotify.symbol)
-                    .foregroundStyle(.secondary)
             } header: {
-                Text("Spotify")
+                Text("Without an account")
             }
+            .foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
         .task { await app.account.refresh() }

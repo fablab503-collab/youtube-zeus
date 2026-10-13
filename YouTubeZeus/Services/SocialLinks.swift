@@ -10,6 +10,9 @@ import Foundation
 ///   public RSS feed (Spotify itself never gives the audio). Spotify-only shows and music cannot be eaten.
 nonisolated enum SocialSite: String, Sendable, CaseIterable {
     case x, instagram, facebook, threads, spotify
+    // 4.3: more sites, and any other page yt-dlp knows (about 1,800 sites) as `.web`.
+    case telegram, tiktok, linkedin, reddit, bluesky, vimeo, twitch, soundcloud, dailymotion, rumble, kick, pinterest
+    case web
 
     var name: String {
         switch self {
@@ -18,14 +21,31 @@ nonisolated enum SocialSite: String, Sendable, CaseIterable {
         case .facebook: "Facebook"
         case .threads: "Threads"
         case .spotify: "Spotify"
+        case .telegram: "Telegram"
+        case .tiktok: "TikTok"
+        case .linkedin: "LinkedIn"
+        case .reddit: "Reddit"
+        case .bluesky: "Bluesky"
+        case .vimeo: "Vimeo"
+        case .twitch: "Twitch"
+        case .soundcloud: "SoundCloud"
+        case .dailymotion: "Dailymotion"
+        case .rumble: "Rumble"
+        case .kick: "Kick"
+        case .pinterest: "Pinterest"
+        case .web: "the web"
         }
     }
 
-    /// What one item is called ("X post", "Instagram post"…).
+    /// What one item is called ("X post", "Telegram message"…).
     var itemName: String {
         switch self {
         case .spotify: "Spotify episode"
-        case .facebook: "Facebook post"
+        case .telegram: "Telegram message"
+        case .vimeo, .dailymotion, .rumble, .tiktok: "\(name) video"
+        case .twitch, .kick: "\(name) stream"
+        case .soundcloud: "SoundCloud track"
+        case .web: "Web page"
         default: "\(name) post"
         }
     }
@@ -36,7 +56,16 @@ nonisolated enum SocialSite: String, Sendable, CaseIterable {
         case .instagram: "camera.fill"
         case .facebook: "person.2.fill"
         case .threads: "at"
-        case .spotify: "waveform"
+        case .spotify, .soundcloud: "waveform"
+        case .telegram: "paperplane.fill"
+        case .tiktok: "music.note"
+        case .linkedin: "briefcase.fill"
+        case .reddit: "bubble.left.and.bubble.right.fill"
+        case .bluesky: "cloud.fill"
+        case .vimeo, .dailymotion, .rumble: "play.rectangle.fill"
+        case .twitch, .kick: "dot.radiowaves.left.and.right"
+        case .pinterest: "pin.fill"
+        case .web: "globe"
         }
     }
 
@@ -47,7 +76,11 @@ nonisolated enum SocialSite: String, Sendable, CaseIterable {
         case .instagram: URL(string: "https://www.instagram.com/accounts/login/")
         case .facebook: URL(string: "https://www.facebook.com/login")
         case .threads: URL(string: "https://www.threads.com/login")
-        case .spotify: nil
+        case .tiktok: URL(string: "https://www.tiktok.com/login")
+        case .linkedin: URL(string: "https://www.linkedin.com/login")
+        case .reddit: URL(string: "https://www.reddit.com/login")
+        case .vimeo: URL(string: "https://vimeo.com/log_in")
+        default: nil
         }
     }
 
@@ -58,20 +91,40 @@ nonisolated enum SocialSite: String, Sendable, CaseIterable {
         case .instagram: ["instagram.com"]
         case .facebook: ["facebook.com"]
         case .threads: ["threads.net", "threads.com", "instagram.com"]
-        case .spotify: []
+        case .tiktok: ["tiktok.com"]
+        case .linkedin: ["linkedin.com"]
+        case .reddit: ["reddit.com"]
+        case .vimeo: ["vimeo.com"]
+        default: []
         }
     }
 
+    /// The site of a link: a known one, `.web` for any other http(s) page, nil for what is not a link at all.
     static func of(_ text: String) -> SocialSite? {
-        guard let host = SocialLinks.url(text)?.host?.lowercased() else { return nil }
+        guard let url = SocialLinks.url(text), let host = url.host?.lowercased(), host.contains(".") else { return nil }
         func on(_ domains: String...) -> Bool { domains.contains { host == $0 || host.hasSuffix("." + $0) } }
         if on("x.com", "twitter.com", "fxtwitter.com", "vxtwitter.com") { return .x }
         if on("instagram.com", "instagr.am") { return .instagram }
         if on("facebook.com", "fb.watch", "fb.com") { return .facebook }
         if on("threads.net", "threads.com") { return .threads }
         if on("open.spotify.com", "spotify.link", "spotify.com") { return .spotify }
-        return nil
+        if on("t.me", "telegram.me", "telegram.org") { return .telegram }
+        if on("tiktok.com") { return .tiktok }
+        if on("linkedin.com", "lnkd.in") { return .linkedin }
+        if on("reddit.com", "redd.it") { return .reddit }
+        if on("bsky.app") { return .bluesky }
+        if on("vimeo.com") { return .vimeo }
+        if on("twitch.tv") { return .twitch }
+        if on("soundcloud.com") { return .soundcloud }
+        if on("dailymotion.com", "dai.ly") { return .dailymotion }
+        if on("rumble.com") { return .rumble }
+        if on("kick.com") { return .kick }
+        if on("pinterest.com", "pin.it") { return .pinterest }
+        return .web
     }
+
+    /// The sites listed by name (the Eat bar takes any other link too).
+    static var named: [SocialSite] { allCases.filter { $0 != .web } }
 }
 
 nonisolated enum SocialLinks {
@@ -107,11 +160,27 @@ nonisolated enum SocialLinks {
         return "web-" + hash
     }
 
-    /// X and Threads posts: `/<user>/status/<id>`, `/@user/post/<id>` → the author's handle.
+    /// The author of a post from its address, when the address names it: X, Threads, TikTok (`@user`), Telegram
+    /// (`t.me/<channel>/<id>` → `@channel`), Reddit (`r/<subreddit>`), Bluesky (`/profile/<handle>`).
     static func handle(in url: URL) -> String? {
         let parts = url.pathComponents.filter { $0 != "/" }
-        guard let first = parts.first, !["i", "p", "reel", "reels", "watch", "share", "story.php", "permalink.php", "tv"].contains(first) else { return nil }
-        return first.hasPrefix("@") ? first : "@" + first
+        guard let first = parts.first else { return nil }
+        switch SocialSite.of(url.absoluteString) {
+        case .reddit:
+            return first == "r" && parts.count > 1 ? "r/" + parts[1] : nil
+        case .bluesky:
+            return first == "profile" && parts.count > 1 ? "@" + parts[1] : nil
+        case .telegram:
+            let channel = first == "s" && parts.count > 1 ? parts[1] : first
+            return ["joinchat", "addstickers", "c", "share"].contains(channel) ? nil : "@" + channel
+        case .x, .threads, .tiktok, .instagram:
+            guard !["i", "p", "reel", "reels", "tv", "stories", "video", "share", "t"].contains(first) else { return nil }
+            return first.hasPrefix("@") ? first : "@" + first
+        case .vimeo, .soundcloud, .twitch, .kick, .rumble, .dailymotion:
+            return Int(first) == nil && !["video", "embed", "c", "v"].contains(first) ? first : nil
+        default:
+            return nil
+        }
     }
 
     // MARK: The page itself (when yt-dlp cannot read the post)

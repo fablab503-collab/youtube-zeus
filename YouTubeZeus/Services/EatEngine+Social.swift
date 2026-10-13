@@ -67,7 +67,12 @@ extension EatEngine {
                 throw SocialError.unreadable(site.name)
             }
         }
-        video.videoDescription = postText
+        // Any other page without sound (an article, a blog post, documentation): its readable text (4.3).
+        if site == .web, !hasSound, let url = URL(string: page), let article = await Self.readableText(of: url),
+           article.count > postText.count {
+            postText = article
+        }
+        video.videoDescription = String(postText.prefix(4_000))
         try? context.save()
 
         var spoken: TranscriptResult?
@@ -109,6 +114,29 @@ extension EatEngine {
         let segments = postText.components(separatedBy: "\n\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }.map { TranscriptSegment(start: 0, end: 0, text: $0) }
         return TranscriptResult(segments: segments, source: .post, language: "")
+    }
+
+    /// The text of a web page without its scripts, styles, menus and footers (free, on this Mac).
+    nonisolated static func readableText(of url: URL) async -> String? {
+        var request = URLRequest(url: url, timeoutInterval: 25)
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+                         forHTTPHeaderField: "User-Agent")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.mimeType?.contains("html") ?? true else { return nil }
+        var html = String(decoding: data.prefix(3_000_000), as: UTF8.self)
+        for tag in ["script", "style", "noscript", "svg", "nav", "header", "footer", "aside", "form"] {
+            html = html.replacingOccurrences(of: "<\(tag)[^>]*>[\\s\\S]*?</\(tag)>", with: " ",
+                                             options: [.regularExpression, .caseInsensitive])
+        }
+        // The article itself when the page marks it.
+        if let range = html.range(of: #"<(article|main)[^>]*>[\s\S]*</(article|main)>"#, options: [.regularExpression, .caseInsensitive]) {
+            html = String(html[range])
+        }
+        let text = PodcastFeed.plainText(html)
+            .replacingOccurrences(of: #"[ \t]+"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"\n\s*\n\s*\n+"#, with: "\n\n", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.split(separator: " ").count >= 40 ? String(text.prefix(300_000)) : nil
     }
 
     /// A readable title: the site's title when it says something, else the first words of the post.

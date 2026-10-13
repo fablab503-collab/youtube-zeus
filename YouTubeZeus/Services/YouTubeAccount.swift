@@ -62,6 +62,7 @@ final class YouTubeAccount {
     /// Session cookies that mean "signed in" on each site.
     private static let sessionCookies: [SocialSite: Set<String>] = [
         .x: ["auth_token"], .instagram: ["sessionid"], .facebook: ["c_user", "xs"], .threads: ["sessionid"],
+        .tiktok: ["sessionid"], .linkedin: ["li_at"], .reddit: ["reddit_session", "token_v2"], .vimeo: ["vimeo"],
     ]
 
     private func writeSocialCookies(_ cookies: [HTTPCookie]) {

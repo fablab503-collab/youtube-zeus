@@ -3,6 +3,17 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 4.3 — More sites (2026-10-13)
+
+- **Telegram, TikTok, LinkedIn, Reddit, Bluesky, Vimeo, Twitch, Kick, SoundCloud, Dailymotion, Rumble and
+  Pinterest** join X, Instagram, Facebook, Threads and Spotify: paste the link in the Eat bar (or drop it), Zeus keeps
+  the words of the post and listens to its video or audio with Whisper on this Mac. Telegram: messages of public
+  channels (`t.me/<channel>/<number>`).
+- **Any other link** that yt-dlp knows (about 1,800 sites) is eaten the same way, and a page without sound (an
+  article, a blog post, documentation) gives its readable text (scripts, menus and footers left out); a podcast feed
+  without a telltale address is still followed as a podcast.
+- Settings › Accounts: sign in to TikTok, LinkedIn, Reddit or Vimeo too (for private or members-only posts).
+
 ## 4.2 — Rebuild (2026-10-13)
 
 - **One button.** The row of buttons under a video (Copy for AI, Summarize, Make skills, Open Note, Polish, Read

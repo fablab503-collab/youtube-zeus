@@ -84,6 +84,7 @@ struct EverythingBody: View {
                 part("On screen", .screen) { ScreenBody(video: video) }
             }
             part("Info", .info) { InfoBody(video: video) }
+            part("Rebuild — the message for any AI", .rebuild) { RebuildBody(video: video) }
             part(isPolished ? "Transcript (polished)" : "Transcript", .transcript) {
                 TranscriptBody(video: video, paragraphs: paragraphs, find: "", isPolished: isPolished, highlight: nil)
             }

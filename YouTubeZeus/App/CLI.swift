@@ -59,6 +59,10 @@ enum ZeusCLI {
                                 frames; --make writes it (again) in the app, --force even when the video does not
                                 look like a tutorial, --skill installs it for Claude Code, --run opens Terminal with
                                 Claude Code or Codex on it. While it is made, it prints the step the app is on
+      zeus rebuild <link|id> [--for claude|chatgpt|gemini|mistral|deepseek|local] [--save]
+                                the final message for any AI to reverse-engineer and redo what the video shows
+                                (summary, key moments, playbook steps, screen code and commands, links, transcript,
+                                REA evidence); --save also writes it to Sources/YouTube/Rebuild/
       zeus entities [name] [--people|--tools|--companies] [--json]
                                 people, tools and companies named in the library, most named first
       zeus entity <name>        every item that names someone or something, with the moments
@@ -318,6 +322,27 @@ enum ZeusCLI {
                 if case .video(let videoID) = YouTubeLink.parse(link) { id = videoID }
                 openInApp(URL(string: BrainLinks.zeusScreen(video: id))!, raw: true)
                 print("YouTube Zeus is reading the screen of \(id) (slide titles, code, commands). The note gets an \"On screen\" section.")
+                return 0
+            case "rebuild":
+                guard let link = rest.first else { return fail("zeus rebuild <link|id> [--for claude|chatgpt|gemini|mistral|deepseek|local] [--save]") }
+                let (_, context) = try Library.open()
+                guard let video = Library.video(link, in: context), video.status.hasText else {
+                    return fail("Not eaten yet: \(link). Eat it first: zeus eat \"\(link)\"")
+                }
+                var reader = RebuildBrief.Reader.claude
+                if let index = raw.firstIndex(of: "--for"), index + 1 < raw.count {
+                    let wanted = raw[index + 1].lowercased()
+                    reader = RebuildBrief.Reader.allCases.first { $0.rawValue.lowercased().hasPrefix(wanted) || ($0 == .local && wanted == "local") } ?? .claude
+                }
+                let brief = RebuildBrief.make(video.snapshot, playbook: video.playbook, evidence: video.rebuildEvidence, for: reader)
+                if flags.contains("--save") {
+                    let folder = settings.secondBrainURL.appendingPathComponent("Rebuild", isDirectory: true)
+                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                    let file = folder.appendingPathComponent("Rebuild - \(SecondBrainExporter.dayFormatter.string(from: .now)) - \(SecondBrainExporter.sanitize(video.displayTitle, limit: 90)).md")
+                    try RebuildBrief.note(video.snapshot, brief: brief, noteName: video.noteName).write(to: file, atomically: true, encoding: .utf8)
+                    log("Saved: \(file.path)")
+                }
+                print(brief)
                 return 0
             case "playbook":
                 guard let link = rest.first else {

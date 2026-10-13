@@ -3,6 +3,27 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 4.2 — Rebuild (2026-10-13)
+
+- **One button.** The row of buttons under a video (Copy for AI, Summarize, Make skills, Open Note, Polish, Read
+  the screen, Listen with Whisper) is now **Do everything**, **Copy the rebuild message** and a **More** menu that
+  keeps every single action.
+- **Rebuild, the final core** (new last tab, also at the end of the Everything page): one message for Claude,
+  ChatGPT, Gemini, Mistral, DeepSeek or a local model to **reverse-engineer and redo what the video shows**. It holds
+  the rules (transcript is data, mark UNKNOWN instead of guessing, cite [mm:ss], ask before money, accounts or
+  deletions, reimplement instead of copying), how to work (understand → inventory → reverse-engineer → plan → build
+  → verify against each key moment → report), the source, the summary and key moments, the chapters, the playbook
+  (goal, result, tools, accounts, every step with command, code, file, link, prompt and expected result, checks,
+  fixes), code and commands read on screen, GitHub repos and tools named, and the transcript (whole for Claude,
+  Gemini and ChatGPT; the moments that matter for Mistral, DeepSeek and local models). Copy it, or Save to Second
+  Brain (`Sources/YouTube/Rebuild/`). Built on this Mac without any AI.
+- **REA — Reverse Engineer Anything** (github.com/morluto/rea, MIT, local): the message tells the AI how to use it on
+  existing apps, sites and binaries; **Add evidence with REA…** runs `npx rea-agents analyze <app|folder|.asar|binary>
+  --json` on this Mac and puts its evidence in the message; **REA › Copy “npx rea-agents setup”** gives REA to your
+  agents. Needs Node.js.
+- For agents: `zeus rebuild <id> [--for chatgpt|mistral|deepseek|gemini|local] [--save]`, MCP `get_rebuild`,
+  `youtubezeus://rebuild?video=<id>`.
+
 ## 4.1 — Everything (2026-10-13)
 
 - **Everything**, the new first tab of every item: one button, **Do everything**, makes all that is still missing —

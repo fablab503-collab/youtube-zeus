@@ -10,6 +10,8 @@ enum DetailTab: String, CaseIterable, Identifiable {
     case playbook = "Playbook"
     case skills = "Skills"
     case info = "Info"
+    /// 4.2, the final core: the message for any AI to reverse-engineer and rebuild what the video shows.
+    case rebuild = "Rebuild"
 
     var id: String { rawValue }
 }
@@ -76,7 +78,7 @@ struct VideoDetailView: View {
                         }
                         .pickerStyle(.segmented)
                         .labelsHidden()
-                        .frame(maxWidth: 560)
+                        .frame(maxWidth: 640)
                         Spacer()
                         if tab == .transcript, !polishedParagraphs.isEmpty {
                             Picker("Text", selection: $showOriginal) {
@@ -121,6 +123,7 @@ struct VideoDetailView: View {
                     case .playbook: PlaybookBody(video: video)
                     case .skills: SkillsBody(video: video)
                     case .info: InfoBody(video: video)
+                    case .rebuild: RebuildBody(video: video)
                     }
                 } else {
                     ProgressCard(video: video)
@@ -255,74 +258,58 @@ private struct Header: View {
             }
 
             if isEaten {
+                // 4.2: one button does it all; every single action stays in the menu next to it.
                 GlassEffectContainer(spacing: 8) {
                     FlowLayout(spacing: 8) {
+                        let missing = app.missingParts(video)
                         Button {
-                            app.copyForAI(video)
+                            app.doEverything(video)
                         } label: {
-                            Label("Copy for AI", systemImage: "sparkles")
+                            Label(missing.isEmpty ? "Everything is made" : "Do everything", systemImage: "bolt.fill")
                         }
                         .buttonStyle(.glassProminent)
-                        .help("A knowledge pack to paste into Claude, ChatGPT, Gemini, Grok, GLM…")
+                        .disabled(missing.isEmpty)
+                        .help(missing.isEmpty ? "Summary, polished text, skills, playbook and text on screen are all here"
+                                              : "Make the " + AppModel.list(missing) + ", free, on this Mac")
                         Button {
-                            app.summarize(video)
+                            app.copyRebuild(video, for: .claude)
                         } label: {
-                            Label(video.digestData == nil ? "Summarize" : "Summarize again", systemImage: "apple.intelligence")
+                            Label("Copy the rebuild message", systemImage: "hammer.fill")
                         }
-                        .buttonStyle(.glass)
-                        .disabled(app.engine.isSummarizing(video.videoID))
-                        Button {
-                            app.compileSkills(video)
+                        .buttonStyle(.glassProminent)
+                        .help("The final message for Claude, ChatGPT, Mistral, DeepSeek or any AI to reverse-engineer and redo what the video shows (Rebuild tab for the other AIs)")
+                        Menu {
+                            Button("Copy for AI (knowledge pack)") { app.copyForAI(video) }
+                            Divider()
+                            Button(video.digestData == nil ? "Summarize" : "Summarize Again") { app.summarize(video) }
+                                .disabled(app.engine.isSummarizing(video.videoID))
+                            Button("Make Skills") { app.compileSkills(video) }
+                                .disabled(app.compiler.compiling.contains(video.videoID))
+                            if app.polisher.isInstalled {
+                                Button(video.polished.isEmpty ? "Polish with Local AI" : "Polish Again") { app.engine.polishNow(video) }
+                                    .disabled(app.engine.isPolishing(video.videoID))
+                            }
+                            if app.canReadScreen(video) {
+                                Button(video.screenReadAt == nil ? "Read the Screen" : "Read the Screen Again") { app.readScreen(video) }
+                                    .disabled(app.engine.isReadingScreen(video.videoID))
+                            }
+                            Button("Make the Playbook") { app.makePlaybook(video) }
+                            if video.source == .autoCaptions {
+                                Button("Listen with Whisper") { app.engine.retry(video, withWhisper: true) }
+                            }
+                            Divider()
+                            if let note = app.noteURL(for: video), FileManager.default.fileExists(atPath: note.path) {
+                                Button(BrainLinks.openLabel) { app.openInBrain(note) }
+                            } else {
+                                Button("Save to Second Brain") { app.saveToSecondBrain(video) }
+                            }
+                            Button("Save the Rebuild Message to Second Brain") { app.saveRebuild(video) }
                         } label: {
-                            Label("Make skills", systemImage: "sparkles.rectangle.stack")
+                            Label("More", systemImage: "ellipsis.circle")
                         }
+                        .menuStyle(.button)
                         .buttonStyle(.glass)
-                        .disabled(app.compiler.compiling.contains(video.videoID))
-                        if let note = app.noteURL(for: video), FileManager.default.fileExists(atPath: note.path) {
-                            Button {
-                                app.openInBrain(note)
-                            } label: {
-                                Label(BrainLinks.openLabel, systemImage: "brain.head.profile")
-                            }
-                            .buttonStyle(.glass)
-                            .help("Open this video's note in the Second Brain, at its page")
-                        } else {
-                            Button {
-                                app.saveToSecondBrain(video)
-                            } label: {
-                                Label("Save to Second Brain", systemImage: "brain.head.profile")
-                            }
-                            .buttonStyle(.glass)
-                        }
-                        if app.polisher.isInstalled {
-                            Button {
-                                app.engine.polishNow(video)
-                            } label: {
-                                Label(video.polished.isEmpty ? "Polish with local AI" : "Polish again", systemImage: "wand.and.stars")
-                            }
-                            .buttonStyle(.glass)
-                            .disabled(app.engine.isPolishing(video.videoID))
-                            .help("Fix punctuation, capitals and misheard words with \(app.settings.polishModel), on this Mac")
-                        }
-                        if video.kind != .podcast || video.mediaURL.map(MediaFiles.isVideo) == true {
-                            Button {
-                                app.readScreen(video)
-                            } label: {
-                                Label(video.screenReadAt == nil ? "Read the screen" : "Read the screen again", systemImage: "text.viewfinder")
-                            }
-                            .buttonStyle(.glass)
-                            .disabled(app.engine.isReadingScreen(video.videoID))
-                            .help("Read slide titles, code and commands shown in the video, with Apple's Vision on this Mac")
-                        }
-                        if video.source == .autoCaptions {
-                            Button {
-                                app.engine.retry(video, withWhisper: true)
-                            } label: {
-                                Label("Listen with Whisper", systemImage: "waveform")
-                            }
-                            .buttonStyle(.glass)
-                            .help("Auto-captions can have mistakes. Whisper listens to the audio on this Mac for a cleaner text.")
-                        }
+                        .fixedSize()
                     }
                 }
                 if let error = video.polishError {

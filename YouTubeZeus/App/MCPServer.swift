@@ -137,6 +137,9 @@ enum MCPServer {
             tool("get_playbook", "Read a playbook",
                  "The playbook of a tutorial: steps for an AI agent written by Zeus from the transcript, the text on screen and the frames (goal, tools to install, every step with who does it — the agent or the user —, command, link, what to expect, risks, moment). Follow it with the user: show the visual plan first, do what you can, stop at the user's steps, ask before risky ones.",
                  ["video": string], required: ["video"]),
+            tool("get_rebuild", "Rebuild message",
+                 "The final message Zeus writes to reverse-engineer and redo what a video shows: rules, how to work, the source, summary, key moments, playbook steps (commands, code, files, links, expected results), code and commands read on screen, GitHub repos and tools named, how to use REA (Reverse Engineer Anything) on existing software, evidence already gathered with REA, and the transcript. Follow it to rebuild the thing with the user. reader: claude (default, whole transcript), chatgpt, gemini, mistral, deepseek or local (shorter).",
+                 ["video": string, "reader": string], required: ["video"]),
             tool("make_playbook", "Make a playbook",
                  "Asks the YouTube Zeus app to write the playbook of an eaten video on the Mac (a few minutes: frames, local vision model, local AI). Returns at once; then call get_playbook, which says the step the app is on. A quick check first stops videos that are not tutorials (talks, opinions, news); force: true makes it anyway.",
                  ["video": string, "force": ["type": "boolean"]], required: ["video"], readOnly: false),
@@ -338,6 +341,13 @@ enum MCPServer {
             if text("week") == nil, let latest = files.first, let note = try? String(contentsOf: latest, encoding: .utf8) { return note }
             return "No digest for \(key) yet. The app writes one every week (Settings › 3.0 › Weekly digest), or run: zeus digest --week \(key)"
 
+        case "get_rebuild":
+            guard let key = text("video") else { throw RPCError(code: -32602, message: "video is required") }
+            let (_, context) = try Library.open()
+            guard let video = Library.video(key, in: context), video.status.hasText else { return "Not eaten yet: \(key). Eat it first (tool eat)." }
+            let wanted = (text("reader") ?? "claude").lowercased()
+            let reader = RebuildBrief.Reader.allCases.first { $0.rawValue.lowercased().hasPrefix(wanted) } ?? .claude
+            return RebuildBrief.make(video.snapshot, playbook: video.playbook, evidence: video.rebuildEvidence, for: reader)
         case "get_playbook":
             guard let key = text("video") else { throw RPCError(code: -32602, message: "video is required") }
             let (_, context) = try Library.open()

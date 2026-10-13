@@ -298,6 +298,8 @@ final class Video {
     var textOnly: Bool = false
     /// Translations (3.7): language code → the text in that language (YouTube's translation of the spoken captions).
     @Attribute(.externalStorage) var translationsData: Data? = nil
+    /// Rebuild (4.2): evidence gathered with REA (Reverse Engineer Anything) for the rebuild message.
+    @Attribute(.externalStorage) var rebuildEvidence: String? = nil
     @Relationship(deleteRule: .cascade, inverse: \SkillDraft.video) var skills: [SkillDraft] = []
 
     init(videoID: String, title: String = "", channelTitle: String = "", channelID: String = "",

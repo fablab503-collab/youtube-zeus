@@ -113,6 +113,8 @@ nonisolated enum BrainLinks {
         case youtubePage(String)
         /// 4.1: make everything still missing for an item (summary, polish, skills, playbook, screen).
         case everything(String)
+        /// 4.2: the rebuild message of an item (copied for `reader`, or saved to the Second Brain).
+        case rebuild(String, reader: String?, save: Bool)
         case playbook(String, make: Bool, force: Bool, run: String?)
         /// Effects (3.8): the tab, with a video as the source and the clip's start.
         case effects(String?, t: Double?)
@@ -142,6 +144,8 @@ nonisolated enum BrainLinks {
         case "effects", "effect": return .effects(value("video"), t: (value("t") ?? value("start")).flatMap(Self.seconds))
         case "youtube", "page":
             return value("page").map { .youtubePage($0) } ?? .view("youtube")
+        case "rebuild":
+            return value("video").map { .rebuild($0, reader: value("for") ?? value("reader"), save: ["1", "true", "yes"].contains(value("save")?.lowercased() ?? "")) }
         case "everything", "all":
             return value("video").map { .everything($0) }
         case "translate":

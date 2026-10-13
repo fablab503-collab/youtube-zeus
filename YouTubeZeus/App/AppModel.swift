@@ -116,6 +116,8 @@ final class AppModel {
     @ObservationIgnored var textRebuilds: [String: Task<Void, Never>] = [:]
     /// Translations being made ("<video id>|<language>") and the language each channel is also kept in (3.7).
     var translating: Set<String> = []
+    /// Items REA is reading a target for (4.2).
+    var reaRunning: Set<String> = []
     var channelLanguages: [String: String] = (UserDefaults.standard.dictionary(forKey: AppModel.channelLanguagesKey) as? [String: String]) ?? [:]
     @ObservationIgnored var channelTranslateTasks: [String: Task<Void, Never>] = [:]
     var packResults: [String: PackResult] = [:]
@@ -544,6 +546,13 @@ final class AppModel {
         case .trash(let all):
             if all { trashLibrary() }
             selection = .trash
+        case .rebuild(let id, let readerName, let save):
+            guard let video = engine.video(id), video.status.hasText else { show("No eaten video \(id) in the library.", error: true); return }
+            selectedVideoID = id
+            initialTab = DetailTab.rebuild.rawValue
+            let reader = readerName.flatMap { name in RebuildBrief.Reader.allCases.first { $0.rawValue.lowercased().hasPrefix(name.lowercased()) } } ?? .claude
+            if save { saveRebuild(video, open: false) }
+            copyRebuild(video, for: reader)
         case .everything(let id):
             guard let video = engine.video(id) else { show("No video \(id) in the library.", error: true); return }
             selectedVideoID = id

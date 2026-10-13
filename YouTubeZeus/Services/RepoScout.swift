@@ -77,6 +77,9 @@ nonisolated enum RepoScout {
         var id: String { file.path }
         var markdown: URL { file.deletingPathExtension().appendingPathExtension("md") }
 
+        /// A check of repos named by hand (Ask the Jury), not a scan of the trending list.
+        var isCheck: Bool { kind.lowercased().hasPrefix("check") || title.lowercased().hasPrefix("check") }
+
         /// A repo-of-the-day run (Trendshift's #1 judged by the jury), not a scan of the trending list.
         var isPick: Bool {
             let text = (kind + " " + title + " " + file.lastPathComponent).lowercased()
@@ -84,8 +87,8 @@ nonisolated enum RepoScout {
         }
     }
 
-    /// The newest scan of the trending list (repo-of-the-day runs left out).
-    static func newestScan() -> Report? { loadReports().first { !$0.isPick } }
+    /// The newest scan of the trending list (repo-of-the-day runs and checks of named repos left out).
+    static func newestScan() -> Report? { loadReports(limit: 30).first { !$0.isPick && !$0.isCheck } }
 
     /// The newest reports first (only the ones with repos in them).
     static func loadReports(limit: Int = 15) -> [Report] {
@@ -116,7 +119,8 @@ nonisolated enum RepoScout {
         let entries = items.compactMap(entry)
         let since = string(meta, "since", "period") ?? ""
         let source = string(meta, "source", "profile", "kind") ?? (since.isEmpty ? "" : "trending")
-        var title = [source.isEmpty ? nil : source.capitalized, since.isEmpty ? nil : since].compactMap { $0 }.joined(separator: " · ")
+        let named = source.isEmpty ? nil : source.prefix(1).uppercased() + source.dropFirst()
+        var title = [named, since.isEmpty ? nil : since].compactMap { $0 }.joined(separator: " · ")
         if title.isEmpty { title = entries.count == 1 ? entries[0].repo : "Repo Scout" }
         let jurors = (meta["jurors"] as? [String]) ?? (meta["jury"] as? [String])
             ?? Array(Set(entries.flatMap { $0.votes.map(\.juror) })).sorted()

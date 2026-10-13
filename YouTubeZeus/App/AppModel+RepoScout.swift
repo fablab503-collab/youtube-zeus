@@ -10,7 +10,7 @@ extension AppModel {
         scoutReports = RepoScout.loadReports()
         scoutPick = RepoScout.scoutPick().flatMap { $0.isToday ? $0 : nil } ?? scoutPick
         async let pick = RepoScout.repoOfTheDay()
-        let fresh = scoutReports.first(where: { !$0.isPick }).map { Date.now.timeIntervalSince($0.date) < 20 * 3600 } ?? false
+        let fresh = scoutReports.first(where: { !$0.isPick && !$0.isCheck }).map { Date.now.timeIntervalSince($0.date) < 20 * 3600 } ?? false
         if !fresh, scoutTrending.isEmpty {
             do {
                 scoutTrending = try await RepoScout.trending(since: "daily")
@@ -109,8 +109,9 @@ struct RepoScoutView: View {
     @State private var selection: String?
 
     var body: some View {
-        let report = app.scoutReports.first { $0.id == reportID } ?? app.scoutReports.first { !$0.isPick }
-        let fresh = report.map { Date.now.timeIntervalSince($0.date) < 20 * 3600 } ?? false
+        let report = app.scoutReports.first { $0.id == reportID } ?? app.scoutReports.first { !$0.isPick && !$0.isCheck }
+        // A report picked in Reports is always shown; the default one only while it is from the last 20 hours.
+        let fresh = reportID != nil || (report.map { Date.now.timeIntervalSince($0.date) < 20 * 3600 } ?? false)
         let entries = RepoScout.ordered(fresh ? (report?.entries ?? []) : (app.scoutTrending.isEmpty ? (report?.entries ?? []) : app.scoutTrending))
         List(selection: $selection) {
             if let pick = app.scoutPick {

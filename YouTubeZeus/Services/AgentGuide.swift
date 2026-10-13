@@ -201,6 +201,7 @@ enum AgentGuide {
         | `youtubezeus://translate?video=<id>&lang=<code>` | the text of a video in another language (YouTube's translation, about 160 languages: `fr`, `ro`, `zh-Hans`, `iw`…; the local AI for podcasts and files), kept with the video |
         | `youtubezeus://eat?url=<X / Instagram / Facebook / Threads post or Spotify episode>` | posts: the words of the post plus Whisper on its video or audio, id `web-<hash>`, kind `social`; Spotify: the episode from its public RSS feed (found in Apple's podcast directory) |
         | `youtubezeus://youtube?page=<number or name>` | YouTube pages: puts that YouTube account (page) in front in Zeus's YouTube window; a new name makes a new page (up to 20). Lists, members-only videos and yt-dlp use the page in front |
+        | `youtubezeus://everything?video=<id>` | makes everything still missing for an item, on this Mac: summary, polished text, skills, playbook, text on screen; opens its Everything tab (all parts on one page) |
         | `youtubezeus://pause`, `youtubezeus://resume` | pause eating (what is running waits at the front of the line) or start again |
         | `youtubezeus://setup` | the setup page: installs Homebrew, the tools and the local AI model for this Mac |
         | `youtubezeus://open?collection=<playlist or list id>` | a collection |

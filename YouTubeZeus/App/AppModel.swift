@@ -544,6 +544,11 @@ final class AppModel {
         case .trash(let all):
             if all { trashLibrary() }
             selection = .trash
+        case .everything(let id):
+            guard let video = engine.video(id) else { show("No video \(id) in the library.", error: true); return }
+            selectedVideoID = id
+            initialTab = DetailTab.everything.rawValue
+            doEverything(video)
         case .youtubePage(let text):
             selection = .browser
             if let page = youtubePages.find(text) {

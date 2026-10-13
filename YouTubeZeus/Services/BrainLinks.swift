@@ -111,6 +111,8 @@ nonisolated enum BrainLinks {
         case translate(String, language: String)
         /// YouTube pages (3.9): put a page (account) in front, by number or name.
         case youtubePage(String)
+        /// 4.1: make everything still missing for an item (summary, polish, skills, playbook, screen).
+        case everything(String)
         case playbook(String, make: Bool, force: Bool, run: String?)
         /// Effects (3.8): the tab, with a video as the source and the clip's start.
         case effects(String?, t: Double?)
@@ -140,6 +142,8 @@ nonisolated enum BrainLinks {
         case "effects", "effect": return .effects(value("video"), t: (value("t") ?? value("start")).flatMap(Self.seconds))
         case "youtube", "page":
             return value("page").map { .youtubePage($0) } ?? .view("youtube")
+        case "everything", "all":
+            return value("video").map { .everything($0) }
         case "translate":
             guard let id = value("video"), let lang = value("lang") ?? value("language") else { return nil }
             return .translate(id, language: lang)

@@ -2,6 +2,8 @@ import SwiftData
 import SwiftUI
 
 enum DetailTab: String, CaseIterable, Identifiable {
+    /// 4.1: every part on one page, with one button that makes what is missing.
+    case everything = "Everything"
     case transcript = "Transcript"
     case summary = "Summary"
     case screen = "On screen"
@@ -15,7 +17,7 @@ enum DetailTab: String, CaseIterable, Identifiable {
 struct VideoDetailView: View {
     @Environment(AppModel.self) private var app
     @Query private var matches: [Video]
-    @State private var tab: DetailTab = .transcript
+    @State private var tab: DetailTab = .everything
     @State private var find = ""
     @State private var paragraphs: [TranscriptParagraph] = []
     @State private var polishedParagraphs: [TranscriptParagraph] = []
@@ -74,7 +76,7 @@ struct VideoDetailView: View {
                         }
                         .pickerStyle(.segmented)
                         .labelsHidden()
-                        .frame(maxWidth: 480)
+                        .frame(maxWidth: 560)
                         Spacer()
                         if tab == .transcript, !polishedParagraphs.isEmpty {
                             Picker("Text", selection: $showOriginal) {
@@ -105,6 +107,11 @@ struct VideoDetailView: View {
                     }
 
                     switch tab {
+                    case .everything:
+                        EverythingBody(video: video,
+                                       paragraphs: polishedParagraphs.isEmpty || showOriginal ? paragraphs : polishedParagraphs,
+                                       isPolished: !polishedParagraphs.isEmpty && !showOriginal,
+                                       open: { tab = $0 })
                     case .transcript:
                         TranscriptBody(video: video,
                                        paragraphs: polishedParagraphs.isEmpty || showOriginal ? paragraphs : polishedParagraphs,

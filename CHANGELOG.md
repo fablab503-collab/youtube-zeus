@@ -3,6 +3,14 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 4.1 — Everything (2026-10-13)
+
+- **Everything**, the new first tab of every item: one button, **Do everything**, makes all that is still missing —
+  the summary, the polished text, the skills, the playbook and the text on screen (for things with a picture) —
+  free, on this Mac, each in its own lane. Below it, every part on one page: Summary, Playbook, Skills, On screen,
+  Info, then the transcript, each with "Open alone" for its own tab. It says what is still to make.
+  Link: `youtubezeus://everything?video=<id>`.
+
 ## 4.0 — Make it me (2026-10-12)
 
 Two Effects branches joined: the one-button job and The Swap (`zeus-3.8-effects`) and the parts map (`zeus-3.9`), on

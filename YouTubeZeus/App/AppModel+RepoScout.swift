@@ -293,12 +293,6 @@ struct ScoutRow: View {
                 if let language = entry.language { Label(language, systemImage: "chevron.left.forwardslash.chevron.right") }
                 if let stars = entry.stars { Label(stars.formatted(.number.notation(.compactName)), systemImage: "star") }
                 if let period = entry.periodStars { Text("+\(period.formatted()) today").foregroundStyle(.orange) }
-                ForEach(entry.votes, id: \.self) { vote in
-                    let ok = vote.verdict.lowercased().hasPrefix("approve")
-                    Text("\(ok ? "✓" : vote.verdict.lowercased().hasPrefix("sandbox") ? "~" : "✗") \(vote.juror)")
-                        .foregroundStyle(ok ? Color.green : Color.secondary)
-                        .help(vote.reason)
-                }
                 Spacer()
                 Button("Analyze") { app.copyRepoAnalysis(entry) }
                     .buttonStyle(.borderless)
@@ -306,7 +300,34 @@ struct ScoutRow: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            if !entry.votes.isEmpty {
+                // One line of text that wraps, so a narrow column never squeezes the jurors' names.
+                Text(votesLine).font(.caption).lineLimit(3)
+                    .help(votesHelp)
+            }
         }
         .padding(.vertical, 4)
+    }
+
+    private var votesHelp: String {
+        var lines: [String] = []
+        for vote in entry.votes {
+            lines.append(vote.reason.isEmpty ? "\(vote.juror): \(vote.verdict)" : "\(vote.juror): \(vote.verdict) — \(vote.reason)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// ✓ approve, ~ sandbox, ✗ reject, one juror after the other.
+    private var votesLine: AttributedString {
+        var line = AttributedString()
+        for (index, vote) in entry.votes.enumerated() {
+            let verdict = vote.verdict.lowercased()
+            let ok = verdict.hasPrefix("approve")
+            let symbol = ok ? "✓" : verdict.contains("sandbox") ? "~" : "✗"
+            var part = AttributedString((index == 0 ? "" : "   ") + symbol + " " + vote.juror)
+            part.foregroundColor = ok ? Color.green : Color.secondary
+            line.append(part)
+        }
+        return line
     }
 }

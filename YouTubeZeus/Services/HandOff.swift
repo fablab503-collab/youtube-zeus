@@ -30,7 +30,11 @@ enum HandOff {
        `zeus eat "/path/to/file.mp4"` (eaten by the app on the Mac; `zeus get file-…` when done).
     5c. Text on screen of a video (slide titles, code, commands): `zeus screen "<link or id>"`.
        People, tools and companies: `zeus entities [name]`, `zeus entity "<name>"`. The week: `zeus digest --last`.
-    5d. MCP: `zeus mcp` is an MCP server (search, get_transcript, get_note, ask, eat, entities, weekly_digest…).
+    5d. MCP: `zeus mcp` is an MCP server (agent_briefing, search, get_transcript, get_note, ask, eat, get_research,
+       add_research, entities, weekly_digest…).
+    5g. What can you do for the user now? `zeus agent` (open research questions, the repo of the day, recent items, rules).
+       If you can search the web: `zeus research "<id>"` lists an item's open questions with searches; save each answer
+       with `zeus research "<id>" --question "<question>" --add "<answer>" --source <url> --by "<your name>"`.
     5e. If a tool is missing ("yt-dlp was not found"): `zeus setup` shows what this Mac lacks; `zeus setup --install`
        installs it with Homebrew and downloads the local AI model that suits the Mac (the app's setup page installs Homebrew).
     5f. To redo what a tutorial shows: `zeus playbook "<link or id>"` prints its playbook (steps for an agent; when it

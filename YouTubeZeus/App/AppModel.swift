@@ -24,6 +24,10 @@ enum SidebarItem: Hashable {
     case libraryChannel(String)
     /// Effects (3.8): a free, local Genjutsu (keep the movement, replace the person, keep the sound).
     case effects
+    /// 4.5: the Eat page — the item being eaten now, then its output.
+    case now
+    /// 4.5: one kind of item (MediaKind raw value): podcast episodes, posts and pages, your files.
+    case kind(String)
 }
 
 /// "Show this item at that moment": the detail view opens the transcript there and highlights the paragraph.
@@ -103,7 +107,7 @@ final class AppModel {
     /// A link the mini browser puts in the Eat bar.
     var eatBarFill: String?
 
-    var selection: SidebarItem? = .library
+    var selection: SidebarItem? = .now
     var selectedVideoID: String?
     var selectedSkillID: UUID?
     var toast: Toast?
@@ -123,6 +127,8 @@ final class AppModel {
     var scoutTrending: [RepoScout.Entry] = []
     var scoutLog = ""
     var scoutPick: RepoScout.Pick?
+    /// 4.5: bumped when an answer is saved, so the Research card reloads.
+    var researchVersion = 0
     var scoutTask: Task<Void, Never>?
     var channelLanguages: [String: String] = (UserDefaults.standard.dictionary(forKey: AppModel.channelLanguagesKey) as? [String: String]) ?? [:]
     @ObservationIgnored var channelTranslateTasks: [String: Task<Void, Never>] = [:]
@@ -565,6 +571,13 @@ final class AppModel {
             selection = .github
             if let repo { scanScout(jury: jury, repos: [repo.replacingOccurrences(of: "https://github.com/", with: "")]) }
             else if let scan { scanScout(since: scan, jury: jury) }
+        case .research(let id):
+            guard engine.video(id) != nil else { show("No video \(id) in the library.", error: true); return }
+            if selection != .library, selection != .now { selection = .library }
+            selectedVideoID = id
+            initialTab = DetailTab.playbook.rawValue
+        case .now:
+            selection = .now
         case .everything(let id):
             guard let video = engine.video(id) else { show("No video \(id) in the library.", error: true); return }
             selectedVideoID = id
@@ -658,6 +671,10 @@ final class AppModel {
             case "ask": selection = .ask
             case "skills": selection = .skills
             case "eating", "queue": selection = .eating
+            case "now", "eat": selection = .now
+            case "posts", "pages", "social": selection = .kind(MediaKind.social.rawValue)
+            case "podcasts", "episodes": selection = .kind(MediaKind.podcast.rawValue)
+            case "files": selection = .kind(MediaKind.file.rawValue)
             case "youtube", "browser": selection = .browser
             case "entities", "people", "tools", "companies": selection = .entities
             case "digests", "digest": selection = .digests

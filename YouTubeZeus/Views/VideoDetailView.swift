@@ -14,6 +14,15 @@ enum DetailTab: String, CaseIterable, Identifiable {
     case rebuild = "Rebuild"
 
     var id: String { rawValue }
+
+    /// 4.5: the four tabs always shown; the others are parts of Everything (and open from it, or from More).
+    static let main: [DetailTab] = [.everything, .transcript, .playbook, .rebuild]
+    static let more: [DetailTab] = [.summary, .screen, .skills, .info]
+
+    /// The tabs of the picker: the main ones, plus the one open now when it is another.
+    static func shown(with current: DetailTab) -> [DetailTab] {
+        main.contains(current) ? main : main + [current]
+    }
 }
 
 struct VideoDetailView: View {
@@ -74,11 +83,23 @@ struct VideoDetailView: View {
                 if video.status.hasText {
                     HStack(spacing: 12) {
                         Picker("View", selection: $tab) {
-                            ForEach(DetailTab.allCases) { tab in Text(tab.rawValue).tag(tab) }
+                            ForEach(DetailTab.shown(with: tab)) { tab in
+                                Text(tab == .playbook ? "Playbook & research" : tab.rawValue).tag(tab)
+                            }
                         }
                         .pickerStyle(.segmented)
                         .labelsHidden()
-                        .frame(maxWidth: 640)
+                        .frame(maxWidth: 560)
+                        Menu {
+                            ForEach(DetailTab.more) { item in
+                                Button(item.rawValue) { tab = item }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .help("One part alone: Summary, On screen, Skills, Info (all of them are also in Everything)")
                         Spacer()
                         if tab == .transcript, !polishedParagraphs.isEmpty {
                             Picker("Text", selection: $showOriginal) {
@@ -159,13 +180,14 @@ struct VideoDetailView: View {
                 }
                 .help(video.kind == .youtube ? "Open on YouTube" : "Play in YouTube Zeus")
                 if video.status.hasText {
-                    Button { app.copyForAI(video) } label: { Label("Copy for AI", systemImage: "sparkles") }
-                        .help("Copy a knowledge pack for Claude, ChatGPT, Gemini, Grok, GLM…")
-                    Button { app.copyTranscript(video) } label: { Label("Copy transcript", systemImage: "doc.on.doc") }
-                        .help("Copy the transcript")
-                    Button { translateVideo = video } label: { Label("Translate", systemImage: "character.bubble") }
-                        .help("The text in another language (YouTube translates into about 160; the local AI does the rest)")
+                    // 4.5: one menu for copying, translating and exporting.
                     Menu {
+                        Button("Copy for AI (knowledge pack)") { app.copyForAI(video) }
+                        Button("Copy the Transcript") { app.copyTranscript(video) }
+                        Button("Copy the Research Questions for an Agent") { app.copyResearch(video) }
+                        Divider()
+                        Button("Translate…") { translateVideo = video }
+                        Divider()
                         Button("Export Markdown…") { app.exportMarkdown(video) }
                         Button("Copy as Markdown Note") { app.copyMarkdown(video) }
                         Button("Save to Second Brain") { app.saveToSecondBrain(video) }
@@ -173,9 +195,9 @@ struct VideoDetailView: View {
                             Button("Show in Second Brain") { app.reveal(path) }
                         }
                     } label: {
-                        Label("Export", systemImage: "square.and.arrow.up")
+                        Label("Share", systemImage: "square.and.arrow.up")
                     }
-                    .help("Export")
+                    .help("Copy for AI, the transcript, the research questions; translate; export")
                 }
             }
         }

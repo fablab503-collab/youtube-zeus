@@ -59,6 +59,13 @@ enum ZeusCLI {
                                 frames; --make writes it (again) in the app, --force even when the video does not
                                 look like a tutorial, --skill installs it for Claude Code, --run opens Terminal with
                                 Claude Code or Codex on it. While it is made, it prints the step the app is on
+      zeus agent [--json]       for an agent on this Mac: what it can look up and do now (open research questions,
+                                the repo of the day, what was eaten, what waits for Daniel), with the rules
+      zeus research <link|id> [--json]
+                                the research inside a playbook: what Zeus knows, the open questions with searches to
+                                run, the answers found so far
+      zeus research <link|id> --question "<question>" --add "<answer>" [--source <url>]… [--by "<agent>"]
+                                save an answer: it shows in the app's playbook and in the Second Brain note
       zeus scout [--json]       The repo of the day (Repo Scout's pick, else Trendshift's #1) and Repo Scout's newest
                                 report (GitHub's top repos with health, trust and the jury's verdicts); without Repo
                                 Scout, today's github.com/trending
@@ -325,6 +332,65 @@ enum ZeusCLI {
                 if case .video(let videoID) = YouTubeLink.parse(link) { id = videoID }
                 openInApp(URL(string: BrainLinks.zeusScreen(video: id))!, raw: true)
                 print("YouTube Zeus is reading the screen of \(id) (slide titles, code, commands). The note gets an \"On screen\" section.")
+                return 0
+            case "agent", "agents", "briefing":
+                let (_, context) = try Library.open()
+                let briefing = AgentDesk.briefing(context: context, settings: settings)
+                if flags.contains("--json") {
+                    let data = try JSONSerialization.data(withJSONObject: briefing.json, options: [.prettyPrinted, .sortedKeys])
+                    print(String(decoding: data, as: UTF8.self))
+                } else {
+                    print(briefing.text)
+                }
+                return 0
+            case "research":
+                // Values follow their flag (--add "…" --question "…" --source url --by name); the item is the first other word.
+                let valued: Set<String> = ["--add", "--answer", "--question", "--source", "--by"]
+                var values: [String: [String]] = [:]
+                var words: [String] = []
+                var position = 0
+                var commandSeen = false
+                while position < raw.count {
+                    let item = raw[position]
+                    if valued.contains(item), position + 1 < raw.count {
+                        values[item, default: []].append(raw[position + 1])
+                        position += 2
+                        continue
+                    }
+                    if !item.hasPrefix("--") {
+                        if !commandSeen, item == "research" { commandSeen = true } else { words.append(item) }
+                    }
+                    position += 1
+                }
+                guard let link = words.first else {
+                    return fail("zeus research <link|id> [--json] | zeus research <link|id> --question \"…\" --add \"…\" [--source <url>] [--by <agent>]")
+                }
+                let (_, context) = try Library.open()
+                guard let video = Library.video(link, in: context), video.status.hasText else {
+                    return fail("Not eaten yet: \(link). Eat it first: zeus eat \"\(link)\"")
+                }
+                let snapshot = video.snapshot
+                if let answer = (values["--add"] ?? values["--answer"])?.first {
+                    guard let question = values["--question"]?.first, !question.isEmpty else {
+                        return fail("Say which question it answers: --question \"…\" (the open ones: zeus research \(video.videoID))")
+                    }
+                    let finding = ResearchFinding(question: question, answer: answer, sources: values["--source"] ?? [],
+                                                  by: values["--by"]?.first ?? "agent")
+                    try Research.add(finding, to: video.videoID, title: video.displayTitle)
+                    if let playbook = video.playbook {
+                        Research.refreshPlaybookNote(snapshot, playbook: playbook, folder: settings.playbookNotesFolder)
+                    }
+                    let open = Research.brief(snapshot, playbook: video.playbook).open.count
+                    print("Saved in the research of \(video.displayTitle). \(open) question\(open == 1 ? "" : "s") still open.")
+                    return 0
+                }
+                let brief = Research.brief(snapshot, playbook: video.playbook)
+                if flags.contains("--json") {
+                    let data = try JSONSerialization.data(withJSONObject: Research.json(brief), options: [.prettyPrinted, .sortedKeys])
+                    print(String(decoding: data, as: UTF8.self))
+                } else {
+                    print(Research.agentMarkdown(brief))
+                }
                 return 0
             case "scout":
                 let pick = await RepoScout.repoOfTheDay()

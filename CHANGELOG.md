@@ -3,6 +3,29 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 4.5 — Simpler: Eat, one thing at a time, and research inside the playbook (2026-10-14)
+
+- **A simpler sidebar with sub-categories**: **Eat** on top; **YouTube** › Videos, Channels (followed ones and the
+  channels of your videos), Playlists, Favorites, Accounts, Deleted; **Other sources** › Podcasts, Posts & pages,
+  Your files; **Tools** › Skills, GitHub, Ask your brain, People & tools, Weekly digests, Effects; Topics folded.
+- **Eat** (the new first page, also where a pasted link goes): the item being eaten now, big, with its step and
+  progress — the rest of the line is only a count (a whole channel no longer scrolls by). When an item is done,
+  everything it gave opens on the right (the Everything tab); *Just eaten* lists the last ones. The whole line
+  (cancel, retry, trash several) is one button away.
+- **Fewer buttons on a video**: four tabs — Everything, Transcript, Playbook & research, Rebuild (Summary, On screen,
+  Skills, Info are inside Everything, and in the ⋯ menu); the toolbar is Favorite, Open, and one **Share** menu
+  (copy for AI, transcript, research questions, translate, export).
+- **Research inside the playbook**: what Zeus already knows (summary, goal, GitHub checks), the open questions —
+  tools' current version and install, prices and free limits of services, repos' health, steps the video does not
+  show (UNKNOWN), steps that need your OK, key points to check, links of the description — each with searches to
+  run, and the answers found. In the app (Playbook & research, answer one yourself, search with one click), in the
+  playbook note (a checklist) and in the rebuild message.
+- **For agents**: `zeus agent` (start here: open research questions, the repo of the day, what was eaten, what waits
+  for Daniel, the rules), `zeus research <id>` (the questions with their searches), `zeus research <id> --question
+  "…" --add "…" --source <url> --by <agent>` (save an answer: it shows in the app and the note); MCP
+  `agent_briefing`, `get_research`, `add_research`; links `youtubezeus://research?video=<id>`, `youtubezeus://now`.
+  Answers live in `~/Library/Application Support/YouTube Zeus/Research/<id>.json`.
+
 ## 4.4 — Repo Scout in GitHub (2026-10-13)
 
 - **Sidebar › GitHub › Today**: GitHub's top repos of the day from **Repo Scout** (Daniel's app: health score from

@@ -526,6 +526,8 @@ nonisolated enum PlaybookRender {
         if !playbook.troubleshooting.isEmpty {
             lines += ["## If something goes wrong", ""] + playbook.troubleshooting.map { "- \($0)" } + [""]
         }
+        // 4.5: research inside the playbook — what to check, and what agents found.
+        lines += Research.playbookSection(Research.brief(video, playbook: playbook))
         if !playbook.scenes.isEmpty, style != .clipboard {
             lines += ["## What the video shows, moment by moment", "",
                       "_Frames described by \(playbook.visionModel ?? "the vision model") on this Mac: context for the steps above._", ""]

@@ -20,6 +20,8 @@ struct PlaybookBody: View {
             } else if !making {
                 PlaybookIntroCard(video: video)
             }
+            // 4.5: research inside the playbook (also before there is one: repos, tools and claims to check).
+            if video.status.hasText { PlaybookResearchCard(video: video) }
         }
     }
 }

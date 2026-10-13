@@ -113,6 +113,10 @@ nonisolated enum BrainLinks {
         case youtubePage(String)
         /// 4.1: make everything still missing for an item (summary, polish, skills, playbook, screen).
         case everything(String)
+        /// 4.5: the research inside an item's playbook (the Playbook tab, the Research card at its end).
+        case research(String)
+        /// 4.5: the Eat page (the item being eaten now, then its output).
+        case now
         /// 4.4: Sidebar › GitHub › Today (Repo Scout); `scan` runs it (daily, weekly, monthly), `repo` asks its jury.
         case scout(scan: String?, repo: String?, jury: Bool)
         /// 4.2: the rebuild message of an item (copied for `reader`, or saved to the Second Brain).
@@ -150,6 +154,10 @@ nonisolated enum BrainLinks {
             return value("video").map { .rebuild($0, reader: value("for") ?? value("reader"), save: ["1", "true", "yes"].contains(value("save")?.lowercased() ?? "")) }
         case "scout", "reposcout", "trending":
             return .scout(scan: value("scan") ?? value("since"), repo: value("repo"), jury: value("jury") != "0")
+        case "research":
+            return value("video").map { .research($0) }
+        case "now", "eat-now", "eating-now":
+            return .now
         case "everything", "all":
             return value("video").map { .everything($0) }
         case "translate":

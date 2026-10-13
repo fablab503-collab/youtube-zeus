@@ -16,12 +16,21 @@ enum LibraryScope: Hashable {
     case all
     case favorites
     case channel(String)
+    /// 4.5: one kind of item (Other sources in the sidebar).
+    case kind(MediaKind)
 
     var title: String {
         switch self {
         case .all: "Videos"
         case .favorites: "Favorites"
         case .channel(let name): name.isEmpty ? "Unknown channel" : name
+        case .kind(let kind):
+            switch kind {
+            case .youtube: "YouTube videos"
+            case .podcast: "Podcast episodes"
+            case .file: "Your files"
+            case .social: "Posts & pages"
+            }
         }
     }
 }
@@ -47,6 +56,7 @@ struct LibraryView: View {
             case .all: break
             case .favorites: if !video.isFavorite { return false }
             case .channel(let name): if video.channelTitle != name || video.kind != .youtube { return false }
+            case .kind(let kind): if video.kind != kind { return false }
             }
             switch filter {
             case .all: break

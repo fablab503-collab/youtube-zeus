@@ -12,6 +12,8 @@ struct ContentView: View {
         } content: {
             Group {
                 switch app.selection {
+                case .now, nil: NowEatingView()
+                case .kind(let raw): LibraryView(scope: .kind(MediaKind(rawValue: raw) ?? .social)).id(raw)
                 case .eating: QueueView()
                 case .skills: SkillsListView()
                 case .channel(let id): ChannelView(channelID: id).id(id)
@@ -27,7 +29,7 @@ struct ContentView: View {
                 case .effects: EffectsJobsList()
                 case .favorites: LibraryView(scope: .favorites)
                 case .libraryChannel(let name): LibraryView(scope: .channel(name)).id(name)
-                case .library, nil: LibraryView()
+                case .library: LibraryView()
                 }
             }
             .navigationSplitViewColumnWidth(min: 340, ideal: 420, max: 620)
@@ -70,6 +72,7 @@ struct ContentView: View {
             let links = urls.filter { !$0.isFileURL }.map(\.absoluteString)
                 .filter { YouTubeLink.parse($0) != nil || PodcastFeed.looksLikePodcast($0) || SocialSite.of($0) != nil }
             guard !files.isEmpty || !links.isEmpty else { return false }
+            app.selection = .now
             Task {
                 if !files.isEmpty { await app.eatFiles(files) }
                 for link in links { await app.eat(link) }
@@ -123,17 +126,27 @@ struct SidebarView: View {
     @Query private var allVideos: [Video]
     @Query(filter: #Predicate<Video> { $0.statusRaw == "trashed" }) private var trashed: [Video]
 
-    @AppStorage("sidebarLibraryOpen") private var libraryOpen = true
-    @AppStorage("sidebarLibraryChannelsOpen") private var libraryChannelsOpen = false
+    // 4.5: a simpler sidebar — Eat, then YouTube, Other sources and Tools, each with its sub-categories (folded).
+    @AppStorage("sidebarYouTubeOpen") private var youtubeOpen = true
+    @AppStorage("sidebarChannelsOpen") private var channelsOpen = false
+    @AppStorage("sidebarPlaylistsOpen") private var playlistsOpen = false
+    @AppStorage("sidebarSourcesOpen") private var sourcesOpen = true
+    @AppStorage("sidebarPodcastsOpen") private var podcastsOpen = false
+    @AppStorage("sidebarToolsOpen") private var toolsOpen = true
+    @AppStorage("sidebarTopicsOpen") private var topicsOpen = false
 
-    /// What the Library shows (3.5): everything eaten or being eaten, not discovered, not deleted.
+    /// What the library shows (3.5): everything eaten or being eaten, not discovered, not deleted.
     private var libraryVideos: [Video] {
         allVideos.filter { $0.status != .discovered && $0.status != .trashed }
     }
 
-    /// The YouTube channels of the videos in the library, most videos first.
-    private var libraryChannels: [(name: String, count: Int)] {
-        let groups = Dictionary(grouping: libraryVideos.filter { $0.kind == .youtube }, by: \.channelTitle)
+    private func count(_ kind: MediaKind) -> Int { libraryVideos.filter { $0.kind == kind }.count }
+
+    /// The YouTube channels of the videos in the library that are not followed, most videos first.
+    private var otherChannels: [(name: String, count: Int)] {
+        let followed = Set(channels.map { $0.title.lowercased() })
+        let groups = Dictionary(grouping: libraryVideos.filter { $0.kind == .youtube && !followed.contains($0.channelTitle.lowercased()) },
+                                by: \.channelTitle)
         return groups.map { (name: $0.key, count: $0.value.count) }
             .sorted { $0.count == $1.count ? $0.name.localizedStandardCompare($1.name) == .orderedAscending : $0.count > $1.count }
     }
@@ -161,48 +174,96 @@ struct SidebarView: View {
             Section {
                 Label {
                     HStack {
-                        Text("Eating now")
+                        Text("Eat")
                         Spacer()
-                        if app.engine.activeCount > 0 {
-                            Text("\(app.engine.activeCount)").foregroundStyle(.secondary).monospacedDigit()
-                        }
+                        // The line itself stays out of sight: only a sign that something is being eaten.
+                        if app.engine.activeCount > 0 { ProgressView().controlSize(.mini) }
                     }
                 } icon: {
                     Image(systemName: "bolt.fill").symbolEffect(.pulse, isActive: app.engine.activeCount > 0)
                 }
-                .tag(SidebarItem.eating)
+                .tag(SidebarItem.now)
+                .help("Paste a link: the item being eaten now, then everything it gave")
             }
 
-            // Library (3.5): sub-categories — all the videos, by YouTube channel, favorites, deleted.
-            Section(isExpanded: $libraryOpen) {
+            Section(isExpanded: $youtubeOpen) {
                 SidebarCountRow(title: "Videos", symbol: "play.rectangle.on.rectangle.fill", count: libraryVideos.count)
                     .tag(SidebarItem.library)
-
-                DisclosureGroup(isExpanded: $libraryChannelsOpen) {
-                    ForEach(libraryChannels, id: \.name) { channel in
+                DisclosureGroup(isExpanded: $channelsOpen) {
+                    ForEach(channels) { channel in FollowedRow(channel: channel, discovered: discovered) }
+                    ForEach(otherChannels, id: \.name) { channel in
                         SidebarCountRow(title: channel.name.isEmpty ? "Unknown channel" : channel.name,
                                         symbol: "person.crop.square", count: channel.count)
                             .tag(SidebarItem.libraryChannel(channel.name))
                     }
-                    if libraryChannels.isEmpty {
-                        Text("The channels of the videos you eat show here.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    if channels.isEmpty, otherChannels.isEmpty {
+                        Text("Paste a channel link to follow it.").font(.caption).foregroundStyle(.secondary)
                     }
                 } label: {
-                    SidebarCountRow(title: "YouTube channels", symbol: "play.tv.fill", count: libraryChannels.count)
+                    HStack {
+                        SidebarCountRow(title: "Channels", symbol: "play.tv.fill", count: channels.count + otherChannels.count)
+                        if app.watcher.isChecking { ProgressView().controlSize(.mini) }
+                    }
+                    .contextMenu {
+                        Button("Check All Channels Now") { Task { await app.watcher.checkAll() } }
+                    }
                 }
-
+                DisclosureGroup(isExpanded: $playlistsOpen) {
+                    let groups = Dictionary(grouping: lists, by: { ClaudePack.channelShort($0.channelTitle) })
+                    let grouped = groups.filter { $0.value.count > 1 && !$0.key.isEmpty }
+                    ForEach(lists.filter { grouped[ClaudePack.channelShort($0.channelTitle)] == nil }) { list in
+                        CollectionRow(list: list)
+                    }
+                    ForEach(grouped.keys.sorted(), id: \.self) { channel in
+                        DisclosureGroup {
+                            ForEach(grouped[channel] ?? []) { list in CollectionRow(list: list) }
+                        } label: {
+                            SidebarCountRow(title: channel, symbol: "rectangle.stack", count: grouped[channel]?.count ?? 0)
+                        }
+                    }
+                    if lists.isEmpty {
+                        Text("Paste a playlist link: it becomes a collection here.").font(.caption).foregroundStyle(.secondary)
+                    }
+                } label: {
+                    SidebarCountRow(title: "Playlists", symbol: "list.and.film", count: lists.count)
+                }
                 SidebarCountRow(title: "Favorites", symbol: "star.fill", count: libraryVideos.filter(\.isFavorite).count)
                     .tag(SidebarItem.favorites)
-
-                SidebarCountRow(title: "Deleted videos", symbol: trashed.isEmpty ? "trash" : "trash.fill", count: trashed.count)
+                Label {
+                    HStack {
+                        Text("Accounts")
+                        Spacer()
+                        if app.account.isSignedIn {
+                            Image(systemName: "person.crop.circle.badge.checkmark").foregroundStyle(.green)
+                        }
+                    }
+                } icon: { Image(systemName: "globe") }
+                .tag(SidebarItem.browser)
+                .help("YouTube in Zeus: your pages (accounts), Watch Later, subscriptions")
+                SidebarCountRow(title: "Deleted", symbol: trashed.isEmpty ? "trash" : "trash.fill", count: trashed.count)
                     .tag(SidebarItem.trash)
             } header: {
-                Text("Library")
+                Text("YouTube")
             }
 
-            Section {
+            Section(isExpanded: $sourcesOpen) {
+                DisclosureGroup(isExpanded: $podcastsOpen) {
+                    SidebarCountRow(title: "All episodes", symbol: "waveform", count: count(.podcast))
+                        .tag(SidebarItem.kind(MediaKind.podcast.rawValue))
+                    ForEach(podcasts) { show in FollowedRow(channel: show, discovered: discovered) }
+                } label: {
+                    SidebarCountRow(title: "Podcasts", symbol: "mic.fill", count: podcasts.count)
+                }
+                SidebarCountRow(title: "Posts & pages", symbol: "text.bubble.fill", count: count(.social))
+                    .tag(SidebarItem.kind(MediaKind.social.rawValue))
+                    .help("X, Instagram, Facebook, Threads, Telegram, TikTok, Reddit… and any web page")
+                SidebarCountRow(title: "Your files", symbol: "doc.fill", count: count(.file))
+                    .tag(SidebarItem.kind(MediaKind.file.rawValue))
+            } header: {
+                Text("Other sources")
+            }
+
+            Section(isExpanded: $toolsOpen) {
                 Label {
                     HStack {
                         Text("Skills")
@@ -217,38 +278,14 @@ struct SidebarView: View {
                     }
                 } icon: { Image(systemName: "sparkles.rectangle.stack.fill") }
                 .tag(SidebarItem.skills)
-
-                Label {
-                    HStack {
-                        Text("YouTube")
-                        Spacer()
-                        if app.account.isSignedIn {
-                            Image(systemName: "person.crop.circle.badge.checkmark").foregroundStyle(.green)
-                        }
-                    }
-                } icon: { Image(systemName: "globe") }
-                .tag(SidebarItem.browser)
-
+                SidebarCountRow(title: "GitHub", symbol: "chevron.left.forwardslash.chevron.right", count: repoCount)
+                    .tag(SidebarItem.github)
                 Label("Ask your brain", systemImage: "brain.head.profile")
                     .tag(SidebarItem.ask)
-
                 Label("People & tools", systemImage: "person.2.fill")
                     .tag(SidebarItem.entities)
-
                 Label("Weekly digests", systemImage: "calendar")
                     .tag(SidebarItem.digests)
-
-                Label {
-                    HStack {
-                        Text("GitHub")
-                        Spacer()
-                        if repoCount > 0 {
-                            Text("\(repoCount)").foregroundStyle(.secondary).monospacedDigit()
-                        }
-                    }
-                } icon: { Image(systemName: "chevron.left.forwardslash.chevron.right") }
-                .tag(SidebarItem.github)
-
                 Label {
                     HStack {
                         Text("Effects")
@@ -260,132 +297,61 @@ struct SidebarView: View {
                 }
                 .tag(SidebarItem.effects)
                 .help("Free, local Genjutsu: keep the movement, replace the person with your photo, keep the sound")
-            }
-
-            if !lists.isEmpty {
-                Section("Collections") {
-                    // Channels with several collections are grouped (e.g. all the playlists of one channel).
-                    let groups = Dictionary(grouping: lists, by: { ClaudePack.channelShort($0.channelTitle) })
-                    let grouped = groups.filter { $0.value.count > 1 && !$0.key.isEmpty }
-                    ForEach(lists.filter { grouped[ClaudePack.channelShort($0.channelTitle)] == nil }) { list in
-                        CollectionRow(list: list)
-                    }
-                    ForEach(grouped.keys.sorted(), id: \.self) { channel in
-                        DisclosureGroup {
-                            ForEach(grouped[channel] ?? []) { list in CollectionRow(list: list) }
-                        } label: {
-                            Label {
-                                HStack {
-                                    Text(channel).lineLimit(1)
-                                    Spacer()
-                                    Text("\(grouped[channel]?.count ?? 0)").foregroundStyle(.secondary).monospacedDigit()
-                                }
-                            } icon: { Image(systemName: "rectangle.stack") }
-                        }
-                    }
-                }
+            } header: {
+                Text("Tools")
             }
 
             let topicList = topics
             if !topicList.isEmpty {
-                Section("Topics") {
+                Section(isExpanded: $topicsOpen) {
                     ForEach(topicList, id: \.0) { topic in
-                        Label {
-                            HStack {
-                                Text(topic.0).lineLimit(1)
-                                Spacer()
-                                Text("\(topic.1)").foregroundStyle(.secondary).monospacedDigit()
-                            }
-                        } icon: { Image(systemName: "number") }
-                        .tag(SidebarItem.topic(topic.0))
+                        SidebarCountRow(title: topic.0, symbol: "number", count: topic.1)
+                            .tag(SidebarItem.topic(topic.0))
                     }
-                }
-            }
-
-            if !podcasts.isEmpty {
-                Section("Podcasts") {
-                    ForEach(podcasts) { show in
-                        Label {
-                            HStack {
-                                Text(show.title.isEmpty ? "Podcast" : show.title).lineLimit(1)
-                                Spacer()
-                                let count = discovered.filter { $0.channelID == show.channelID }.count
-                                if count > 0 {
-                                    Text("\(count)").font(.caption.weight(.bold)).foregroundStyle(.tint)
-                                } else if !show.autoEat {
-                                    Image(systemName: "pause.circle").foregroundStyle(.tertiary)
-                                }
-                            }
-                        } icon: {
-                            Avatar(url: show.avatarURL, title: show.title, size: 20)
-                        }
-                        .tag(SidebarItem.podcast(show.channelID))
-                        .contextMenu {
-                            Button("Check Now") { Task { await app.watcher.check(show) } }
-                            Button("Open the Website") { NSWorkspace.shared.open(show.url) }
-                            Divider()
-                            Button("Unfollow", role: .destructive) {
-                                if app.selection == .podcast(show.channelID) { app.selection = .library }
-                                app.watcher.unfollow(show)
-                            }
-                        }
-                    }
-                }
-            }
-
-            Section {
-                ForEach(channels) { channel in
-                    Label {
-                        HStack {
-                            Text(channel.title.isEmpty ? channel.channelID : channel.title).lineLimit(1)
-                            Spacer()
-                            let count = discovered.filter { $0.channelID == channel.channelID }.count
-                            if count > 0 {
-                                Text("\(count)").font(.caption.weight(.bold)).foregroundStyle(.tint)
-                            } else if !channel.autoEat {
-                                Image(systemName: "pause.circle").foregroundStyle(.tertiary)
-                            }
-                        }
-                    } icon: {
-                        Avatar(url: channel.avatarURL, title: channel.title, size: 20)
-                    }
-                    .tag(SidebarItem.channel(channel.channelID))
-                    .contextMenu {
-                        Button("Check Now") { Task { await app.watcher.check(channel) } }
-                        Button("Open on YouTube") { NSWorkspace.shared.open(channel.url) }
-                        Divider()
-                        Button("Unfollow", role: .destructive) {
-                            if app.selection == .channel(channel.channelID) { app.selection = .library }
-                            app.watcher.unfollow(channel)
-                        }
-                    }
-                }
-                if channels.isEmpty {
-                    Text("Paste a channel link below to follow it.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } header: {
-                HStack {
-                    Text("Channels")
-                    Spacer()
-                    if app.watcher.isChecking {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        Button {
-                            Task { await app.watcher.checkAll() }
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Check all channels now")
-                    }
+                } header: {
+                    Text("Topics")
                 }
             }
         }
         .listStyle(.sidebar)
         .onChange(of: app.selection) { _, newValue in
             if newValue == .skills, app.selectedSkillID == nil { app.selectedSkillID = drafts.first?.id }
+        }
+    }
+}
+
+/// A followed channel or podcast: new items waiting, or paused.
+private struct FollowedRow: View {
+    @Environment(AppModel.self) private var app
+    let channel: Channel
+    let discovered: [Video]
+
+    var body: some View {
+        Label {
+            HStack {
+                Text(channel.title.isEmpty ? (channel.isPodcast ? "Podcast" : channel.channelID) : channel.title).lineLimit(1)
+                Spacer()
+                let count = discovered.filter { $0.channelID == channel.channelID }.count
+                if count > 0 {
+                    Text("\(count)").font(.caption.weight(.bold)).foregroundStyle(.tint)
+                } else if !channel.autoEat {
+                    Image(systemName: "pause.circle").foregroundStyle(.tertiary)
+                }
+            }
+        } icon: {
+            Avatar(url: channel.avatarURL, title: channel.title, size: 20)
+        }
+        .tag(channel.isPodcast ? SidebarItem.podcast(channel.channelID) : SidebarItem.channel(channel.channelID))
+        .contextMenu {
+            Button("Check Now") { Task { await app.watcher.check(channel) } }
+            Button(channel.isPodcast ? "Open the Website" : "Open on YouTube") { NSWorkspace.shared.open(channel.url) }
+            Divider()
+            Button("Unfollow", role: .destructive) {
+                if app.selection == .channel(channel.channelID) || app.selection == .podcast(channel.channelID) {
+                    app.selection = .library
+                }
+                app.watcher.unfollow(channel)
+            }
         }
     }
 }
@@ -460,7 +426,7 @@ struct EatBar: View {
             Image(systemName: "bolt.fill")
                 .foregroundStyle(Color.zeusGold)
                 .font(.title3)
-            TextField("Paste a YouTube or podcast link", text: $text)
+            TextField("Paste a link: YouTube, a podcast, a post, any page", text: $text)
                 .textFieldStyle(.plain)
                 .focused($focused)
                 .onSubmit(eat)
@@ -508,6 +474,8 @@ struct EatBar: View {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
         text = ""
+        // 4.5: the Eat page shows the item being eaten, then everything it gave.
+        app.selection = .now
         Task { await app.eat(value) }
     }
 }

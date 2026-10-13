@@ -170,6 +170,10 @@ enum AgentGuide {
         | `zeus list "<playlist or channel>"` | list videos (id, title) |
         | `zeus github "<link>" [--save] [--json]` | GitHub repositories linked in a video, checked through the API |
         | `zeus repos [--json]` | every repository linked in the library, with the videos that link it |
+        | `zeus agent [--json]` | **start here**: what you can look up and do for Daniel now — items with open research questions, the repo of the day, what was eaten, what waits for Daniel — and the rules |
+        | `zeus research "<link or id>" [--json]` | the research inside an item's playbook: what Zeus knows, the open questions (versions, install, prices, repos' health, steps the video does not show, claims, links) each with searches to run, the answers so far |
+        | `zeus research "<id>" --question "<question>" --add "<answer>" [--source <url>]… [--by "<you>"]` | save an answer (1 to 5 sentences, with sources; UNKNOWN when it cannot be verified): it shows in the app's playbook and in the playbook note |
+        | `zeus scout [--json]` | the repo of the day and Repo Scout's newest report (GitHub's top repos with health, trust and the jury's verdicts) |
         | `zeus playlists "<channel>" [--import]` | a channel's playlists; `--import` makes each one a collection in the app |
         | `zeus pack "<playlist link or collection id>"` | the Claude pack of a collection (see Claude packs) |
         | `zeus open "<link, id or youtubezeus:// link>"` | show that page in the app |
@@ -204,6 +208,8 @@ enum AgentGuide {
         | `youtubezeus://everything?video=<id>` | makes everything still missing for an item, on this Mac: summary, polished text, skills, playbook, text on screen; opens its Everything tab (all parts on one page) |
         | `youtubezeus://rebuild?video=<id>` (optional `&for=chatgpt|mistral|deepseek|gemini|local`, `&save=1`) | copies the rebuild message (the final message for any AI to reverse-engineer and redo what the video shows; also `zeus rebuild <id>` and the MCP tool `get_rebuild`); `save=1` writes it to `Sources/YouTube/Rebuild/` |
         | `youtubezeus://scout` (optional `?scan=daily|weekly|monthly`, `&jury=0`, or `?repo=owner/name`) | Sidebar › GitHub › Today: the repo of the day (Repo Scout's pick, else Trendshift's #1) and Repo Scout's newest report (top repos of the day with health, trust and the AI jury's verdict); `scan` runs Repo Scout, `repo` asks its jury about one repo. Also `zeus scout [--json]` and the MCP tool `repo_scout` |
+        | `youtubezeus://research?video=<id>` | the item's playbook with its Research card (open questions with searches, answers found by agents) |
+        | `youtubezeus://now` | the Eat page: the item being eaten now, then its output |
         | `youtubezeus://pause`, `youtubezeus://resume` | pause eating (what is running waits at the front of the line) or start again |
         | `youtubezeus://setup` | the setup page: installs Homebrew, the tools and the local AI model for this Mac |
         | `youtubezeus://open?collection=<playlist or list id>` | a collection |
@@ -222,8 +228,9 @@ enum AgentGuide {
         `zeus mcp` is an MCP server over stdio. Command: `/Applications/YouTube Zeus.app/Contents/MacOS/YouTube Zeus`,
         arguments `--cli mcp` (Settings › Extras connects it to the apps found on the Mac in one click). Tools: `search`,
         `get_transcript`, `get_note`, `ask`, `list_items`, `item_status`, `collections`, `claude_pack`, `entities`,
-        `entity`, `github_repos`, `weekly_digest`, `get_playbook`, `make_playbook`, and `eat` (hands a link or a file to
-        the app). Every result carries moment links: cite them.
+        `entity`, `github_repos`, `weekly_digest`, `get_playbook`, `make_playbook`, `get_rebuild`, `repo_scout`,
+        `agent_briefing` (start here), `get_research`, `add_research`, and `eat` (hands a link or a file to the app).
+        Every result carries moment links: cite them.
 
         ### 4. You read the Second Brain (file tools, Obsidian-aware agents)
 

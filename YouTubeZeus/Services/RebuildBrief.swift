@@ -175,6 +175,8 @@ nonisolated enum RebuildBrief {
             line()
         }
 
+        for text in Research.rebuildSection(Research.brief(video, playbook: playbook)) { line(text) }
+
         line("## Reverse engineering with REA")
         line("""
         When the video uses or imitates existing software, use **REA — Reverse Engineer Anything** (\(reaURL), MIT, runs \

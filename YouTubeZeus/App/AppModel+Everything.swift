@@ -78,7 +78,7 @@ struct EverythingBody: View {
             }
 
             part("Summary", .summary) { SummaryBody(video: video) }
-            part("Playbook", .playbook) { PlaybookBody(video: video) }
+            part("Playbook and research", .playbook) { PlaybookBody(video: video) }
             part("Skills", .skills) { SkillsBody(video: video) }
             if app.canReadScreen(video) {
                 part("On screen", .screen) { ScreenBody(video: video) }

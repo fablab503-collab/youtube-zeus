@@ -132,8 +132,13 @@ extension EatEngine {
         if let range = html.range(of: #"<(article|main)[^>]*>[\s\S]*</(article|main)>"#, options: [.regularExpression, .caseInsensitive]) {
             html = String(html[range])
         }
+        // Block elements end a line, so headings, dates and paragraphs do not run into each other.
+        html = html.replacingOccurrences(of: #"</(div|section|time|figure|figcaption|blockquote|pre|tr|ul|ol|table|dd|dt|header|p)>"#,
+                                         with: "\n", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"<(h\d|p)(\s[^>]*)?>"#, with: "\n$0", options: [.regularExpression, .caseInsensitive])
         let text = PodcastFeed.plainText(html)
             .replacingOccurrences(of: #"[ \t]+"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #" *\n *"#, with: "\n", options: .regularExpression)
             .replacingOccurrences(of: #"\n\s*\n\s*\n+"#, with: "\n\n", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return text.split(separator: " ").count >= 40 ? String(text.prefix(300_000)) : nil
@@ -143,6 +148,7 @@ extension EatEngine {
     nonisolated static func postTitle(title: String, text: String, site: SocialSite) -> String {
         let generic = title.isEmpty || title.lowercased().hasPrefix("video by") || title.lowercased().hasPrefix("post by")
             || title.lowercased() == site.name.lowercased() || title.lowercased().hasSuffix(" on x") || title.hasPrefix("Instagram")
+            || site == .telegram   // Telegram's page title is the channel's name, not the post's
         if !generic, title.count <= 140 { return title }
         let words = text.replacingOccurrences(of: "\n", with: " ").split(separator: " ").prefix(14).joined(separator: " ")
         if !words.isEmpty { return words.count < text.count ? words + "…" : words }

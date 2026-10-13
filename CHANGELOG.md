@@ -20,6 +20,8 @@ Newest first.
   from videos); **Ask the Repo Scout Jury**; Open on GitHub.
 - Without Repo Scout, Today shows github.com/trending (no health or jury).
 - For agents: `zeus scout [--json]`, MCP `repo_scout`, `youtubezeus://scout?scan=daily`.
+- Web pages keep their paragraphs (headings, dates and paragraphs no longer run together); Telegram posts are
+  titled by their first words instead of the channel's name.
 
 ## 4.3 — More sites (2026-10-13)
 

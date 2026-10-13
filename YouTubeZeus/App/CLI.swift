@@ -329,7 +329,7 @@ enum ZeusCLI {
             case "scout":
                 let pick = await RepoScout.repoOfTheDay()
                 if let pick, !flags.contains("--json") { print(RepoScout.pickSummary(pick) + "\n") }
-                if let report = RepoScout.loadReports(limit: 1).first {
+                if let report = RepoScout.newestScan() {
                     if flags.contains("--json") {
                         let rows = RepoScout.ordered(report.entries).map { entry -> [String: Any] in
                             var row: [String: Any] = ["repo": entry.repo, "url": entry.url.absoluteString, "description": entry.description]

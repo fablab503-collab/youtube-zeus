@@ -72,9 +72,20 @@ nonisolated enum RepoScout {
         var jurors: [String]
         var missingJurors: [String]
         var entries: [Entry]
+        /// What the run was: "trending", "repo of the day (trendshift #1 today)", a profile…
+        var kind: String = ""
         var id: String { file.path }
         var markdown: URL { file.deletingPathExtension().appendingPathExtension("md") }
+
+        /// A repo-of-the-day run (Trendshift's #1 judged by the jury), not a scan of the trending list.
+        var isPick: Bool {
+            let text = (kind + " " + title + " " + file.lastPathComponent).lowercased()
+            return ["of the day", "of-the-day", "of_the_day", "rotd", "trendshift"].contains { text.contains($0) }
+        }
     }
+
+    /// The newest scan of the trending list (repo-of-the-day runs left out).
+    static func newestScan() -> Report? { loadReports().first { !$0.isPick } }
 
     /// The newest reports first (only the ones with repos in them).
     static func loadReports(limit: Int = 15) -> [Report] {
@@ -111,7 +122,7 @@ nonisolated enum RepoScout {
             ?? Array(Set(entries.flatMap { $0.votes.map(\.juror) })).sorted()
         let missing = (meta["unavailable"] as? [String]) ?? (meta["missing_jurors"] as? [String])
             ?? ((meta["unavailable"] as? [String: Any]).map { Array($0.keys).sorted() } ?? [])
-        return Report(file: file, date: date, title: title, jurors: jurors, missingJurors: missing, entries: entries)
+        return Report(file: file, date: date, title: title, jurors: jurors, missingJurors: missing, entries: entries, kind: source)
     }
 
     /// The item with its nested parts (`metrics`, `repo`/`repository`/`github` objects) lifted to the top.
@@ -258,6 +269,9 @@ nonisolated enum RepoScout {
     /// Repo Scout's newest pick: any JSON named "…of-the-day…", "rotd", "trendshift" or "pick" in its folder,
     /// `reports/`, `state/` or `picks/`, whatever its shape (one repo, `{pick: …}`, a dated history, a report).
     static func scoutPick() -> Pick? {
+        if let report = loadReports(limit: 30).first(where: \.isPick), let top = report.entries.first {
+            return Pick(entry: top, date: report.date, source: "Repo Scout", file: report.file)
+        }
         let names = ["of-the-day", "of_the_day", "oftheday", "rotd", "trendshift", "pick"]
         let folders = [folder, reports, folder.appendingPathComponent("state", isDirectory: true),
                        folder.appendingPathComponent("picks", isDirectory: true),
@@ -352,18 +366,16 @@ nonisolated enum RepoScout {
                   let url = URL(string: "https://github.com/\(repo)") else { return }
             entries.append(Entry(repo: repo, url: url))
         }
-        // The ranked list: a link to the repository's Trendshift page with owner/name in it (ads link to GitHub instead).
-        if let links = try? NSRegularExpression(pattern: #"href="(?:https://trendshift\.io)?/repositories/\d+"[^>]*>([\s\S]{0,800}?)</a>"#) {
-            for match in links.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
-                guard let range = Range(match.range(at: 1), in: html) else { continue }
-                let inner = SocialLinks.decodeEntities(String(html[range]).replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression))
+        // The ranked list starts at the "#1" badge (an image with alt="#1"); each entry links to the repository's
+        // Trendshift page with owner/name in the link (ads link to GitHub instead). Without the badge: no guess.
+        guard let badge = html.range(of: #"alt=["']#1["']"#, options: .regularExpression) else { throw RepoScoutError.trendshiftChanged }
+        let list = String(html[badge.lowerBound...])
+        if let links = try? NSRegularExpression(pattern: #"href=["'](?:https://trendshift\.io)?/repositories/\d+[^"']*["'][^>]*>([\s\S]{0,800}?)</a>"#) {
+            for match in links.matches(in: list, range: NSRange(list.startIndex..., in: list)) {
+                guard let range = Range(match.range(at: 1), in: list) else { continue }
+                let inner = SocialLinks.decodeEntities(String(list[range]).replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression))
                 if let repo = first("(?:^|\\s)(\(name))(?=\\s|$)", in: inner) { add(repo) }
-            }
-        }
-        // Else the page's own data (Next.js): "full_name":"owner/name".
-        if entries.count < 3, let data = try? NSRegularExpression(pattern: #"\\?"(?:full_name|fullName|repository_name|repo_name)\\?"\s*:\s*\\?"("# + name + #")\\?""#) {
-            for match in data.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
-                if let range = Range(match.range(at: 1), in: html) { add(String(html[range])) }
+                if entries.count >= 25 { break }
             }
         }
         guard !entries.isEmpty else { throw RepoScoutError.trendshiftChanged }

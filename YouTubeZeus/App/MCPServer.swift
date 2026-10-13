@@ -346,7 +346,7 @@ enum MCPServer {
 
         case "repo_scout":
             let pick = await RepoScout.repoOfTheDay().map { RepoScout.pickSummary($0) + "\n\n" } ?? ""
-            if let report = RepoScout.loadReports(limit: 1).first { return pick + RepoScout.summary(report) }
+            if let report = RepoScout.newestScan() { return pick + RepoScout.summary(report) }
             let entries = try await RepoScout.trending(since: "daily")
             return pick + "GitHub trending today (no Repo Scout report on this Mac):\n" + entries.map { "- \($0.repo)\($0.periodStars.map { " · +\($0) stars" } ?? "") — \($0.description)" }.joined(separator: "\n")
         case "get_rebuild":

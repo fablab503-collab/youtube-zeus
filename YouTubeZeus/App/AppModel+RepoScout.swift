@@ -10,7 +10,7 @@ extension AppModel {
         scoutReports = RepoScout.loadReports()
         scoutPick = RepoScout.scoutPick().flatMap { $0.isToday ? $0 : nil } ?? scoutPick
         async let pick = RepoScout.repoOfTheDay()
-        let fresh = scoutReports.first.map { Date.now.timeIntervalSince($0.date) < 20 * 3600 } ?? false
+        let fresh = scoutReports.first(where: { !$0.isPick }).map { Date.now.timeIntervalSince($0.date) < 20 * 3600 } ?? false
         if !fresh, scoutTrending.isEmpty {
             do {
                 scoutTrending = try await RepoScout.trending(since: "daily")
@@ -44,7 +44,8 @@ extension AppModel {
                     Task { @MainActor in self.scoutLog = text }
                 }
                 scoutReports = RepoScout.loadReports()
-                if let pick = scoutPick, let judged = scoutReports.first?.entries.first(where: { $0.id == pick.entry.id }), judged.verdict != nil {
+                let newest = scoutReports.first?.entries ?? []
+                if let pick = scoutPick, let judged = newest.first(where: { $0.id == pick.entry.id }), judged.verdict != nil {
                     scoutPick?.entry.verdict = judged.verdict
                     scoutPick?.entry.reason = judged.reason
                     scoutPick?.entry.votes = judged.votes
@@ -108,7 +109,7 @@ struct RepoScoutView: View {
     @State private var selection: String?
 
     var body: some View {
-        let report = app.scoutReports.first { $0.id == reportID } ?? app.scoutReports.first
+        let report = app.scoutReports.first { $0.id == reportID } ?? app.scoutReports.first { !$0.isPick }
         let fresh = report.map { Date.now.timeIntervalSince($0.date) < 20 * 3600 } ?? false
         let entries = RepoScout.ordered(fresh ? (report?.entries ?? []) : (app.scoutTrending.isEmpty ? (report?.entries ?? []) : app.scoutTrending))
         List(selection: $selection) {

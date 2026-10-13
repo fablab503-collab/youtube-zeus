@@ -262,11 +262,18 @@ nonisolated enum RepoScout {
         let folders = [folder, reports, folder.appendingPathComponent("state", isDirectory: true),
                        folder.appendingPathComponent("picks", isDirectory: true),
                        folder.appendingPathComponent("repo-of-the-day", isDirectory: true)]
-        let files = folders
-            .flatMap { (try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] }
-            .filter { url in url.pathExtension == "json" && (url.deletingLastPathComponent().lastPathComponent == "repo-of-the-day" || names.contains { url.lastPathComponent.lowercased().contains($0) }) }
-            .map { url in (url, (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
-            .sorted { $0.1 > $1.1 }
+        var files: [(url: URL, modified: Date)] = []
+        for directory in folders {
+            let urls: [URL] = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+            for url in urls where url.pathExtension == "json" {
+                let fileName = url.lastPathComponent.lowercased()
+                let inPickFolder = directory.lastPathComponent == "repo-of-the-day"
+                guard inPickFolder || names.contains(where: { fileName.contains($0) }) else { continue }
+                let modified: Date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                files.append((url: url, modified: modified))
+            }
+        }
+        files.sort { $0.modified > $1.modified }
         for (file, modified) in files.prefix(12) {
             guard let data = try? Data(contentsOf: file), let root = try? JSONSerialization.jsonObject(with: data),
                   let item = newestPick(in: root), let found = entry(item) else { continue }
@@ -321,7 +328,8 @@ nonisolated enum RepoScout {
             if picks.contains(where: { dateText($0) != nil }) {
                 return picks.max { (dateText($0) ?? "") < (dateText($1) ?? "") }
             }
-            if let ranked = picks.min(by: { (int($0, "rank", "position") ?? .max) < (int($1, "rank", "position") ?? .max) }),
+            func rank(_ item: [String: Any]) -> Int { int(item, "rank", "position") ?? Int.max }
+            if let ranked = picks.min(by: { rank($0) < rank($1) }),
                int(ranked, "rank", "position") != nil { return ranked }
             return picks.count == 1 ? picks[0] : picks.last
         }

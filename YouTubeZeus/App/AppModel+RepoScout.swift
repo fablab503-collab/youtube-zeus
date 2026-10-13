@@ -130,8 +130,7 @@ struct RepoScoutView: View {
                     .tag("pick:" + pick.entry.id)
                     .contextMenu { menu(pick.entry) }
                 } header: {
-                    Label(pick.isToday ? "Repo of the day" : "Repo of the day · \(pick.date.formatted(date: .abbreviated, time: .omitted))",
-                          systemImage: "crown.fill")
+                    Label(pickTitle(pick), systemImage: "crown.fill")
                 }
             }
             Section {
@@ -222,6 +221,10 @@ struct RepoScoutView: View {
                 }
             }
         }
+    }
+
+    private func pickTitle(_ pick: RepoScout.Pick) -> String {
+        pick.isToday ? "Repo of the day" : "Repo of the day · " + pick.date.formatted(date: .abbreviated, time: .omitted)
     }
 
     private func source(_ pick: RepoScout.Pick) -> String {

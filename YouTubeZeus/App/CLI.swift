@@ -341,9 +341,12 @@ enum ZeusCLI {
                         }
                         var object: [String: Any] = ["report": report.file.path, "title": report.title, "repos": rows]
                         if let pick {
-                            object["repo_of_the_day"] = ["repo": pick.entry.repo, "url": pick.entry.url.absoluteString, "source": pick.source,
-                                                         "date": ISO8601DateFormatter().string(from: pick.date), "description": pick.entry.description,
-                                                         "verdict": pick.entry.verdict ?? "", "reason": pick.entry.reason ?? ""]
+                            var row: [String: String] = ["repo": pick.entry.repo, "url": pick.entry.url.absoluteString, "source": pick.source]
+                            row["date"] = ISO8601DateFormatter().string(from: pick.date)
+                            row["description"] = pick.entry.description
+                            row["verdict"] = pick.entry.verdict
+                            row["reason"] = pick.entry.reason
+                            object["repo_of_the_day"] = row
                         }
                         let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted])
                         print(String(decoding: data, as: UTF8.self))

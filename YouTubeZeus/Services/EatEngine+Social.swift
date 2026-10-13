@@ -50,8 +50,11 @@ extension EatEngine {
             video.viewCount = json["view_count"] as? Int ?? video.viewCount
             video.likeCount = json["like_count"] as? Int ?? video.likeCount
             let formats = json["formats"] as? [[String: Any]] ?? []
-            hasSound = video.duration > 0 || formats.contains { ($0["acodec"] as? String ?? "none") != "none" }
-                || (json["url"] as? String) != nil
+            // A photo post gives a picture's link: no sound to take there.
+            let ext = (json["ext"] as? String ?? "").lowercased()
+            let picture = ["jpg", "jpeg", "png", "webp", "gif", "heic", "avif"].contains(ext)
+            hasSound = !picture && (video.duration > 0 || formats.contains { ($0["acodec"] as? String ?? "none") != "none" }
+                || (json["url"] as? String) != nil)
         }
         if !readByYTDLP || postText.isEmpty {
             // The page's own tags (link previews): text, picture, and its video when it shows one.
@@ -63,15 +66,20 @@ extension EatEngine {
                     audioLink = (meta.video ?? meta.audio).flatMap(URL.init(string:))
                     hasSound = audioLink != nil
                 }
-            } else if !readByYTDLP {
+            } else if !readByYTDLP, site != .web {
                 throw SocialError.unreadable(site.name)
             }
         }
         // Any other page without sound (an article, a blog post, documentation): its readable text (4.3).
+        // (Some sites refuse the link-preview reader but serve the page to a browser: the page's own title then.)
         if site == .web, !hasSound, let url = URL(string: page), let article = await Self.readableText(of: url),
-           article.count > postText.count {
-            postText = article
+           article.text.count > postText.count {
+            postText = article.text
+            if !readByYTDLP, video.title.isEmpty || video.title.hasPrefix("http") || video.title == page || video.title == site.itemName {
+                video.title = Self.postTitle(title: article.title, text: postText, site: site)
+            }
         }
+        if site == .web, postText.isEmpty, !hasSound { throw SocialError.unreadable("The page") }
         video.videoDescription = String(postText.prefix(4_000))
         try? context.save()
 
@@ -117,13 +125,18 @@ extension EatEngine {
     }
 
     /// The text of a web page without its scripts, styles, menus and footers (free, on this Mac).
-    nonisolated static func readableText(of url: URL) async -> String? {
+    nonisolated static func readableText(of url: URL) async -> (title: String, text: String)? {
         var request = URLRequest(url: url, timeoutInterval: 25)
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
                          forHTTPHeaderField: "User-Agent")
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               (response as? HTTPURLResponse)?.mimeType?.contains("html") ?? true else { return nil }
         var html = String(decoding: data.prefix(3_000_000), as: UTF8.self)
+        let pageTitle = SocialLinks.tag(html, "og:title")
+            ?? html.range(of: #"<title[^>]*>[\s\S]*?</title>"#, options: [.regularExpression, .caseInsensitive]).map {
+                SocialLinks.decodeEntities(String(html[$0]).replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            } ?? ""
         for tag in ["script", "style", "noscript", "svg", "nav", "header", "footer", "aside", "form"] {
             html = html.replacingOccurrences(of: "<\(tag)[^>]*>[\\s\\S]*?</\(tag)>", with: " ",
                                              options: [.regularExpression, .caseInsensitive])
@@ -141,7 +154,7 @@ extension EatEngine {
             .replacingOccurrences(of: #" *\n *"#, with: "\n", options: .regularExpression)
             .replacingOccurrences(of: #"\n\s*\n\s*\n+"#, with: "\n\n", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.split(separator: " ").count >= 40 ? String(text.prefix(300_000)) : nil
+        return text.split(separator: " ").count >= 40 ? (title: pageTitle, text: String(text.prefix(300_000))) : nil
     }
 
     /// A readable title: the site's title when it says something, else the first words of the post.

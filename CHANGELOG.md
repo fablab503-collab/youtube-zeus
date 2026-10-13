@@ -22,6 +22,8 @@ Newest first.
 - For agents: `zeus scout [--json]`, MCP `repo_scout`, `youtubezeus://scout?scan=daily`.
 - Web pages keep their paragraphs (headings, dates and paragraphs no longer run together); Telegram posts are
   titled by their first words instead of the channel's name.
+- Pages that refuse link-preview readers (Wikipedia…) are read as a browser would, with their own title; photo
+  posts no longer try to take a sound.
 
 ## 4.3 — More sites (2026-10-13)
 

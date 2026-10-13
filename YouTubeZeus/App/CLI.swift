@@ -59,6 +59,8 @@ enum ZeusCLI {
                                 frames; --make writes it (again) in the app, --force even when the video does not
                                 look like a tutorial, --skill installs it for Claude Code, --run opens Terminal with
                                 Claude Code or Codex on it. While it is made, it prints the step the app is on
+      zeus scout [--json]       Repo Scout's newest report (GitHub's top repos with health, trust and the jury's
+                                verdicts); without Repo Scout, today's github.com/trending
       zeus rebuild <link|id> [--for claude|chatgpt|gemini|mistral|deepseek|local] [--save]
                                 the final message for any AI to reverse-engineer and redo what the video shows
                                 (summary, key moments, playbook steps, screen code and commands, links, transcript,
@@ -322,6 +324,29 @@ enum ZeusCLI {
                 if case .video(let videoID) = YouTubeLink.parse(link) { id = videoID }
                 openInApp(URL(string: BrainLinks.zeusScreen(video: id))!, raw: true)
                 print("YouTube Zeus is reading the screen of \(id) (slide titles, code, commands). The note gets an \"On screen\" section.")
+                return 0
+            case "scout":
+                if let report = RepoScout.loadReports(limit: 1).first {
+                    if flags.contains("--json") {
+                        let rows = RepoScout.ordered(report.entries).map { entry -> [String: Any] in
+                            var row: [String: Any] = ["repo": entry.repo, "url": entry.url.absoluteString, "description": entry.description]
+                            if let verdict = entry.verdict { row["verdict"] = verdict }
+                            if let health = entry.health { row["health"] = health }
+                            if let reason = entry.reason { row["reason"] = reason }
+                            if let stars = entry.periodStars { row["period_stars"] = stars }
+                            return row
+                        }
+                        let data = try JSONSerialization.data(withJSONObject: ["report": report.file.path, "title": report.title, "repos": rows], options: [.prettyPrinted])
+                        print(String(decoding: data, as: UTF8.self))
+                    } else {
+                        print(RepoScout.summary(report))
+                    }
+                } else {
+                    log(RepoScout.isInstalled ? "Repo Scout has no report yet: run it once (zeus link youtubezeus://scout?scan=daily)." : RepoScoutError.notInstalled.localizedDescription)
+                    let entries = try await RepoScout.trending(since: "daily")
+                    print("GitHub trending today:")
+                    for entry in entries { print("- \(entry.repo)\(entry.periodStars.map { " · +\($0) stars today" } ?? "")\(entry.description.isEmpty ? "" : "\n  \(entry.description)")") }
+                }
                 return 0
             case "rebuild":
                 guard let link = rest.first else { return fail("zeus rebuild <link|id> [--for claude|chatgpt|gemini|mistral|deepseek|local] [--save]") }

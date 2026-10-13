@@ -118,6 +118,11 @@ final class AppModel {
     var translating: Set<String> = []
     /// Items REA is reading a target for (4.2).
     var reaRunning: Set<String> = []
+    /// Repo Scout in Sidebar › GitHub (4.4): its reports, today's trending without it, and the running scan.
+    var scoutReports: [RepoScout.Report] = []
+    var scoutTrending: [RepoScout.Entry] = []
+    var scoutLog = ""
+    var scoutTask: Task<Void, Never>?
     var channelLanguages: [String: String] = (UserDefaults.standard.dictionary(forKey: AppModel.channelLanguagesKey) as? [String: String]) ?? [:]
     @ObservationIgnored var channelTranslateTasks: [String: Task<Void, Never>] = [:]
     var packResults: [String: PackResult] = [:]
@@ -554,6 +559,11 @@ final class AppModel {
             let reader = readerName.flatMap { name in RebuildBrief.Reader.allCases.first { $0.rawValue.lowercased().hasPrefix(name.lowercased()) } } ?? .claude
             if save { saveRebuild(video, open: false) }
             copyRebuild(video, for: reader)
+        case .scout(let scan, let repo, let jury):
+            UserDefaults.standard.set("today", forKey: "githubPage")
+            selection = .github
+            if let repo { scanScout(jury: jury, repos: [repo.replacingOccurrences(of: "https://github.com/", with: "")]) }
+            else if let scan { scanScout(since: scan, jury: jury) }
         case .everything(let id):
             guard let video = engine.video(id) else { show("No video \(id) in the library.", error: true); return }
             selectedVideoID = id

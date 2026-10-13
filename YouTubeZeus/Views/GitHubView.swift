@@ -146,6 +146,8 @@ private struct RepoEntry: Identifiable {
 struct GitHubView: View {
     @Environment(AppModel.self) private var app
     @Query(sort: \Video.addedAt, order: .reverse) private var videos: [Video]
+    /// 4.4: Today (Repo Scout, GitHub's top repos of the day) or the repos found in videos.
+    @AppStorage("githubPage") private var page = "today"
 
     private var entries: [RepoEntry] {
         var byID: [String: RepoEntry] = [:]
@@ -166,6 +168,29 @@ struct GitHubView: View {
     }
 
     var body: some View {
+        Group {
+            if page == "today" {
+                RepoScoutView()
+                    .navigationTitle("GitHub")
+                    .navigationSubtitle("Today · Repo Scout")
+            } else {
+                fromVideos
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("Show", selection: $page) {
+                    Text("Today").tag("today")
+                    Text("From videos").tag("videos")
+                }
+                .pickerStyle(.segmented)
+                .fixedSize()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var fromVideos: some View {
         @Bindable var app = app
         let entries = entries
         let pending = videos.filter { $0.status.hasText && $0.githubCheckedAt == nil }.count

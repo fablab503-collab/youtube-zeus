@@ -137,6 +137,9 @@ enum MCPServer {
             tool("get_playbook", "Read a playbook",
                  "The playbook of a tutorial: steps for an AI agent written by Zeus from the transcript, the text on screen and the frames (goal, tools to install, every step with who does it — the agent or the user —, command, link, what to expect, risks, moment). Follow it with the user: show the visual plan first, do what you can, stop at the user's steps, ask before risky ones.",
                  ["video": string], required: ["video"]),
+            tool("repo_scout", "Top GitHub repos today",
+                 "Repo Scout's newest report: GitHub's trending repos with a health score, trust flags and the verdict of Daniel's jury of AI models (APPROVED, TRY IN SANDBOX, REJECTED, INCOMPLETE) with the reason. Without Repo Scout, today's github.com/trending. Use it to suggest what is worth installing for Daniel.",
+                 [:], required: []),
             tool("get_rebuild", "Rebuild message",
                  "The final message Zeus writes to reverse-engineer and redo what a video shows: rules, how to work, the source, summary, key moments, playbook steps (commands, code, files, links, expected results), code and commands read on screen, GitHub repos and tools named, how to use REA (Reverse Engineer Anything) on existing software, evidence already gathered with REA, and the transcript. Follow it to rebuild the thing with the user. reader: claude (default, whole transcript), chatgpt, gemini, mistral, deepseek or local (shorter).",
                  ["video": string, "reader": string], required: ["video"]),
@@ -341,6 +344,10 @@ enum MCPServer {
             if text("week") == nil, let latest = files.first, let note = try? String(contentsOf: latest, encoding: .utf8) { return note }
             return "No digest for \(key) yet. The app writes one every week (Settings › 3.0 › Weekly digest), or run: zeus digest --week \(key)"
 
+        case "repo_scout":
+            if let report = RepoScout.loadReports(limit: 1).first { return RepoScout.summary(report) }
+            let entries = try await RepoScout.trending(since: "daily")
+            return "GitHub trending today (no Repo Scout report on this Mac):\n" + entries.map { "- \($0.repo)\($0.periodStars.map { " · +\($0) stars" } ?? "") — \($0.description)" }.joined(separator: "\n")
         case "get_rebuild":
             guard let key = text("video") else { throw RPCError(code: -32602, message: "video is required") }
             let (_, context) = try Library.open()

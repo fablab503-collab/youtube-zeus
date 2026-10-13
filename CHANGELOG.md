@@ -3,6 +3,22 @@
 Every feature is shipped with `./scripts/ship.sh "<message>"` (build, commit, push to GitHub, vault snapshot).
 Newest first.
 
+## 4.4 — Repo Scout in GitHub (2026-10-13)
+
+- **Sidebar › GitHub › Today**: GitHub's top repos of the day from **Repo Scout** (Daniel's app: health score from
+  the GitHub API, trust scan of the README, a jury of AI models reading `needs.md`). Every repo with its verdict
+  (approved first, then try in a sandbox, then the rest), health, stars gained today, the reason and each juror's
+  vote. *From videos* keeps the repos found in eaten videos.
+- **Scan today** runs Repo Scout from Zeus (with the jury, numbers only, this week or this month), with its live
+  progress and Stop; **Reports** picks an older report; the **Repo Scout** menu opens the report, the app and
+  `needs.md`.
+- On every repo: **Analyze** copies a message for Claude, ChatGPT, Mistral or DeepSeek (what it is, how it works, is
+  it for you — with your `needs.md` —, risks with the quoted line, safe install on macOS, how to rebuild it, REA for
+  built apps) with its README and GitHub facts; **Save a Note in the Second Brain** (Sources/GitHub, like the repos
+  from videos); **Ask the Repo Scout Jury**; Open on GitHub.
+- Without Repo Scout, Today shows github.com/trending (no health or jury).
+- For agents: `zeus scout [--json]`, MCP `repo_scout`, `youtubezeus://scout?scan=daily`.
+
 ## 4.3 — More sites (2026-10-13)
 
 - **Telegram, TikTok, LinkedIn, Reddit, Bluesky, Vimeo, Twitch, Kick, SoundCloud, Dailymotion, Rumble and

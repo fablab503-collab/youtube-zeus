@@ -59,8 +59,9 @@ enum ZeusCLI {
                                 frames; --make writes it (again) in the app, --force even when the video does not
                                 look like a tutorial, --skill installs it for Claude Code, --run opens Terminal with
                                 Claude Code or Codex on it. While it is made, it prints the step the app is on
-      zeus scout [--json]       Repo Scout's newest report (GitHub's top repos with health, trust and the jury's
-                                verdicts); without Repo Scout, today's github.com/trending
+      zeus scout [--json]       The repo of the day (Repo Scout's pick, else Trendshift's #1) and Repo Scout's newest
+                                report (GitHub's top repos with health, trust and the jury's verdicts); without Repo
+                                Scout, today's github.com/trending
       zeus rebuild <link|id> [--for claude|chatgpt|gemini|mistral|deepseek|local] [--save]
                                 the final message for any AI to reverse-engineer and redo what the video shows
                                 (summary, key moments, playbook steps, screen code and commands, links, transcript,
@@ -326,6 +327,8 @@ enum ZeusCLI {
                 print("YouTube Zeus is reading the screen of \(id) (slide titles, code, commands). The note gets an \"On screen\" section.")
                 return 0
             case "scout":
+                let pick = await RepoScout.repoOfTheDay()
+                if let pick, !flags.contains("--json") { print(RepoScout.pickSummary(pick) + "\n") }
                 if let report = RepoScout.loadReports(limit: 1).first {
                     if flags.contains("--json") {
                         let rows = RepoScout.ordered(report.entries).map { entry -> [String: Any] in
@@ -336,7 +339,13 @@ enum ZeusCLI {
                             if let stars = entry.periodStars { row["period_stars"] = stars }
                             return row
                         }
-                        let data = try JSONSerialization.data(withJSONObject: ["report": report.file.path, "title": report.title, "repos": rows], options: [.prettyPrinted])
+                        var object: [String: Any] = ["report": report.file.path, "title": report.title, "repos": rows]
+                        if let pick {
+                            object["repo_of_the_day"] = ["repo": pick.entry.repo, "url": pick.entry.url.absoluteString, "source": pick.source,
+                                                         "date": ISO8601DateFormatter().string(from: pick.date), "description": pick.entry.description,
+                                                         "verdict": pick.entry.verdict ?? "", "reason": pick.entry.reason ?? ""]
+                        }
+                        let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted])
                         print(String(decoding: data, as: UTF8.self))
                     } else {
                         print(RepoScout.summary(report))

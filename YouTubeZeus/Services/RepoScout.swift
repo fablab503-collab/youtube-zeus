@@ -114,18 +114,33 @@ nonisolated enum RepoScout {
         return Report(file: file, date: date, title: title, jurors: jurors, missingJurors: missing, entries: entries)
     }
 
+    /// The item with its nested parts (`metrics`, `repo`/`repository`/`github` objects) lifted to the top.
+    private static func flattened(_ item: [String: Any]) -> [String: Any] {
+        var all = item
+        for key in ["metrics", "repo", "repository", "github", "data"] {
+            guard let nested = item[key] as? [String: Any] else { continue }
+            if key == "repo" || key == "repository" { all[key] = nil }
+            for (inner, value) in nested where all[inner] == nil { all[inner] = value }
+        }
+        return all
+    }
+
     private static func repoName(_ item: [String: Any]) -> String? {
-        let metrics = item["metrics"] as? [String: Any] ?? [:]
-        let name = string(item, "repo", "full_name", "name") ?? string(metrics, "repo", "full_name")
-        guard let name, name.contains("/") else { return nil }
-        return name.replacingOccurrences(of: "https://github.com/", with: "")
+        let all = flattened(item)
+        let name = string(all, "repo", "full_name", "fullName", "repository", "name", "slug")
+            ?? string(all, "url", "html_url").flatMap { $0.contains("github.com/") ? $0 : nil }
+        guard var name else { return nil }
+        name = name.replacingOccurrences(of: "https://github.com/", with: "").replacingOccurrences(of: "http://github.com/", with: "")
+        let parts = name.split(separator: "/")
+        guard parts.count >= 2 else { return nil }
+        return "\(parts[0])/\(parts[1])"
     }
 
     private static func entry(_ item: [String: Any]) -> Entry? {
         guard let repo = repoName(item) else { return nil }
-        var all = item
-        if let metrics = item["metrics"] as? [String: Any] { for (key, value) in metrics where all[key] == nil { all[key] = value } }
-        var entry = Entry(repo: repo, url: URL(string: string(all, "url", "html_url") ?? "https://github.com/\(repo)") ?? URL(string: "https://github.com/\(repo)")!)
+        let all = flattened(item)
+        let github = string(all, "html_url", "github_url", "url").flatMap { $0.contains("github.com/") ? URL(string: $0) : nil }
+        var entry = Entry(repo: repo, url: github ?? URL(string: "https://github.com/\(repo)")!)
         entry.description = string(all, "description") ?? ""
         entry.language = string(all, "language")
         entry.stars = int(all, "stars", "stargazers_count")
@@ -226,6 +241,156 @@ nonisolated enum RepoScout {
         return String(text[range])
     }
 
+    // MARK: Repo of the day
+
+    /// The repo of the day: Repo Scout's pick (Trendshift's #1, judged by its jury, once a day) when this Mac has
+    /// one, else Trendshift's #1 today, else GitHub trending's #1.
+    struct Pick: Hashable, Sendable {
+        var entry: Entry
+        var date: Date
+        /// "Repo Scout", "Trendshift" or "GitHub trending".
+        var source: String
+        var file: URL?
+
+        var isToday: Bool { Calendar.current.isDateInToday(date) }
+    }
+
+    /// Repo Scout's newest pick: any JSON named "…of-the-day…", "rotd", "trendshift" or "pick" in its folder,
+    /// `reports/`, `state/` or `picks/`, whatever its shape (one repo, `{pick: …}`, a dated history, a report).
+    static func scoutPick() -> Pick? {
+        let names = ["of-the-day", "of_the_day", "oftheday", "rotd", "trendshift", "pick"]
+        let folders = [folder, reports, folder.appendingPathComponent("state", isDirectory: true),
+                       folder.appendingPathComponent("picks", isDirectory: true),
+                       folder.appendingPathComponent("repo-of-the-day", isDirectory: true)]
+        let files = folders
+            .flatMap { (try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] }
+            .filter { url in url.pathExtension == "json" && (url.deletingLastPathComponent().lastPathComponent == "repo-of-the-day" || names.contains { url.lastPathComponent.lowercased().contains($0) }) }
+            .map { url in (url, (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
+            .sorted { $0.1 > $1.1 }
+        for (file, modified) in files.prefix(12) {
+            guard let data = try? Data(contentsOf: file), let root = try? JSONSerialization.jsonObject(with: data),
+                  let item = newestPick(in: root), let found = entry(item) else { continue }
+            return Pick(entry: found, date: day(of: item) ?? modified, source: "Repo Scout", file: file)
+        }
+        return nil
+    }
+
+    private static let dateKeys = ["date", "day", "picked_at", "pickedAt", "created_at", "generated_at", "timestamp"]
+
+    private static func dateText(_ item: [String: Any]) -> String? {
+        for key in dateKeys { if let value = item[key] as? String, !value.isEmpty { return value } }
+        return nil
+    }
+
+    private static func day(of item: [String: Any]) -> Date? {
+        guard let text = dateText(item) else { return nil }
+        if let date = try? Date(text, strategy: .iso8601) { return date }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        for format in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd"] {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: String(text.prefix(format.replacingOccurrences(of: "'", with: "").count))) { return date }
+        }
+        return nil
+    }
+
+    private static func newestPick(in root: Any) -> [String: Any]? {
+        if let object = root as? [String: Any] {
+            let plain = object.filter { !($0.value is [String: Any]) && !($0.value is [Any]) }
+            for key in ["pick", "repo_of_the_day", "repoOfTheDay", "today", "winner", "selected", "chosen", "top"] {
+                guard let inner = object[key] as? [String: Any] else { continue }
+                var merged = plain
+                for (name, value) in inner { merged[name] = value }
+                if repoName(merged) != nil { return merged }
+            }
+            if repoName(object) != nil { return object }
+            for key in ["history", "picks", "days", "results", "repos", "entries", "items"] {
+                if let list = object[key] as? [[String: Any]], let item = newestPick(in: list) {
+                    return dateText(item) == nil && dateText(plain) != nil ? item.merging(plain) { mine, _ in mine } : item
+                }
+            }
+            // {"2026-10-13": {…}, "2026-10-12": {…}}
+            let dated = object.compactMap { key, value -> (String, [String: Any])? in
+                guard key.count >= 10, key.first?.isNumber == true, var item = value as? [String: Any] else { return nil }
+                if dateText(item) == nil { item["date"] = key }
+                return (key, item)
+            }
+            if let newest = dated.max(by: { $0.0 < $1.0 }), repoName(newest.1) != nil { return newest.1 }
+        } else if let list = root as? [[String: Any]] {
+            let picks = list.filter { repoName($0) != nil }
+            if picks.contains(where: { dateText($0) != nil }) {
+                return picks.max { (dateText($0) ?? "") < (dateText($1) ?? "") }
+            }
+            if let ranked = picks.min(by: { (int($0, "rank", "position") ?? .max) < (int($1, "rank", "position") ?? .max) }),
+               int(ranked, "rank", "position") != nil { return ranked }
+            return picks.count == 1 ? picks[0] : picks.last
+        }
+        return nil
+    }
+
+    /// Trendshift's daily ranking (trendshift.io, public page): the repos in their order, #1 first.
+    static func trendshift() async throws -> [Entry] {
+        var request = URLRequest(url: URL(string: "https://trendshift.io/")!, timeoutInterval: 30)
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 YouTubeZeus", forHTTPHeaderField: "User-Agent")
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let html = String(decoding: data, as: UTF8.self)
+        let name = #"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}"#
+        var seen = Set<String>()
+        var entries: [Entry] = []
+        func add(_ repo: String) {
+            let repo = repo.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            guard repo.split(separator: "/").count == 2, !repo.lowercased().hasPrefix("repositories/"),
+                  !repo.lowercased().hasPrefix("topics/"), seen.insert(repo.lowercased()).inserted,
+                  let url = URL(string: "https://github.com/\(repo)") else { return }
+            entries.append(Entry(repo: repo, url: url))
+        }
+        // The ranked list: a link to the repository's Trendshift page with owner/name in it (ads link to GitHub instead).
+        if let links = try? NSRegularExpression(pattern: #"href="(?:https://trendshift\.io)?/repositories/\d+"[^>]*>([\s\S]{0,800}?)</a>"#) {
+            for match in links.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+                guard let range = Range(match.range(at: 1), in: html) else { continue }
+                let inner = SocialLinks.decodeEntities(String(html[range]).replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression))
+                if let repo = first("(?:^|\\s)(\(name))(?=\\s|$)", in: inner) { add(repo) }
+            }
+        }
+        // Else the page's own data (Next.js): "full_name":"owner/name".
+        if entries.count < 3, let data = try? NSRegularExpression(pattern: #"\\?"(?:full_name|fullName|repository_name|repo_name)\\?"\s*:\s*\\?"("# + name + #")\\?""#) {
+            for match in data.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+                if let range = Range(match.range(at: 1), in: html) { add(String(html[range])) }
+            }
+        }
+        guard !entries.isEmpty else { throw RepoScoutError.trendshiftChanged }
+        return entries
+    }
+
+    /// Today's pick wherever it comes from, with GitHub's facts filled in (description, stars, language, licence).
+    static func repoOfTheDay() async -> Pick? {
+        var pick = scoutPick().flatMap { Date.now.timeIntervalSince($0.date) < 36 * 3600 ? $0 : nil }
+        if pick == nil, let top = try? await trendshift().first {
+            pick = Pick(entry: top, date: .now, source: "Trendshift", file: nil)
+        }
+        if pick == nil, let top = try? await trending(since: "daily").first {
+            pick = Pick(entry: top, date: .now, source: "GitHub trending", file: nil)
+        }
+        guard var pick else { return scoutPick() }
+        let check = await GitHubLinks.verify(owner: pick.entry.owner, name: pick.entry.name, source: "Repo of the day", videoID: "", description: "")
+        if check.exists {
+            if pick.entry.description.isEmpty { pick.entry.description = check.description ?? "" }
+            pick.entry.stars = pick.entry.stars ?? check.stars
+            pick.entry.language = pick.entry.language ?? check.language
+            pick.entry.license = pick.entry.license ?? check.license
+        }
+        return pick
+    }
+
+    static func pickSummary(_ pick: Pick) -> String {
+        var lines = ["Repo of the day · \(pick.entry.repo) · \(pick.source) · \(pick.date.formatted(date: .abbreviated, time: .omitted))"]
+        if !pick.entry.description.isEmpty { lines.append("  \(pick.entry.description)") }
+        if let verdict = pick.entry.verdict { lines.append("  Verdict: \(verdict)\(pick.entry.reason.map { " — \($0)" } ?? "")") }
+        if let health = pick.entry.health { lines.append("  Health: \(health)/100") }
+        lines.append("  \(pick.entry.url.absoluteString)")
+        return lines.joined(separator: "\n")
+    }
+
     // MARK: A message for any AI to analyze a repo
 
     static func analysisMessage(_ entry: Entry, readme: String?, needs: String?, check: RepoCheck?) -> String {
@@ -279,11 +444,13 @@ nonisolated enum RepoScout {
 
 nonisolated enum RepoScoutError: LocalizedError {
     case trendingChanged
+    case trendshiftChanged
     case notInstalled
 
     var errorDescription: String? {
         switch self {
         case .trendingChanged: "github.com/trending showed no repos: its page has probably changed."
+        case .trendshiftChanged: "trendshift.io showed no repos: its page has probably changed."
         case .notInstalled: "Repo Scout is not installed on this Mac (~/Library/Application Support/Repo Scout/repo_scout.py)."
         }
     }

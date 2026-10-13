@@ -8,6 +8,8 @@ extension AppModel {
     /// Loads Repo Scout's newest reports; without Repo Scout (or with no report from today), today's GitHub trending.
     func loadScout() async {
         scoutReports = RepoScout.loadReports()
+        scoutPick = RepoScout.scoutPick().flatMap { $0.isToday ? $0 : nil } ?? scoutPick
+        async let pick = RepoScout.repoOfTheDay()
         let fresh = scoutReports.first.map { Date.now.timeIntervalSince($0.date) < 20 * 3600 } ?? false
         if !fresh, scoutTrending.isEmpty {
             do {
@@ -16,6 +18,8 @@ extension AppModel {
                 scoutLog = error.localizedDescription
             }
         }
+        let found = await pick
+        if let found { scoutPick = found }
     }
 
     /// Runs Repo Scout's scanner: today's (or this week's / month's) trending repos, or the repos named.
@@ -40,6 +44,12 @@ extension AppModel {
                     Task { @MainActor in self.scoutLog = text }
                 }
                 scoutReports = RepoScout.loadReports()
+                if let pick = scoutPick, let judged = scoutReports.first?.entries.first(where: { $0.id == pick.entry.id }), judged.verdict != nil {
+                    scoutPick?.entry.verdict = judged.verdict
+                    scoutPick?.entry.reason = judged.reason
+                    scoutPick?.entry.votes = judged.votes
+                    scoutPick?.entry.health = judged.health ?? pick.entry.health
+                }
                 if output.status == 0 {
                     scoutLog = ""
                     let count = scoutReports.first?.entries.count ?? 0
@@ -102,6 +112,28 @@ struct RepoScoutView: View {
         let fresh = report.map { Date.now.timeIntervalSince($0.date) < 20 * 3600 } ?? false
         let entries = RepoScout.ordered(fresh ? (report?.entries ?? []) : (app.scoutTrending.isEmpty ? (report?.entries ?? []) : app.scoutTrending))
         List(selection: $selection) {
+            if let pick = app.scoutPick {
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ScoutRow(entry: pick.entry)
+                        HStack(spacing: 8) {
+                            Text(source(pick)).font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            if RepoScout.isInstalled, pick.entry.verdict == nil, app.scoutTask == nil {
+                                Button("Ask the Jury") { app.scanScout(repos: [pick.entry.repo]) }
+                                    .buttonStyle(.borderless).font(.caption)
+                            }
+                            Button("Open on GitHub") { NSWorkspace.shared.open(pick.entry.url) }
+                                .buttonStyle(.borderless).font(.caption)
+                        }
+                    }
+                    .tag("pick:" + pick.entry.id)
+                    .contextMenu { menu(pick.entry) }
+                } header: {
+                    Label(pick.isToday ? "Repo of the day" : "Repo of the day · \(pick.date.formatted(date: .abbreviated, time: .omitted))",
+                          systemImage: "crown.fill")
+                }
+            }
             Section {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline) {
@@ -189,6 +221,14 @@ struct RepoScoutView: View {
                     Label("Repo Scout", systemImage: "ellipsis.circle")
                 }
             }
+        }
+    }
+
+    private func source(_ pick: RepoScout.Pick) -> String {
+        switch pick.source {
+        case "Repo Scout": pick.entry.verdict == nil ? "Repo Scout's pick (Trendshift's #1), not judged yet" : "Repo Scout's pick: Trendshift's #1, judged by the jury"
+        case "Trendshift": "Trendshift's #1 today (trendshift.io)" + (RepoScout.isInstalled ? " — not judged yet" : "")
+        default: "GitHub trending's #1 today"
         }
     }
 

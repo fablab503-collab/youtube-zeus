@@ -122,6 +122,7 @@ final class AppModel {
     var scoutReports: [RepoScout.Report] = []
     var scoutTrending: [RepoScout.Entry] = []
     var scoutLog = ""
+    var scoutPick: RepoScout.Pick?
     var scoutTask: Task<Void, Never>?
     var channelLanguages: [String: String] = (UserDefaults.standard.dictionary(forKey: AppModel.channelLanguagesKey) as? [String: String]) ?? [:]
     @ObservationIgnored var channelTranslateTasks: [String: Task<Void, Never>] = [:]

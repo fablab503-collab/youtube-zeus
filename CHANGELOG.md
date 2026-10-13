@@ -9,6 +9,8 @@ Newest first.
   the GitHub API, trust scan of the README, a jury of AI models reading `needs.md`). Every repo with its verdict
   (approved first, then try in a sandbox, then the rest), health, stars gained today, the reason and each juror's
   vote. *From videos* keeps the repos found in eaten videos.
+- **Repo of the day** on top: Repo Scout's daily pick (Trendshift's #1, judged by the jury) when this Mac has it,
+  else Trendshift's #1 today, else GitHub trending's #1 — with GitHub's facts, the verdict, Analyze and Ask the Jury.
 - **Scan today** runs Repo Scout from Zeus (with the jury, numbers only, this week or this month), with its live
   progress and Stop; **Reports** picks an older report; the **Repo Scout** menu opens the report, the app and
   `needs.md`.

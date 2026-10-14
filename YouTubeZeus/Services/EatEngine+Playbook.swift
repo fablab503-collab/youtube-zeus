@@ -29,9 +29,12 @@ extension EatEngine {
                 if Task.isCancelled { break }
                 let next = playbookQueue.removeFirst()
                 playbookCurrent = next
+                await OllamaGate.shared.setPlaybookActive(true)
                 if let item = video(next) { await makePlaybook(item) }
+                await OllamaGate.shared.setPlaybookActive(false)
                 playbookCurrent = nil
             }
+            await OllamaGate.shared.setPlaybookActive(false)   // also when stopped in the middle
             // Stopped while some were waiting.
             for id in playbookQueue { playbookDone(id) }
             playbookQueue.removeAll()

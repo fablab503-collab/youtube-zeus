@@ -21,11 +21,14 @@ nonisolated enum PolishError: LocalizedError, Sendable {
 actor OllamaGate {
     static let shared = OllamaGate()
 
-    enum Priority: Sendable { case high, low }
+    /// `.playbook`: a playbook being made has the local AI to itself (its vision model and the text model would
+    /// otherwise take turns with the summaries on the GPU).
+    enum Priority: Sendable { case high, low, playbook }
 
     private var busy = false
-    private var high: [CheckedContinuation<Void, Never>] = []
-    private var low: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [(priority: Priority, continuation: CheckedContinuation<Void, Never>)] = []
+    /// While a playbook is made: only its requests.
+    private var playbookActive = false
 
     /// True in `zeus` and `zeus mcp`: someone (you, an agent) waits for the answer.
     nonisolated(unsafe) static var foreground = false
@@ -51,31 +54,47 @@ actor OllamaGate {
         }
     }
 
-    /// In the app, while a command waits: no new request (also for a waiter just handed the turn).
+    /// In the app, while a command (another process) waits: no new request. Safe while holding the turn: the command
+    /// does not need it.
     private func yieldToCommands() async {
         guard !Self.foreground else { return }
         while Self.foregroundWaiting(), !Task.isCancelled { try? await Task.sleep(for: .seconds(1)) }
     }
 
+    private func allowed(_ priority: Priority) -> Bool { !playbookActive || priority == .playbook }
+
+    /// The next waiter to get the turn: during a playbook only its requests; else summaries, names and questions
+    /// before polishing.
+    private func nextWaiter() -> Int? {
+        if playbookActive { return waiters.firstIndex { $0.priority == .playbook } }
+        return waiters.firstIndex { $0.priority != .low } ?? waiters.firstIndex { $0.priority == .low }
+    }
+
     func acquire(_ priority: Priority) async {
         await yieldToCommands()
-        guard busy else {
+        if !busy, allowed(priority) {
             busy = true
             return
         }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            if priority == .high { high.append(continuation) } else { low.append(continuation) }
+            waiters.append((priority, continuation))
         }
-        await yieldToCommands()
+        await yieldToCommands()   // handed the turn: a command that came meanwhile still goes first
     }
 
     func release() {
-        if !high.isEmpty {
-            high.removeFirst().resume()
-        } else if !low.isEmpty {
-            low.removeFirst().resume()
+        if let index = nextWaiter() {
+            waiters.remove(at: index).continuation.resume()   // the turn passes on (busy stays true)
         } else {
             busy = false
+        }
+    }
+
+    func setPlaybookActive(_ active: Bool) {
+        playbookActive = active
+        if !busy, let index = nextWaiter() {
+            busy = true
+            waiters.remove(at: index).continuation.resume()
         }
     }
 }
@@ -163,8 +182,8 @@ nonisolated struct OllamaClient: Sendable {
 
     /// The same with pictures (JPEG or PNG data), for a vision model. `keepAlive` short: the vision model leaves the
     /// memory soon after, for the text model that writes next.
-    func chat(model: String, system: String, user: String, images: [Data], format: String? = nil, context: Int = OllamaClient.standardContext,
-              keepAlive: String = "2m") async throws -> String {
+    func chat(model: String, system: String, user: String, images: [Data], format: String? = nil, context: Int = 8192,
+              keepAlive: String = "2m", priority: OllamaGate.Priority = .high) async throws -> String {
         var body: [String: Any] = [
             "model": model,
             "think": false,
@@ -176,7 +195,7 @@ nonisolated struct OllamaClient: Sendable {
             ] as [[String: Any]],
         ]
         if let format, let schema = try? JSONSerialization.jsonObject(with: Data(format.utf8)) { body["format"] = schema }
-        return try await send(body, priority: .high)
+        return try await send(body, priority: priority)
     }
 
     /// 4.5: one request at a time through `OllamaGate` (two lanes asking at once made Ollama queue them, and the one

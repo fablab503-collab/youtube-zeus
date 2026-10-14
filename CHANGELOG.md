@@ -83,6 +83,9 @@ Newest first.
   podcasts and any feed that could not be read.
 - **Pause stays paused** after a restart or an update: nothing eats, polishes, summarizes or finds names until you
   press Resume (or open `youtubezeus://resume`).
+- **Eating a channel or a playlist again skips what is already eaten**: only new videos and the ones that did not
+  finish (failed, waiting) are eaten; videos in the line or in the Trash are left alone, and Zeus says how many it
+  skipped ("Nothing new" when there is nothing to do). A single video pasted again opens what was eaten.
 - `zeus status` (the library: items, work left, every error grouped) and `zeus failed` (each failed item, why, the
   raw error, where it came from) — for you and for agents.
 - QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished

@@ -402,7 +402,25 @@ final class AppModel {
             let name = title ?? (listing.listTitle.isEmpty ? listing.title : listing.listTitle)
             let list = upsertList(listID: listID, title: name, kind: kind, url: url, channel: listing.title,
                                   videoIDs: listing.entries.map(\.id))
-            engine.enqueue(listing.entries.map { (id: $0.id, title: $0.title, channel: $0.channel, channelID: $0.channelID) })
+            // 4.5: eaten again (a whole channel, a playlist): only what is new or did not finish. Videos already eaten,
+            // in the line, or that you moved to the Trash are skipped.
+            let fresh = listing.entries.filter { entry in
+                guard let existing = engine.video(entry.id) else { return true }
+                return existing.status == .failed || existing.status == .discovered || existing.status == .waiting
+            }
+            let skipped = listing.entries.count - fresh.count
+            guard !fresh.isEmpty else {
+                show("Nothing new in “\(name)”: its \(listing.entries.count) videos are already eaten or in the line.")
+                AppLog.write("LIST \(name): nothing new (\(skipped) skipped)")
+                return
+            }
+            engine.enqueue(fresh.map { (id: $0.id, title: $0.title, channel: $0.channel, channelID: $0.channelID) })
+            AppLog.write("LIST \(name): \(fresh.count) to eat, \(skipped) already eaten or in the line (skipped)")
+            if skipped > 0 {
+                show("“\(name)”: eating the \(fresh.count) new or unfinished videos; \(skipped) already eaten are skipped.")
+                if selection != .now { selection = .collection(list.listID) }
+                return
+            }
             // 4.5: pasted on the Eat page, the list stays out of sight (the Eat page shows one video at a time);
             // from a collection or a channel page, its page shows it.
             if selection == .now {

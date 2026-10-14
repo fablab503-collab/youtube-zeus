@@ -109,13 +109,13 @@ nonisolated struct LocalSummarizer: Sendable {
         let user = "Video: \"\(title)\" by \(channel).\n\nNotes:\n" + kept.map { "- \($0)" }.joined(separator: "\n")
         let text: String
         do {
-            text = try await client.chat(model: model, system: reduceSystem, user: user, format: Self.finalSchema, context: 8192)
+            text = try await client.chat(model: model, system: reduceSystem, user: user, format: Self.finalSchema, context: OllamaClient.standardContext)
         } catch {
             // Too slow with every note: once more with half of them (every other one, still in order).
             if Task.isCancelled || error is CancellationError || kept.count < 8 { throw error }
             let half = stride(from: 0, to: kept.count, by: 2).map { kept[$0] }
             let shorter = "Video: \"\(title)\" by \(channel).\n\nNotes:\n" + half.map { "- \($0)" }.joined(separator: "\n")
-            text = try await client.chat(model: model, system: reduceSystem, user: shorter, format: Self.finalSchema, context: 8192)
+            text = try await client.chat(model: model, system: reduceSystem, user: shorter, format: Self.finalSchema, context: OllamaClient.standardContext)
         }
         let answer = try Self.decode(FinalAnswer.self, text)
 
@@ -136,7 +136,7 @@ nonisolated struct LocalSummarizer: Sendable {
 /// in "Ask your brain" and the skill compiler.
 nonisolated struct LocalLLM: Sendable {
     let model: String
-    var context: Int = 16_384
+    var context: Int = OllamaClient.standardContext
     private let client = OllamaClient()
 
     func structured(system: String, user: String, schema: [String: Any]) async throws -> Data {

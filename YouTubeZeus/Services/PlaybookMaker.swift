@@ -97,7 +97,7 @@ nonisolated struct PlaybookMaker: Sendable {
         user += "\n\nThe start of what is said:\n" + String(words.prefix(5000))
         let answer: TutorialAnswer
         do {
-            let text = try await OllamaClient().chat(model: model, system: system, user: user, format: tutorialSchema, context: 8192)
+            let text = try await OllamaClient().chat(model: model, system: system, user: user, format: tutorialSchema, context: OllamaClient.standardContext)
             answer = try decode(TutorialAnswer.self, text)
         } catch {
             if Task.isCancelled { throw CancellationError() }
@@ -328,7 +328,7 @@ nonisolated struct PlaybookMaker: Sendable {
             if !scene.onScreen.isEmpty { user += "\nText read on the frame:\n" + scene.onScreen.prefix(10).joined(separator: "\n") }
             do {
                 let text = try await client.chat(model: model, system: Self.visionSystem, user: user, images: [image],
-                                                 format: Self.visionSchema, context: 8192, keepAlive: "2m")
+                                                 format: Self.visionSchema, context: OllamaClient.standardContext, keepAlive: "2m")
                 if let seen = try? Self.decode(Seen.self, text) { scenes[index].screen = Self.line(seen) }
             } catch {
                 if Task.isCancelled { throw CancellationError() }
@@ -522,7 +522,7 @@ nonisolated struct PlaybookMaker: Sendable {
             try Task.checkCancellation()
             progress("Writing the steps — part \(index + 1) of \(parts.count)", Double(index) / Double(max(1, parts.count)))
             let user = "Video: \"\(video.title)\" by \(video.channelTitle). Part \(index + 1) of \(parts.count).\n\(about)\n\nTimeline:\n\(part)"
-            let text = try await client.chat(model: model, system: mapSystem, user: user, format: Self.mapSchema, context: 12_288)
+            let text = try await client.chat(model: model, system: mapSystem, user: user, format: Self.mapSchema, context: OllamaClient.standardContext)
             guard let answer = try? Self.decode(MapAnswer.self, text) else {
                 AppLog.write("PLAYBOOK part \(index + 1) of \(parts.count): unreadable answer")
                 continue
@@ -553,7 +553,7 @@ nonisolated struct PlaybookMaker: Sendable {
         user += "\n\nSteps:\n" + String(list.prefix(14_000))
         var review: ReviewAnswer?
         do {
-            let text = try await client.chat(model: model, system: reviewSystem, user: user, format: Self.reviewSchema, context: 12_288)
+            let text = try await client.chat(model: model, system: reviewSystem, user: user, format: Self.reviewSchema, context: OllamaClient.standardContext)
             review = try Self.decode(ReviewAnswer.self, text)
         } catch {
             if Task.isCancelled { throw CancellationError() }

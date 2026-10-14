@@ -46,6 +46,9 @@ Newest first.
 - The Agents page and `zeus agent` keep the items with open research questions even after a whole playlist is eaten
   (they used to look only at the 20 newest items). A file Zeus cannot read (an external disk macOS keeps it from)
   now says so and is written in the log.
+- **One context size for the local AI**: polishing, summaries, names, playbooks, Ask and digests all ask Ollama with
+  the same 12k context. Different sizes made Ollama reload the model at each switch, and under a steady load a
+  request with another size (`zeus ask`, the names of an item) waited until it timed out.
 - `zeus status` (the library: items, work left, every error grouped) and `zeus failed` (each failed item, why, the
   raw error, where it came from) — for you and for agents.
 - QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished

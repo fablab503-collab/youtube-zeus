@@ -175,8 +175,8 @@ nonisolated enum AskBrain {
             json = try await CodexCLIClient(executable: path, model: model)
                 .structured(system: system, user: String(decoding: data, as: UTF8.self), schema: schema)
         case .local(let model):
-            // A small model has a small context: keep the passages under about 9k tokens.
-            while trimmed.reduce(0, { $0 + $1.text.count }) > 34_000, trimmed.count > 4 { trimmed.removeLast() }
+            // A small model has a small context: keep the passages under about 7k tokens (the 12k context of every request).
+            while trimmed.reduce(0, { $0 + $1.text.count }) > 28_000, trimmed.count > 4 { trimmed.removeLast() }
             let data = try JSONSerialization.data(withJSONObject: Self.input(question, trimmed), options: [.sortedKeys, .withoutEscapingSlashes])
             json = try await LocalLLM(model: model).structured(system: system, user: String(decoding: data, as: UTF8.self), schema: schema)
         }

@@ -154,7 +154,7 @@ nonisolated struct EntityExtractor: Sendable {
         "about": what it is, in at most 12 words, general knowledge. "context": how this video uses or mentions it, in at
         most 15 words.
         """
-        let data = try await LocalLLM(model: model, context: 12_288).structured(system: system, user: parts.joined(separator: "\n\n"),
+        let data = try await LocalLLM(model: model, context: OllamaClient.standardContext).structured(system: system, user: parts.joined(separator: "\n\n"),
                                                                                 schema: Self.schema)
         let answer = try JSONDecoder().decode(Answer.self, from: data)
         let channelKey = EntityRegistry.key(video.channelTitle)

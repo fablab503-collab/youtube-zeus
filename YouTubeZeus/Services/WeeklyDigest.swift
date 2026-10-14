@@ -113,7 +113,7 @@ nonisolated enum WeeklyDigest {
         to try), each one sentence, with "ref" = the related line number (0 if none).
         Write in the language most of the material is in.
         """
-        let data = try await LocalLLM(model: model, context: 16_384).structured(system: system, user: lines.joined(separator: "\n"),
+        let data = try await LocalLLM(model: model, context: OllamaClient.standardContext).structured(system: system, user: String(lines.joined(separator: "\n").prefix(36_000)),
                                                                                 schema: schema)
         let answer = try JSONDecoder().decode(Answer.self, from: data)
         func resolve(_ item: Answer.Item) -> Idea {

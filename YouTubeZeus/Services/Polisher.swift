@@ -52,6 +52,10 @@ actor OllamaGate {
 nonisolated struct OllamaClient: Sendable {
     let base = URL(string: "http://127.0.0.1:11434")!
 
+    /// 4.5: one context size for every request (polish, summaries, names, playbooks, Ask, digests). Ollama reloads the
+    /// model whenever the size changes, and under a steady load a request with another size could wait for minutes.
+    static let standardContext = 12_288
+
     func isRunning() async -> Bool {
         var request = URLRequest(url: base.appendingPathComponent("api/version"))
         request.timeoutInterval = 2
@@ -112,7 +116,7 @@ nonisolated struct OllamaClient: Sendable {
 
     /// `format`: an optional JSON schema (as JSON text) for structured answers. `priority`: `.low` for polishing, which
     /// waits while summaries, names, playbooks and questions use the local AI (4.5).
-    func chat(model: String, system: String, user: String, format: String? = nil, context: Int = 8192,
+    func chat(model: String, system: String, user: String, format: String? = nil, context: Int = OllamaClient.standardContext,
               priority: OllamaGate.Priority = .high) async throws -> String {
         var body: [String: Any] = [
             "model": model,
@@ -127,7 +131,7 @@ nonisolated struct OllamaClient: Sendable {
 
     /// The same with pictures (JPEG or PNG data), for a vision model. `keepAlive` short: the vision model leaves the
     /// memory soon after, for the text model that writes next.
-    func chat(model: String, system: String, user: String, images: [Data], format: String? = nil, context: Int = 8192,
+    func chat(model: String, system: String, user: String, images: [Data], format: String? = nil, context: Int = OllamaClient.standardContext,
               keepAlive: String = "2m") async throws -> String {
         var body: [String: Any] = [
             "model": model,

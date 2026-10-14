@@ -72,6 +72,18 @@ struct LibraryView: View {
         }
     }
 
+    /// The videos shown (summaries; full transcripts when 5 or fewer match a search), for any AI.
+    private func copyForAI(_ list: [Video]) {
+        let matching = usesIndex ? orderedVideos(for: hits) : list
+        let packs = matching.filter { $0.status.hasText }.map(\.snapshot)
+        let text = AIPack.collection(title: query.isEmpty ? "YouTube library" : "Videos about “\(query)”",
+                                     kind: "YouTube Zeus library", url: "YouTube Zeus", videos: packs, missing: 0,
+                                     includeTranscripts: !query.isEmpty && packs.count <= 5)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        app.show("Copied \(packs.count) videos for AI.")
+    }
+
     var body: some View {
         @Bindable var app = app
         let list = shown
@@ -90,6 +102,10 @@ struct LibraryView: View {
                     if scope == .favorites, list.isEmpty, query.isEmpty, filter == .all {
                         EmptyState(symbol: "star", title: "No favorites yet",
                                    message: "Star a video (right-click › Add to Favorites, or the star at the top of a video) to keep it here.")
+                    } else if case .kind(let kind) = scope, list.isEmpty, query.isEmpty, filter == .all {
+                        EmptyState(symbol: "tray", title: "Nothing here yet",
+                                   message: kind == .file ? "Drop an audio or video file on the window, or use + in the bar below."
+                                                          : "Paste a link in the bar below.")
                     } else if videos.isEmpty || (list.isEmpty && query.isEmpty && filter == .all) {
                         EmptyState(symbol: "fork.knife", title: "Nothing eaten yet",
                                    message: "Paste a YouTube link, a podcast feed or drop a video or audio file on the window.")
@@ -99,7 +115,7 @@ struct LibraryView: View {
                 }
             }
         }
-        .searchable(text: $app.librarySearch, placement: .toolbar, prompt: "Search everything — words, \"phrases\", a NEAR b")
+        .searchable(text: $app.librarySearch, placement: .toolbar, prompt: "Search titles, transcripts, summaries")
         .task(id: query) {
             guard usesIndex else { hits = []; return }
             searching = true
@@ -112,48 +128,31 @@ struct LibraryView: View {
         .navigationSubtitle(usesIndex ? "\(Set(hits.map(\.videoID)).count) item\(Set(hits.map(\.videoID)).count == 1 ? "" : "s") match"
                                       : "\(list.count) item\(list.count == 1 ? "" : "s")")
         .toolbar {
+            // 4.5: one menu instead of four buttons.
             ToolbarItem {
-                Button {
-                    let matching = usesIndex ? orderedVideos(for: hits) : list
-                    let packs = matching.filter { $0.status.hasText }.map(\.snapshot)
-                    let text = AIPack.collection(title: query.isEmpty ? "YouTube library" : "Videos about “\(query)”",
-                                                 kind: "YouTube Zeus library", url: "YouTube Zeus", videos: packs, missing: 0,
-                                                 includeTranscripts: !query.isEmpty && packs.count <= 5)
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
-                    app.show("Copied \(packs.count) videos for AI.")
-                } label: {
-                    Label("Copy for AI", systemImage: "sparkles")
-                }
-                .help("Copy the videos shown (summaries; full transcripts when 5 or fewer match a search) for any AI")
-            }
-            if case .channel(let name) = scope, let url = app.channelURL(forTitle: name) {
-                ToolbarItem {
-                    Button { Task { await app.eatAllChannelText(name: name, url: url) } } label: {
-                        Label("All channel", systemImage: "text.document")
+                Menu {
+                    Picker("Show", selection: $filter) {
+                        ForEach(LibraryFilter.allCases) { Text($0.rawValue).tag($0) }
                     }
-                    .help("The words of every video of \(name), each as a text file in its own folder, plus one file with all of them")
-                    .disabled(app.isResolvingLink)
-                }
-                if app.keepsTextFiles(name) {
-                    ToolbarItem {
-                        Button { app.openChannelAllText(name) } label: { Label("Open the full text", systemImage: "doc.plaintext") }
-                            .help("The file with every video of \(name), from the first to the newest")
+                    .disabled(usesIndex)
+                    Button("Copy for AI") { copyForAI(list) }
+                    if case .channel(let name) = scope, let url = app.channelURL(forTitle: name) {
+                        Divider()
+                        Button("Get the Text of Every Video") { Task { await app.eatAllChannelText(name: name, url: url) } }
+                            .disabled(app.isResolvingLink)
+                        if app.keepsTextFiles(name) {
+                            Button("Open the Full Text") { app.openChannelAllText(name) }
+                        }
                     }
-                }
-            }
-            ToolbarItem {
-                Button { confirmTrashAll = true } label: { Label(scope == .all ? "Move all to the Trash" : "Move these to the Trash", systemImage: "trash") }
-                    .help(scope == .all ? "A clean library: every video goes to the Deleted videos (restore them from there)"
-                                        : "Move the videos shown here to the Deleted videos (restore them from there)")
+                    Divider()
+                    Button(scope == .all ? "Move All to the Trash…" : "Move These to the Trash…", role: .destructive) {
+                        confirmTrashAll = true
+                    }
                     .disabled(scope == .all ? videos.allSatisfy { $0.status == .trashed } : list.isEmpty)
-            }
-            ToolbarItem {
-                Picker("Show", selection: $filter) {
-                    ForEach(LibraryFilter.allCases) { Text($0.rawValue).tag($0) }
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
                 }
-                .pickerStyle(.menu)
-                .disabled(usesIndex)
+                .help("Show only some, copy for AI, the text of every video of a channel, move to the Trash")
             }
         }
         .confirmationDialog(scope == .all ? "Move every video of the library to the Trash?" : "Move the \(list.count) videos of “\(scope.title)” to the Trash?",

@@ -12,7 +12,16 @@ Newest first.
   progress — the rest of the line is only a count (a whole channel no longer scrolls by). When an item is done,
   everything it gave opens on the right (the Everything tab); *Just eaten* lists the last ones. The whole line
   (cancel, retry, trash several) is one button away.
-- **Fewer buttons on a video**: four tabs — Everything, Transcript, Playbook & research, Rebuild (Summary, On screen,
+- **Eat page, polished overnight**: Follow (the eye) opens each output when it is done, never while you are reading
+  another finished item; several items eaten at once show as "and N more"; items you stopped are not counted as
+  failed; "Reading the link…" while a playlist or channel is read. Paste several links at once: each is eaten in turn.
+  The bar has one **+** (find a video on YouTube, eat your own files); the YouTube-browser card says **Eat**.
+- Clicking a moment (summary, key points, chapters, search) opens it where you are — the Eat page, a channel, a
+  playlist, Favorites — instead of jumping to Videos. The menu bar shows the item being eaten and how many wait.
+- **Fewer buttons on a video**: the header has one main button (Do everything while something is missing), Copy
+  rebuild message and **Redo a part**; the pills keep the source, language, size and repos; the Library toolbar is
+  one **More** menu (show only some, copy for AI, a channel's text files, move to the Trash); the welcome screen is
+  three steps; Podcasts, Posts & pages and Your files have their own empty states. Four tabs — Everything, Transcript, Playbook & research, Rebuild (Summary, On screen,
   Skills, Info are inside Everything, and in the ⋯ menu); the toolbar is Favorite, Open, and one **Share** menu
   (copy for AI, transcript, research questions, translate, export).
 - **Research inside the playbook**: what Zeus already knows (summary, goal, GitHub checks), the open questions —
@@ -25,6 +34,15 @@ Newest first.
   "…" --add "…" --source <url> --by <agent>` (save an answer: it shows in the app and the note); MCP
   `agent_briefing`, `get_research`, `add_research`; links `youtubezeus://research?video=<id>`, `youtubezeus://now`.
   Answers live in `~/Library/Application Support/YouTube Zeus/Research/<id>.json`.
+- **Zeus checks what it can itself** (free, on the Mac), right after a playbook is made, with **Let Zeus Check** in
+  the Research card, or `zeus research <id> --auto`: Homebrew (current version, description, licence, install
+  command, what is installed here and whether it needs an upgrade), npm and PyPI (latest version, install), GitHub
+  (stars, last push, latest release, licence, advisories, the most discussed open issues). Shown as "Zeus found"
+  under the question, which stays open for an agent or you to confirm.
+- Research questions have stable keys (`tool:ollama`, `repo:owner/name`), so answers survive a new playbook or a new
+  summary; agents answer by number or key; price questions come from the services and accounts the playbook needs;
+  the order is: what the video does not show, what needs your OK, tools, services, repositories, links (no social
+  networks, sponsors or shorteners), then claims with a number or a price.
 
 ## 4.4 — Repo Scout in GitHub (2026-10-13)
 

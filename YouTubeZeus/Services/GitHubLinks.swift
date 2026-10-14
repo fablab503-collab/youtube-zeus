@@ -186,6 +186,19 @@ nonisolated enum GitHubLinks {
         return (status, try? JSONSerialization.jsonObject(with: data))
     }
 
+    /// 4.5: the most discussed open issues (not pull requests), for the research of a repository.
+    static func topIssues(owner: String, name: String, limit: Int = 3) async -> [(number: Int, title: String, comments: Int)] {
+        let (status, json) = await get("repos/\(owner)/\(name)/issues?state=open&sort=comments&direction=desc&per_page=15")
+        guard status == 200, let list = json as? [[String: Any]] else { return [] }
+        var result: [(number: Int, title: String, comments: Int)] = []
+        for item in list where item["pull_request"] == nil {
+            guard let number = item["number"] as? Int, let title = item["title"] as? String else { continue }
+            result.append((number: number, title: title, comments: item["comments"] as? Int ?? 0))
+            if result.count >= limit { break }
+        }
+        return result
+    }
+
     /// Checks a repository: does it exist, is it alive, archived, a fork, licensed, linked back to the video,
     /// how many security advisories it has.
     static func verify(owner: String, name: String, source: String, videoID: String, description: String) async -> RepoCheck {

@@ -106,6 +106,15 @@ extension EatEngine {
             video.playbookError = Self.isCancellation(error) ? "Cancelled" : error.localizedDescription
             AppLog.write("PLAYBOOK \(id) failed: \(video.playbookError ?? "")")
         }
+        // 4.5: research inside the playbook — what Zeus can check itself (Homebrew, npm, PyPI, GitHub), before the note is written.
+        // Only for a playbook made just now (not after a failure or a cancel).
+        if let made = video.playbook, let madeAt = video.playbookAt, Date.now.timeIntervalSince(madeAt) < 600 {
+            playbookProgress(id, "Checking the tools and repositories", nil)
+            let researchSnapshot = video.snapshot
+            let found = (try? await offMain { await AutoResearch.run(researchSnapshot, playbook: made) }) ?? 0
+            guard video.isAlive else { playbookDone(id); return }   // deleted while Zeus was checking
+            if found > 0 { AppLog.write("RESEARCH \(id): \(found) fact(s) found by Zeus") }
+        }
         if tasks[id] == nil { jobs[id] = nil }
         try? context.save()
         if video.playbook != nil { exporter.exportPlaybook(video) }

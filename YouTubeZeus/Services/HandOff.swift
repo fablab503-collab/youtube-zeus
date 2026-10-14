@@ -7,7 +7,7 @@ enum HandOff {
     static let skillMarkdown = """
     ---
     name: youtube-zeus
-    description: Eat any YouTube video, playlist or channel, podcast or the user's own recordings into text (captions or local Whisper), with a summary whose points link to the exact second, text read on screen, people/tools/companies and a timestamped transcript, saved to the user's Second Brain, using the zeus command of YouTube Zeus on his Mac. Use when given a YouTube or podcast link or a recording, or asked to learn from, quote, summarize, compare or remember videos, to search what was already eaten, to see the week's digest, or to check the GitHub repositories a video links.
+    description: Eat any YouTube video, playlist or channel, podcast or the user's own recordings into text (captions or local Whisper), with a summary whose points link to the exact second, text read on screen, people/tools/companies and a timestamped transcript, saved to the user's Second Brain, using the zeus command of YouTube Zeus on his Mac. Use when given a YouTube or podcast link or a recording, or asked to learn from, quote, summarize, compare or remember videos, to search what was already eaten, to see the week's digest, or to check the GitHub repositories a video links, or asked what to do or research for the user (zeus agent).
     ---
 
     # YouTube Zeus (`zeus`)
@@ -17,6 +17,8 @@ enum HandOff {
 
     ## Fast path
 
+    0. Not sure what to do? `zeus agent` says what you can look up and do for the user now (open research questions,
+       the repo of the day, what was eaten) and the rules.
     1. Already eaten? `zeus get "<link or video id>"` prints the saved note instantly (no network).
     2. New video: `zeus eat "<link>" --save` prints a knowledge pack (title, channel, chapters, timestamped
        transcript) and saves the note to the Second Brain; the app then adds it to its library, polishes the
@@ -34,7 +36,9 @@ enum HandOff {
        add_research, entities, weekly_digest…).
     5g. What can you do for the user now? `zeus agent` (open research questions, the repo of the day, recent items, rules).
        If you can search the web: `zeus research "<id>"` lists an item's open questions with searches; save each answer
-       with `zeus research "<id>" --question "<question>" --add "<answer>" --source <url> --by "<your name>"`.
+       with `zeus research "<id>" --question <number> --add "<answer>" --source <url> --by "<your name>"` (the number
+       as `zeus research` prints it, or the key such as `tool:ollama`). Zeus fills in what it can check itself
+       (Homebrew, npm, PyPI, GitHub) as "Zeus found"; those questions stay open for you to confirm.
     5e. If a tool is missing ("yt-dlp was not found"): `zeus setup` shows what this Mac lacks; `zeus setup --install`
        installs it with Homebrew and downloads the local AI model that suits the Mac (the app's setup page installs Homebrew).
     5f. To redo what a tutorial shows: `zeus playbook "<link or id>"` prints its playbook (steps for an agent; when it

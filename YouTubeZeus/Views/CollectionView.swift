@@ -42,8 +42,19 @@ struct CollectionView: View {
                             Label("Claude pack installed — it follows this collection as videos are eaten and summarized.", systemImage: "shippingbox.fill")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
+                        // 4.5: the main action (eat what is missing, else copy for AI) and one More menu.
                         GlassEffectContainer(spacing: 8) {
                             FlowLayout(spacing: 8) {
+                                if eaten < list.videoIDs.count {
+                                    Button {
+                                        let missing = list.videoIDs.filter { byID[$0]?.status.hasText != true }
+                                        app.engine.enqueue(missing.map { (id: $0, title: byID[$0]?.title ?? "", channel: "", channelID: "") }, force: true)
+                                        app.selection = .now
+                                    } label: {
+                                        Label("Eat the missing \(list.videoIDs.count - eaten)", systemImage: "fork.knife")
+                                    }
+                                    .buttonStyle(.glassProminent)
+                                }
                                 Menu {
                                     Button("Summaries and key points") { app.copyForAI(list, transcripts: false) }
                                     Button("Everything, with transcripts") { app.copyForAI(list, transcripts: true) }
@@ -53,62 +64,49 @@ struct CollectionView: View {
                                     Label("Copy for AI", systemImage: "sparkles")
                                 }
                                 .menuStyle(.button)
-                                .buttonStyle(.glassProminent)
-                                .fixedSize()
-                                if eaten < list.videoIDs.count {
-                                    Button {
-                                        let missing = list.videoIDs.filter { byID[$0]?.status.hasText != true }
-                                        app.engine.enqueue(missing.map { (id: $0, title: byID[$0]?.title ?? "", channel: "", channelID: "") }, force: true)
-                                    } label: {
-                                        Label("Eat the missing \(list.videoIDs.count - eaten)", systemImage: "fork.knife")
-                                    }
-                                    .buttonStyle(.glass)
-                                }
-                                Button {
-                                    refreshing = true
-                                    Task {
-                                        await app.refresh(list)
-                                        refreshing = false
-                                    }
-                                } label: {
-                                    Label(refreshing ? "Checking…" : "Check for new videos", systemImage: "arrow.clockwise")
-                                }
                                 .buttonStyle(.glass)
-                                .disabled(refreshing)
+                                .fixedSize()
                                 Menu {
-                                    Button(app.hasClaudePack(list) ? "Update the Claude Pack" : "Make a Claude Pack") {
-                                        Task { await app.makeClaudePack(list) }
+                                    Button(refreshing ? "Checking…" : "Check for New Videos") {
+                                        refreshing = true
+                                        Task {
+                                            await app.refresh(list)
+                                            refreshing = false
+                                        }
                                     }
-                                    if app.hasClaudePack(list) {
-                                        Button("Copy the Digest Prompt") { app.copyDigest(list) }
-                                        Button("Open the Pack in the Second Brain") {
-                                            app.openInBrain(app.packVaultFolder(list).appendingPathComponent("README.md"))
+                                    .disabled(refreshing)
+                                    Divider()
+                                    Menu(app.buildingPacks.contains(list.listID) ? "Claude Pack (packing…)" : "Claude Pack") {
+                                        Button(app.hasClaudePack(list) ? "Update the Claude Pack" : "Make a Claude Pack") {
+                                            Task { await app.makeClaudePack(list) }
                                         }
-                                        Button("Show the Prompt Files") {
-                                            NSWorkspace.shared.activateFileViewerSelecting([app.packLocalPrompts(list).appendingPathComponent("digest.md")])
+                                        if app.hasClaudePack(list) {
+                                            Button("Copy the Digest Prompt") { app.copyDigest(list) }
+                                            Button("Open the Pack in the Second Brain") {
+                                                app.openInBrain(app.packVaultFolder(list).appendingPathComponent("README.md"))
+                                            }
+                                            Button("Show the Prompt Files") {
+                                                NSWorkspace.shared.activateFileViewerSelecting([app.packLocalPrompts(list).appendingPathComponent("digest.md")])
+                                            }
+                                            Button("Show the Skill Zip for claude.ai") {
+                                                NSWorkspace.shared.activateFileViewerSelecting([app.packZipURL(list)])
+                                            }
                                         }
-                                        Button("Show the Skill Zip for claude.ai") {
-                                            NSWorkspace.shared.activateFileViewerSelecting([app.packZipURL(list)])
-                                        }
+                                    }
+                                    Divider()
+                                    if let path = list.indexPath {
+                                        Button(BrainLinks.openLabel) { app.openInBrain(URL(fileURLWithPath: path)) }
+                                    }
+                                    if let url = list.url {
+                                        Button("Open on YouTube") { NSWorkspace.shared.open(url) }
                                     }
                                 } label: {
-                                    Label(app.buildingPacks.contains(list.listID) ? "Packing…" : "Claude pack", systemImage: "shippingbox")
+                                    Label("More", systemImage: "ellipsis.circle")
                                 }
                                 .menuStyle(.button)
                                 .buttonStyle(.glass)
                                 .fixedSize()
-                                .help("A Claude skill (index + one file per video), a one-message digest and the full transcripts in parts")
-                                if let path = list.indexPath {
-                                    Button { app.openInBrain(URL(fileURLWithPath: path)) } label: {
-                                        Label("Index note", systemImage: "list.bullet.rectangle")
-                                    }
-                                    .buttonStyle(.glass)
-                                    .help(BrainLinks.openLabel + ": the collection's index note")
-                                }
-                                if let url = list.url {
-                                    Button { NSWorkspace.shared.open(url) } label: { Label("YouTube", systemImage: "play.rectangle") }
-                                        .buttonStyle(.glass)
-                                }
+                                .help("Check for new videos, the Claude pack (a skill, a digest, the transcripts in parts), the index note, YouTube")
                             }
                         }
                     }

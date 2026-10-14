@@ -69,27 +69,23 @@ struct ChannelView: View {
                 podcastButtons(channel)
             } else {
                 youtubeButtons(channel)
-                ChannelTextBox(channelTitle: channel.title, channelURL: channel.url)
+                // 4.5: the text files of every video, folded until you use them.
+                if app.keepsTextFiles(channel.title) {
+                    ChannelTextBox(channelTitle: channel.title, channelURL: channel.url)
+                } else {
+                    DisclosureGroup("Text files of every video") {
+                        ChannelTextBox(channelTitle: channel.title, channelURL: channel.url)
+                    }
+                }
             }
         }
         .padding(.vertical, 8)
     }
 
     private func podcastButtons(_ channel: Channel) -> some View {
+        // 4.5: one main action, the rest in More.
         GlassEffectContainer(spacing: 8) {
             FlowLayout(spacing: 8) {
-                Button {
-                    checking = true
-                    Task {
-                        let count = await app.watcher.check(channel)
-                        checking = false
-                        app.show(count == 0 ? "No new episodes of \(channel.title)." : "\(count) new episode\(count == 1 ? "" : "s") of \(channel.title).")
-                    }
-                } label: {
-                    Label(checking ? "Checking…" : "Check now", systemImage: "arrow.clockwise")
-                }
-                .buttonStyle(.glass)
-                .disabled(checking)
                 Menu {
                     ForEach([1, 3, 10, 25], id: \.self) { count in
                         Button("Latest \(count)") { Task { await app.eatLatestEpisodes(channel, count: count) } }
@@ -98,76 +94,78 @@ struct ChannelView: View {
                     Label("Eat latest", systemImage: "fork.knife")
                 }
                 .menuStyle(.button)
+                .buttonStyle(.glassProminent)
+                .fixedSize()
+                Menu {
+                    Button(checking ? "Checking…" : "Check for New Episodes") { check(channel, noun: "episode") }
+                        .disabled(checking)
+                    Divider()
+                    Button("Open the Website") { NSWorkspace.shared.open(channel.url) }
+                    Button(BrainLinks.openLabel) { app.openInBrain(app.channelIndexURL(channel.title)) }
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
+                }
+                .menuStyle(.button)
                 .buttonStyle(.glass)
                 .fixedSize()
-                Button { NSWorkspace.shared.open(channel.url) } label: { Label("Website", systemImage: "safari") }
-                    .buttonStyle(.glass)
-                Button { app.openInBrain(app.channelIndexURL(channel.title)) } label: {
-                    Label("Index note", systemImage: "list.bullet.rectangle")
-                }
-                .buttonStyle(.glass)
-                .help(BrainLinks.openLabel + ": the podcast's index note")
             }
         }
     }
 
+    private func check(_ channel: Channel, noun: String) {
+        checking = true
+        Task {
+            let count = await app.watcher.check(channel)
+            checking = false
+            let source = noun == "episode" ? "of" : "from"
+            app.show(count == 0 ? "No new \(noun)s \(source) \(channel.title)." : "\(count) new \(noun)\(count == 1 ? "" : "s") \(source) \(channel.title).")
+        }
+    }
+
     private func youtubeButtons(_ channel: Channel) -> some View {
-        VStack(alignment: .leading) {
-            GlassEffectContainer(spacing: 8) {
-                FlowLayout(spacing: 8) {
-                    Button {
-                        checking = true
-                        Task {
-                            let count = await app.watcher.check(channel)
-                            checking = false
-                            app.show(count == 0 ? "No new uploads from \(channel.title)." : "\(count) new upload\(count == 1 ? "" : "s") from \(channel.title).")
-                        }
-                    } label: {
-                        Label(checking ? "Checking…" : "Check now", systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(.glass)
-                    .disabled(checking)
-                    Menu {
-                        ForEach([3, 10, 25], id: \.self) { count in
-                            Button("Latest \(count)") {
-                                Task {
-                                    guard let ytdlp = app.settings.makeYTDLP() else { return }
-                                    let listing = try? await ytdlp.flatList(url: channel.url.absoluteString + "/videos", limit: count)
-                                    let entries = (listing?.entries ?? []).map { (id: $0.id, title: $0.title, channel: channel.title, channelID: channel.channelID) }
-                                    app.engine.enqueue(entries)
-                                    app.show("Eating \(entries.count) videos of \(channel.title).")
-                                }
+        // 4.5: two main actions (the latest, the whole channel), the rest in More.
+        GlassEffectContainer(spacing: 8) {
+            FlowLayout(spacing: 8) {
+                Menu {
+                    ForEach([3, 10, 25], id: \.self) { count in
+                        Button("Latest \(count)") {
+                            Task {
+                                guard let ytdlp = app.settings.makeYTDLP() else { return }
+                                let listing = try? await ytdlp.flatList(url: channel.url.absoluteString + "/videos", limit: count)
+                                let entries = (listing?.entries ?? []).map { (id: $0.id, title: $0.title, channel: channel.title, channelID: channel.channelID) }
+                                app.engine.enqueue(entries)
+                                app.show("Eating \(entries.count) videos of \(channel.title).")
                             }
                         }
-                    } label: {
-                        Label("Eat latest", systemImage: "fork.knife")
                     }
-                    .menuStyle(.button)
-                    .buttonStyle(.glass)
-                    .fixedSize()
-                    Button {
-                        Task { await app.eatWholeChannel(channel) }
-                    } label: {
-                        Label("Eat whole channel", systemImage: VideoListKind.channel.symbol)
-                    }
-                    .buttonStyle(.glass)
-                    .help("Every video of the channel, organised as a collection with its own index note")
-                    Button { NSWorkspace.shared.open(channel.url) } label: { Label("YouTube", systemImage: "play.rectangle") }
-                        .buttonStyle(.glass)
-                    Button {
-                        Task { await app.importPlaylists(from: channel.url) }
-                    } label: {
-                        Label("Import playlists", systemImage: "rectangle.stack.badge.plus")
-                    }
-                    .buttonStyle(.glass)
-                    .disabled(app.isResolvingLink)
-                    .help("Every playlist of the channel becomes a collection with its own index note, ready to eat")
-                    Button { app.openInBrain(app.channelIndexURL(channel.title)) } label: {
-                        Label("Index note", systemImage: "list.bullet.rectangle")
-                    }
-                    .buttonStyle(.glass)
-                    .help(BrainLinks.openLabel + ": the channel's index note")
+                } label: {
+                    Label("Eat latest", systemImage: "fork.knife")
                 }
+                .menuStyle(.button)
+                .buttonStyle(.glassProminent)
+                .fixedSize()
+                Button {
+                    Task { await app.eatWholeChannel(channel) }
+                } label: {
+                    Label("Eat whole channel", systemImage: VideoListKind.channel.symbol)
+                }
+                .buttonStyle(.glass)
+                .help("Every video of the channel, organised as a collection with its own index note")
+                Menu {
+                    Button(checking ? "Checking…" : "Check for New Uploads") { check(channel, noun: "upload") }
+                        .disabled(checking)
+                    Button("Import Its Playlists") { Task { await app.importPlaylists(from: channel.url) } }
+                        .disabled(app.isResolvingLink)
+                    Divider()
+                    Button("Open on YouTube") { NSWorkspace.shared.open(channel.url) }
+                    Button(BrainLinks.openLabel) { app.openInBrain(app.channelIndexURL(channel.title)) }
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
+                }
+                .menuStyle(.button)
+                .buttonStyle(.glass)
+                .fixedSize()
+                .help("Check for new uploads, import the channel's playlists, open it on YouTube or its index note")
             }
         }
     }

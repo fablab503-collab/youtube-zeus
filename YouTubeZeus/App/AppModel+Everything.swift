@@ -62,17 +62,10 @@ struct EverythingBody: View {
     var body: some View {
         let missing = app.missingParts(video)
         VStack(alignment: .leading, spacing: 28) {
-            HStack(spacing: 14) {
-                Button { app.doEverything(video) } label: {
-                    Label(missing.isEmpty ? "Everything is made" : "Do everything", systemImage: "bolt.fill")
-                        .font(.headline)
-                        .padding(.horizontal, 6)
-                }
-                .buttonStyle(.glassProminent)
-                .controlSize(.large)
-                .disabled(missing.isEmpty)
-                Text(missing.isEmpty ? "Summary, polished text, skills, playbook and text on screen are all here."
-                                     : "Still to make: " + AppModel.list(missing) + ". Free, on this Mac.")
+            // 4.5: the button is in the header (one place); here, only what is still to make.
+            if !missing.isEmpty {
+                Label("Still to make: " + AppModel.list(missing) + " — press Do everything above (free, on this Mac).",
+                      systemImage: "bolt")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }

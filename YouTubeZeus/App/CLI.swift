@@ -24,6 +24,8 @@ enum ZeusCLI {
     static let help = """
     zeus — YouTube Zeus from the terminal (for you and for AI agents)
 
+      AI agents: start with `zeus agent` (what to look up and do now, and the rules).
+
       zeus eat <link> [--save] [--whisper] [--polish] [--summary] [--json] [--fresh] [--no-transcript] [--limit N]
           Eat a video, playlist or channel and print a knowledge pack (Markdown, or JSON with --json).
           --save      write the note to the Second Brain and add the video to the YouTube Zeus library
@@ -61,11 +63,13 @@ enum ZeusCLI {
                                 Claude Code or Codex on it. While it is made, it prints the step the app is on
       zeus agent [--json]       for an agent on this Mac: what it can look up and do now (open research questions,
                                 the repo of the day, what was eaten, what waits for Daniel), with the rules
-      zeus research <link|id> [--json]
+      zeus research <link|id> [--auto] [--json]
                                 the research inside a playbook: what Zeus knows, the open questions with searches to
-                                run, the answers found so far
-      zeus research <link|id> --question "<question>" --add "<answer>" [--source <url>]… [--by "<agent>"]
-                                save an answer: it shows in the app's playbook and in the Second Brain note
+                                run, the answers found so far; --auto first checks what Zeus can itself (Homebrew, npm,
+                                PyPI, GitHub)
+      zeus research <link|id> --question <number|key> --add "<answer>" [--source <url>]… [--by "<agent>"] [--json]
+                                save an answer (the question's number as `zeus research` prints it, or its key such as
+                                tool:ollama): it shows in the app's playbook and in the playbook note
       zeus scout [--json]       The repo of the day (Repo Scout's pick, else Trendshift's #1) and Repo Scout's newest
                                 report (GitHub's top repos with health, trust and the jury's verdicts); without Repo
                                 Scout, today's github.com/trending
@@ -370,21 +374,40 @@ enum ZeusCLI {
                     return fail("Not eaten yet: \(link). Eat it first: zeus eat \"\(link)\"")
                 }
                 let snapshot = video.snapshot
-                if let answer = (values["--add"] ?? values["--answer"])?.first {
-                    guard let question = values["--question"]?.first, !question.isEmpty else {
-                        return fail("Say which question it answers: --question \"…\" (the open ones: zeus research \(video.videoID))")
+                if flags.contains("--auto") {
+                    let found = await AutoResearch.run(snapshot, playbook: video.playbook)
+                    if let playbook = video.playbook {
+                        Research.refreshPlaybookNote(snapshot, playbook: playbook, folder: settings.playbookNotesFolder)
                     }
-                    let finding = ResearchFinding(question: question, answer: answer, sources: values["--source"] ?? [],
-                                                  by: values["--by"]?.first ?? "agent")
+                    log("Zeus checked \(found) question\(found == 1 ? "" : "s") itself (Homebrew, npm, PyPI, GitHub).")
+                }
+                let brief = Research.brief(snapshot, playbook: video.playbook)
+                if let answer = (values["--add"] ?? values["--answer"])?.first {
+                    guard let asked = values["--question"]?.first, !asked.isEmpty else {
+                        return fail("Say which question it answers: --question <number or key> (the open ones: zeus research \(video.videoID))")
+                    }
+                    let match = Research.resolve(asked, in: brief)
+                    if match == nil {
+                        log("“\(asked)” matches none of the open questions: kept as a separate note. Use the question's number or key (zeus research \(video.videoID)) to close one.")
+                    }
+                    let finding = ResearchFinding(question: match?.question ?? asked, answer: answer, sources: values["--source"] ?? [],
+                                                  by: values["--by"]?.first ?? "agent", key: match?.key)
                     try Research.add(finding, to: video.videoID, title: video.displayTitle)
                     if let playbook = video.playbook {
                         Research.refreshPlaybookNote(snapshot, playbook: playbook, folder: settings.playbookNotesFolder)
                     }
-                    let open = Research.brief(snapshot, playbook: video.playbook).open.count
-                    print("Saved in the research of \(video.displayTitle). \(open) question\(open == 1 ? "" : "s") still open.")
+                    let after = Research.brief(snapshot, playbook: video.playbook)
+                    if flags.contains("--json") {
+                        var result: [String: Any] = ["saved": true, "video": video.videoID, "open": after.open.count]
+                        if let match { result["question"] = match.question; result["key"] = match.key } else { result["matched"] = false }
+                        let data = try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
+                        print(String(decoding: data, as: UTF8.self))
+                    } else {
+                        let open = after.open.count
+                        print("Saved in the research of \(video.displayTitle). \(open) question\(open == 1 ? "" : "s") still open.")
+                    }
                     return 0
                 }
-                let brief = Research.brief(snapshot, playbook: video.playbook)
                 if flags.contains("--json") {
                     let data = try JSONSerialization.data(withJSONObject: Research.json(brief), options: [.prettyPrinted, .sortedKeys])
                     print(String(decoding: data, as: UTF8.self))

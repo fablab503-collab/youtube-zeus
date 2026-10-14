@@ -97,7 +97,8 @@ struct VideoDetailView: View {
                         } label: {
                             Image(systemName: "ellipsis.circle")
                         }
-                        .menuStyle(.borderlessButton)
+                        .menuStyle(.button)
+                        .buttonStyle(.borderless)
                         .fixedSize()
                         .help("One part alone: Summary, On screen, Skills, Info (all of them are also in Everything)")
                         Spacer()
@@ -248,33 +249,23 @@ private struct Header: View {
                 }
             }
 
+            // 4.5: fewer pills — the state only while it is not done, then the facts that help (source, language, size).
             FlowLayout(spacing: 6) {
-                StatusBadge(status: video.status)
+                if video.status != .done { StatusBadge(status: video.status) }
                 if isEaten {
                     Chip(text: video.source.label, symbol: video.source.symbol, tint: .zeus)
                     if !video.language.isEmpty {
                         Chip(text: Summarizer.languageName(video.language), symbol: "globe")
                     }
                     Chip(text: "\(video.wordCount.formatted()) words", symbol: "text.alignleft")
-                    if video.secondBrainPath != nil {
-                        Chip(text: "Second Brain", symbol: "brain.head.profile", tint: .green)
-                    } else if video.exportPending {
+                    if video.secondBrainPath == nil, video.exportPending {
                         Chip(text: "Second Brain pending", symbol: "clock", tint: .orange)
-                    }
-                    if video.digestData != nil {
-                        Chip(text: "Summarized", symbol: "apple.intelligence", tint: .pink)
-                    }
-                    if !video.polished.isEmpty {
-                        Chip(text: "Polished", symbol: "wand.and.stars", tint: .mint)
                     }
                     let repos = video.repos
                     if !repos.isEmpty {
                         Chip(text: "\(repos.count) GitHub repo\(repos.count == 1 ? "" : "s")",
                              symbol: "chevron.left.forwardslash.chevron.right",
                              tint: repos.contains(where: \.needsCare) ? .orange : .indigo)
-                    }
-                    if video.viewCount > 0 {
-                        Chip(text: "\(video.viewCount.formatted(.number.notation(.compactName))) views", symbol: "eye")
                     }
                 }
             }
@@ -283,26 +274,25 @@ private struct Header: View {
                 // 4.2: one button does it all; every single action stays in the menu next to it.
                 GlassEffectContainer(spacing: 8) {
                     FlowLayout(spacing: 8) {
+                        // 4.5: one main button — Do everything while something is missing; then the rebuild message.
                         let missing = app.missingParts(video)
-                        Button {
-                            app.doEverything(video)
-                        } label: {
-                            Label(missing.isEmpty ? "Everything is made" : "Do everything", systemImage: "bolt.fill")
+                        if !missing.isEmpty {
+                            Button {
+                                app.doEverything(video)
+                            } label: {
+                                Label("Do everything", systemImage: "bolt.fill")
+                            }
+                            .buttonStyle(.glassProminent)
+                            .help("Make the " + AppModel.list(missing) + ", free, on this Mac")
                         }
-                        .buttonStyle(.glassProminent)
-                        .disabled(missing.isEmpty)
-                        .help(missing.isEmpty ? "Summary, polished text, skills, playbook and text on screen are all here"
-                                              : "Make the " + AppModel.list(missing) + ", free, on this Mac")
                         Button {
                             app.copyRebuild(video, for: .claude)
                         } label: {
-                            Label("Copy the rebuild message", systemImage: "hammer.fill")
+                            Label("Copy rebuild message", systemImage: "hammer.fill")
                         }
-                        .buttonStyle(.glassProminent)
+                        .buttonStyle(.glass)
                         .help("The final message for Claude, ChatGPT, Mistral, DeepSeek or any AI to reverse-engineer and redo what the video shows (Rebuild tab for the other AIs)")
                         Menu {
-                            Button("Copy for AI (knowledge pack)") { app.copyForAI(video) }
-                            Divider()
                             Button(video.digestData == nil ? "Summarize" : "Summarize Again") { app.summarize(video) }
                                 .disabled(app.engine.isSummarizing(video.videoID))
                             Button("Make Skills") { app.compileSkills(video) }
@@ -327,11 +317,12 @@ private struct Header: View {
                             }
                             Button("Save the Rebuild Message to Second Brain") { app.saveRebuild(video) }
                         } label: {
-                            Label("More", systemImage: "ellipsis.circle")
+                            Label("Redo a part", systemImage: "ellipsis.circle")
                         }
                         .menuStyle(.button)
                         .buttonStyle(.glass)
                         .fixedSize()
+                        .help("Make or redo one part alone: summary, skills, polish, text on screen, playbook, Whisper")
                     }
                 }
                 if let error = video.polishError {

@@ -397,16 +397,17 @@ struct EatBar: View {
             .frame(width: 64, height: 36)
             .clipShape(.rect(cornerRadius: 6))
             VStack(alignment: .leading, spacing: 1) {
-                Text("Open in the YouTube browser").font(.caption2).foregroundStyle(.secondary)
+                Text("In the YouTube browser").font(.caption2).foregroundStyle(.secondary)
                 Text(video.title).font(.callout.weight(.medium)).lineLimit(1)
             }
             Spacer(minLength: 6)
-            Button("Use") {
+            Button("Eat") {
                 text = video.url
-                focused = true
+                dismissedID = video.id
+                eat()
             }
             .buttonStyle(.glassProminent)
-            .help("Put this video's link in the Eat bar")
+            .help("Eat this video now")
             Button { BrowserVideo.copy(video.url) } label: { Image(systemName: "link") }
                 .buttonStyle(.glass)
                 .help("Copy the link")
@@ -430,20 +431,17 @@ struct EatBar: View {
                 .textFieldStyle(.plain)
                 .focused($focused)
                 .onSubmit(eat)
-            Button {
-                app.openMiniBrowser()
+            // 4.5: one + for the other ways in (find a video on YouTube, your own files).
+            Menu {
+                Button("Find a Video on YouTube…", systemImage: "play.rectangle.fill") { app.openMiniBrowser() }
+                Button("Eat Your Own Files…", systemImage: "doc.badge.plus") { app.chooseFiles() }
             } label: {
-                Image(systemName: "play.rectangle.fill").foregroundStyle(.red)
+                Image(systemName: "plus.circle")
             }
+            .menuStyle(.button)
             .buttonStyle(.borderless)
-            .help("Open YouTube in a small browser: sign in, pick a video, copy its link")
-            Button {
-                app.chooseFiles()
-            } label: {
-                Image(systemName: "doc.badge.plus")
-            }
-            .buttonStyle(.borderless)
-            .help("Eat your own audio or video files (a call, a lecture, a voice memo), on this Mac")
+            .fixedSize()
+            .help("Find a video on YouTube in a small browser, or eat your own audio and video files (a call, a lecture, a voice memo)")
             if app.isResolvingLink {
                 ProgressView().controlSize(.small)
             } else if text.isEmpty, let link = app.clipboardLink {
@@ -476,7 +474,12 @@ struct EatBar: View {
         text = ""
         // 4.5: the Eat page shows the item being eaten, then everything it gave.
         app.selection = .now
-        Task { await app.eat(value) }
+        // Several links pasted at once (videos, channels, playlists, posts): each one is eaten in turn.
+        let links = value.split(whereSeparator: \.isWhitespace).map(String.init).filter { $0.lowercased().hasPrefix("http") }
+        let items: [String] = links.count > 1 ? links : [value]
+        Task {
+            for item in items { await app.eat(item) }
+        }
     }
 }
 
@@ -492,17 +495,16 @@ struct WelcomeView: View {
                 .glassEffect(.regular.tint(.zeus.opacity(0.35)), in: .circle)
             VStack(spacing: 8) {
                 Text("YouTube Zeus").font(.largeTitle.bold())
-                Text("Paste a YouTube or podcast link below, or drop your own recordings on the window.\nZeus eats them and keeps their text: captions when they exist, Whisper when they don't.")
+                Text("Paste a YouTube video, playlist or channel, a podcast, a post or any page below — or drop your own recordings on the window.\nZeus eats one thing at a time and gives you everything: the text, a summary, a playbook with research, skills.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
             }
             GlassEffectContainer(spacing: 12) {
                 HStack(spacing: 12) {
-                    Feature(symbol: "captions.bubble.fill", title: "Captions & Whisper")
-                    Feature(symbol: "mic.fill", title: "Podcasts & your files")
-                    Feature(symbol: "dot.radiowaves.left.and.right", title: "Watches channels")
-                    Feature(symbol: "apple.intelligence", title: "On-device summaries")
-                    Feature(symbol: "sparkles.rectangle.stack.fill", title: "Agent skills")
+                    // 4.5: three steps, in plain words.
+                    Feature(symbol: "link", title: "1 · Paste a link")
+                    Feature(symbol: "fork.knife", title: "2 · Watch it eaten")
+                    Feature(symbol: "square.stack.3d.up.fill", title: "3 · Get everything")
                 }
             }
             if app.clipboardLink != nil {

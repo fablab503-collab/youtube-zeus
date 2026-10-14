@@ -11,14 +11,15 @@ struct NowEatingView: View {
     @AppStorage("nowFollow") private var follow = true
     @State private var selection: String?
 
-    /// Being eaten: reading captions, downloading, listening.
-    private var current: Video? {
-        videos.first { ($0.status == .fetching || $0.status == .transcribing) && app.engine.state(for: $0.videoID) != nil }
-            ?? videos.first { $0.status == .fetching || $0.status == .transcribing }
+    /// Being eaten: reading captions, downloading, listening (the one with live progress first).
+    private var running: [Video] {
+        let eating = videos.filter { $0.status == .fetching || $0.status == .transcribing }
+        return eating.filter { app.engine.state(for: $0.videoID) != nil } + eating.filter { app.engine.state(for: $0.videoID) == nil }
     }
 
     private var waiting: Int { videos.filter { $0.status == .queued }.count }
-    private var failed: Int { videos.filter { $0.status == .failed }.count }
+    /// Failed, not counting the ones you stopped yourself.
+    private var failed: Int { videos.filter { $0.status == .failed && $0.statusDetail != "Cancelled" }.count }
 
     /// Done (or being polished and summarized), newest first.
     private var finished: [Video] {
@@ -29,13 +30,16 @@ struct NowEatingView: View {
 
     var body: some View {
         let latest = finished.first?.videoID
+        let eating = running
+        let current = eating.first
+        let waitingCount = waiting
         List(selection: $selection) {
             Section {
                 if let current {
-                    NowCard(video: current, waiting: waiting)
+                    NowCard(video: current, waiting: waitingCount, alongside: eating.count - 1)
                         .tag(current.videoID)
                 } else {
-                    IdleCard(waiting: waiting, paused: app.engine.eatingPaused)
+                    IdleCard(waiting: waitingCount, paused: app.engine.eatingPaused, resolving: app.isResolvingLink)
                 }
             } header: {
                 Text(current == nil ? "Eat" : "Being eaten")
@@ -46,7 +50,7 @@ struct NowEatingView: View {
                         VideoRow(video: video).tag(video.videoID).contextMenu { VideoMenu(video: video) }
                     }
                 } header: {
-                    Text("Just eaten — select one to see everything it gave")
+                    Text("Just eaten")
                 }
             }
             if failed > 0 {
@@ -62,13 +66,13 @@ struct NowEatingView: View {
             }
         }
         .navigationTitle("Eat")
-        .navigationSubtitle(subtitle)
+        .navigationSubtitle(subtitle(running: eating.count, waiting: waitingCount))
         .toolbar {
             ToolbarItemGroup {
                 Toggle(isOn: $follow) {
-                    Label("Show each output when it is done", systemImage: "rectangle.portrait.and.arrow.right")
+                    Label("Follow", systemImage: "eye")
                 }
-                .help("Open each item's output (everything it gave) as soon as it is eaten")
+                .help("Follow: open each item's output (everything it gave) as soon as it is eaten — never while you are reading another one")
                 Button {
                     if app.engine.eatingPaused { app.engine.resumeEating() } else { app.engine.pauseEating() }
                 } label: {
@@ -88,8 +92,10 @@ struct NowEatingView: View {
             if let id { app.selectedVideoID = id }
         }
         .onChange(of: latest) { old, new in
-            // One more item is done: show its output.
+            // One more item is done: show its output — unless another finished item is open (you are reading it).
             guard follow, let new, new != old else { return }
+            if let shown = app.selectedVideoID, shown != new, shown != old,
+               videos.first(where: { $0.videoID == shown })?.status.hasText == true { return }
             selection = new
             app.initialTab = DetailTab.everything.rawValue
             app.selectedVideoID = new
@@ -100,9 +106,9 @@ struct NowEatingView: View {
         }
     }
 
-    private var subtitle: String {
+    private func subtitle(running: Int, waiting: Int) -> String {
         if app.engine.eatingPaused { return "Paused" }
-        if current != nil { return waiting > 0 ? "1 being eaten · \(waiting) waiting" : "1 being eaten" }
+        if running > 0 { return waiting > 0 ? "\(running) being eaten · \(waiting) waiting" : "\(running) being eaten" }
         return waiting > 0 ? "\(waiting) waiting" : "Paste a link below"
     }
 }
@@ -112,6 +118,8 @@ private struct NowCard: View {
     @Environment(AppModel.self) private var app
     let video: Video
     let waiting: Int
+    /// Other items being eaten at the same time (Settings: several at once).
+    var alongside: Int = 0
 
     var body: some View {
         let job = app.engine.state(for: video.videoID)
@@ -134,8 +142,11 @@ private struct NowCard: View {
                 ProgressView().progressViewStyle(.linear).tint(video.status.color)
             }
             HStack {
+                if alongside > 0 {
+                    Text("and \(alongside) more being eaten").font(.caption).foregroundStyle(.secondary)
+                }
                 if waiting > 0 {
-                    Text("\(waiting) more waiting").font(.caption).foregroundStyle(.secondary)
+                    Text("\(waiting) waiting").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("Stop") { app.engine.cancel(video.videoID) }
@@ -152,10 +163,13 @@ private struct NowCard: View {
 private struct IdleCard: View {
     let waiting: Int
     let paused: Bool
+    /// A playlist or channel link is being read (its videos are not in the line yet).
+    var resolving: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(paused ? "Eating is paused" : "Nothing is being eaten", systemImage: paused ? "pause.circle" : "bolt.fill")
+            Label(resolving ? "Reading the link…" : (paused ? "Eating is paused" : "Nothing is being eaten"),
+                  systemImage: resolving ? "link" : (paused ? "pause.circle" : "bolt.fill"))
                 .font(.headline)
             Text("Paste a link in the bar below: a YouTube video, a playlist or a whole channel, a podcast, a post (X, Instagram, Telegram…) or any web page. Zeus eats one item at a time and shows it here; when it is done, everything it gave opens on the right.")
                 .font(.callout).foregroundStyle(.secondary)

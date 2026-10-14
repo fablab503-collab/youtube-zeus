@@ -19,19 +19,24 @@ struct MenuBarView: View {
         }
         .disabled(app.watcher.isChecking)
 
-        if !busy.isEmpty {
+        // 4.5: one item at a time — the one being eaten, and how many wait.
+        let eating = busy.first { $0.status == .fetching || $0.status == .transcribing } ?? busy.first
+        if let eating {
             Divider()
-            Text("Eating \(busy.count)")
-            ForEach(busy.prefix(5)) { video in
-                Text("\(video.displayTitle.prefix(48)) — \(app.engine.state(for: video.videoID)?.step ?? video.status.label)")
+            Button("Eating: \(eating.displayTitle.prefix(48)) — \(app.engine.state(for: eating.videoID)?.step ?? eating.status.label)") {
+                app.selection = .now
+                app.selectedVideoID = eating.videoID
+                open()
             }
+            if busy.count > 1 { Text("\(busy.count - 1) more waiting") }
         }
         if !recent.isEmpty {
             Divider()
             Text("Recently eaten")
             ForEach(Array(recent)) { video in
                 Button(String(video.displayTitle.prefix(56))) {
-                    app.selection = .library
+                    app.selection = .now
+                    app.initialTab = DetailTab.everything.rawValue
                     app.selectedVideoID = video.videoID
                     open()
                 }

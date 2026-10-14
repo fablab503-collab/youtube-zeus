@@ -129,6 +129,8 @@ final class AppModel {
     var scoutPick: RepoScout.Pick?
     /// 4.5: bumped when an answer is saved, so the Research card reloads.
     var researchVersion = 0
+    /// 4.5: items whose research Zeus is checking itself.
+    var researchChecking: Set<String> = []
     var scoutTask: Task<Void, Never>?
     var channelLanguages: [String: String] = (UserDefaults.standard.dictionary(forKey: AppModel.channelLanguagesKey) as? [String: String]) ?? [:]
     @ObservationIgnored var channelTranslateTasks: [String: Task<Void, Never>] = [:]
@@ -531,7 +533,7 @@ final class AppModel {
             if engine.video(id) == nil, MediaKind.of(id: id) == .youtube {
                 Task { await eat("https://www.youtube.com/watch?v=\(id)") }
             }
-            if selection != .library, selection != .github { selection = .library }
+            showItemsPage()
             initialTab = seconds == nil ? tab : "Transcript"
             selectedVideoID = id
             if let seconds { jump = JumpRequest(videoID: id, seconds: seconds) }
@@ -573,7 +575,7 @@ final class AppModel {
             else if let scan { scanScout(since: scan, jury: jury) }
         case .research(let id):
             guard engine.video(id) != nil else { show("No video \(id) in the library.", error: true); return }
-            if selection != .library, selection != .now { selection = .library }
+            showItemsPage()
             selectedVideoID = id
             initialTab = DetailTab.playbook.rawValue
         case .now:
@@ -632,7 +634,7 @@ final class AppModel {
         case .effects(let id, let seconds):
             openEffects(video: id, start: seconds)
         case .playbook(let id, let make, let force, let run):
-            if selection != .library, selection != .github { selection = .library }
+            showItemsPage()
             selectedVideoID = id
             initialTab = DetailTab.playbook.rawValue
             if let video = engine.video(id) {
@@ -725,10 +727,18 @@ final class AppModel {
         channelTextItemChanged(id)
     }
 
+    /// 4.5: an item opens where you are (the Eat page, a channel, a playlist, Favorites, GitHub…); only the pages whose
+    /// right side shows something else (the YouTube browser, Ask, Effects, people and tools, digests, skills) switch
+    /// to Videos.
+    func showItemsPage() {
+        let elsewhere: [SidebarItem] = [.browser, .ask, .effects, .entities, .digests, .skills]
+        if let current = selection, elsewhere.contains(current) { selection = .library }
+        if selection == nil { selection = .now }
+    }
+
     /// Opens an item in the library, at a moment when given.
     func open(video id: String, at seconds: Double? = nil) {
-        if selection != .library, selection != .github, selection != .ask { selection = .library }
-        if selection == .ask { selection = .library }
+        showItemsPage()
         selectedVideoID = id
         if let seconds {
             initialTab = "Transcript"

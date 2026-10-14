@@ -16,8 +16,8 @@ extension AppModel {
     }
 
     /// Saves an answer typed in the app, then refreshes the playbook note.
-    func addResearch(_ video: Video, question: String, answer: String, sources: [String]) {
-        let finding = ResearchFinding(question: question, answer: answer, sources: sources, by: "Daniel")
+    func addResearch(_ video: Video, question: String, key: String? = nil, answer: String, sources: [String]) {
+        let finding = ResearchFinding(question: question, answer: answer, sources: sources, by: "Daniel", key: key)
         do {
             try Research.add(finding, to: video.videoID, title: video.displayTitle)
             researchVersion += 1
@@ -25,6 +25,24 @@ extension AppModel {
             show("Answer saved in the playbook.")
         } catch {
             show("Could not save the answer: \(error.localizedDescription)", error: true)
+        }
+    }
+
+    /// What Zeus can check itself (Homebrew, npm, PyPI, GitHub), on demand.
+    func autoResearch(_ video: Video) {
+        let id = video.videoID
+        guard !researchChecking.contains(id) else { return }
+        researchChecking.insert(id)
+        let snapshot = video.snapshot
+        let playbook = video.playbook
+        Task {
+            let found = (try? await offMain { await AutoResearch.run(snapshot, playbook: playbook) }) ?? 0
+            researchChecking.remove(id)
+            researchVersion += 1
+            guard video.isAlive else { return }   // deleted while Zeus was checking
+            if video.playbook != nil { _ = exporter.exportPlaybook(video) }
+            show(found == 0 ? "Zeus found nothing more to check by itself: the open questions need an agent or you."
+                            : "Zeus checked \(found) question\(found == 1 ? "" : "s") itself (Homebrew, npm, PyPI, GitHub).")
         }
     }
 
@@ -46,8 +64,9 @@ struct PlaybookResearchCard: View {
         VStack(alignment: .leading, spacing: 12) {
             if let brief {
                 header(brief)
-                if !brief.findings.isEmpty {
-                    ForEach(brief.findings.sorted { $0.at < $1.at }) { finding in
+                let answers = brief.answers
+                if !answers.isEmpty {
+                    ForEach(answers) { finding in
                         FindingRow(finding: finding)
                             .contextMenu {
                                 Button("Remove This Answer", role: .destructive) { app.removeResearch(video, finding) }
@@ -58,7 +77,7 @@ struct PlaybookResearchCard: View {
                 if !open.isEmpty {
                     Text("Open questions").font(.subheadline.weight(.semibold)).padding(.top, 4)
                     ForEach(open) { question in
-                        QuestionRow(question: question) { answering = question }
+                        QuestionRow(question: question, found: brief.partials(for: question)) { answering = question }
                     }
                 }
             } else {
@@ -80,9 +99,22 @@ struct PlaybookResearchCard: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Label("Research", systemImage: "magnifyingglass.circle.fill").font(.headline)
-                Text("\(brief.findings.count) answered · \(brief.open.count) open")
+                Text("\(brief.answeredCount) answered · \(brief.open.count) open")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
+                Button {
+                    app.autoResearch(video)
+                } label: {
+                    if app.researchChecking.contains(video.videoID) {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label("Let Zeus Check", systemImage: "checkmark.seal")
+                    }
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                .disabled(app.researchChecking.contains(video.videoID))
+                .help("Zeus checks what it can itself, for free: Homebrew, npm and PyPI versions and install commands, GitHub activity, releases, advisories and open issues")
                 Button {
                     app.copyResearch(video)
                 } label: {
@@ -99,9 +131,10 @@ struct PlaybookResearchCard: View {
                 .buttonStyle(.borderless)
                 .help("Reload: show answers saved by agents since")
             }
-            Text("What to check before you trust the steps. An agent that can search (Claude Code, Codex…) answers them with `zeus research \(video.videoID) --add …`; the answers appear here and in the playbook note.")
+            Text("What to check before you trust the steps. Answer one yourself, or Copy for an Agent and paste it into Claude Code or Codex — their answers appear here.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .help("Agents save with: zeus research \(video.videoID) --question <number> --add \"…\" --source <url>")
             if !brief.known.isEmpty {
                 DisclosureGroup("What Zeus already knows (\(brief.known.count))") {
                     VStack(alignment: .leading, spacing: 4) {
@@ -147,6 +180,8 @@ struct PlaybookResearchCard: View {
 
     private struct QuestionRow: View {
         let question: ResearchQuestion
+        /// What Zeus found itself (Homebrew, npm, PyPI, GitHub): shown, but the question stays open.
+        var found: [ResearchFinding] = []
         let answer: () -> Void
 
         var body: some View {
@@ -156,6 +191,13 @@ struct PlaybookResearchCard: View {
                     Text(question.question).font(.callout).fixedSize(horizontal: false, vertical: true)
                     if let known = question.known, !known.isEmpty {
                         Text(known).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                    ForEach(found) { finding in
+                        Label(finding.answer, systemImage: "checkmark.seal")
+                            .font(.caption)
+                            .foregroundStyle(.teal)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .help("Found by \(finding.by)")
                     }
                     HStack(spacing: 6) {
                         ForEach(question.queries, id: \.self) { query in
@@ -177,8 +219,10 @@ struct PlaybookResearchCard: View {
         private var symbol: String {
             switch question.topic {
             case "tool": "wrench.and.screwdriver"
+            case "service": "creditcard"
             case "repo": "chevron.left.forwardslash.chevron.right"
-            case "step": "list.number"
+            case "unknown": "questionmark.circle"
+            case "risk": "exclamationmark.shield"
             case "claim": "quote.bubble"
             default: "link"
             }
@@ -223,7 +267,7 @@ struct ResearchAnswerSheet: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
-                    app.addResearch(video, question: question.question,
+                    app.addResearch(video, question: question.question, key: question.key,
                                     answer: answer.trimmingCharacters(in: .whitespacesAndNewlines),
                                     sources: trimmed.isEmpty ? [] : [trimmed])
                     dismiss()

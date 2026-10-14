@@ -65,7 +65,8 @@ enum ZeusCLI {
       zeus agent [--json]       for an agent on this Mac: what it can look up and do now (open research questions,
                                 the repo of the day, what was eaten, what waits for Daniel), with the rules
       zeus doctor <link|id>     why a YouTube video cannot be eaten: yt-dlp's version, the sign-in, and the video
-                                read in several ways (with and without the sign-in, other YouTube clients); reads only
+                                read in several ways (with and without the sign-in, other YouTube clients); reads only.
+                                Another site's link (a post, Vimeo…): what yt-dlp sees and whether its sound can be taken
       zeus status [--json]      the library now: items by kind and state, work left (summaries, polish), every kind
                                 of error grouped (could not be eaten, summary, polish, playbook, text on screen)
       zeus failed [--json]      each item that could not be eaten: why in words, the raw error, attempts, and where it

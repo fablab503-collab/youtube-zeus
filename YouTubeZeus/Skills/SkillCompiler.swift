@@ -63,11 +63,13 @@ final class SkillCompiler {
         var paragraphs = video.paragraphs
         guard !paragraphs.isEmpty else { throw CompileError.noTranscript }
         if usesLocal {
-            // The local model reads about 10k tokens at once: long videos are analysed from the start.
+            // The local model reads a 12k context (the size every request uses, 4.5: no model reload, no wait behind
+            // the summaries): about 6–7k tokens of transcript, room for the skills it writes. Long videos are analysed
+            // from the start.
             var size = 0
             paragraphs = Array(paragraphs.prefix { paragraph in
                 size += paragraph.text.count + 40
-                return size <= 36_000
+                return size <= 26_000
             })
         }
 
@@ -93,7 +95,7 @@ final class SkillCompiler {
         let modelName: String
         if usesLocal {
             AppLog.write("SKILLS \(video.videoID): asking the local AI (\(settings.polishModel)), \(paragraphs.count) paragraphs")
-            json = try await LocalLLM(model: settings.polishModel, context: 16_384)
+            json = try await LocalLLM(model: settings.polishModel, context: OllamaClient.standardContext)
                 .structured(system: system, user: user, schema: AnalysisPrompt.schema)
             modelName = settings.polishModel + " (local)"
         } else if usesCodex, let codex = codexPath {

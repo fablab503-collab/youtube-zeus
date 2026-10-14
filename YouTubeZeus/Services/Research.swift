@@ -287,8 +287,12 @@ nonisolated enum Research {
                                  known: repo.summaryLine, topic: "repo", subject: repo.fullName))
         }
 
-        // 4. The links of the description (not GitHub, social networks, sponsors or link shorteners).
-        for link in links(in: video.description).filter(isWorthChecking).prefix(3) {
+        // 4. The links of a tutorial's description (not GitHub, social networks, sponsors, shorteners, the page itself).
+        let ownHost = (URL(string: video.pageURL ?? "")?.host ?? "").lowercased()
+        let worth: [String] = playbook == nil ? [] : links(in: video.description).filter { link in
+            isWorthChecking(link) && (ownHost.isEmpty || URL(string: link)?.host?.lowercased() != ownHost)
+        }
+        for link in worth.prefix(3) {
             add(ResearchQuestion(question: "What is at \(link), and is it still online and current?",
                                  why: "Linked in the description.", queries: [link], known: nil, topic: "link", subject: link))
         }
@@ -340,7 +344,14 @@ nonisolated enum Research {
         let skipped = ["github.com", "patreon.com", "discord.gg", "discord.com", "twitter.com", "x.com", "instagram.com",
                        "facebook.com", "tiktok.com", "linkedin.com", "threads.net", "bit.ly", "amzn.to", "amazon.",
                        "geni.us", "linktr.ee", "buymeacoffee.com", "ko-fi.com", "paypal.", "t.me", "spotify.com",
-                       "apple.co", "podcasts.apple.com", "skool.com", "whop.com", "gumroad.com"]
+                       "apple.co", "podcasts.apple.com", "skool.com", "whop.com", "gumroad.com", "goo.gl", "t.co",
+                       "tinyurl.com", "ow.ly", "buff.ly", "lnkd.in", "rebrand.ly", "shorturl.at", "is.gd", "cutt.ly",
+                       "wikipedia.org", "wikimedia.org", "toolforge.org"]
+        // Sign-ups, sponsors and tracking links are not research.
+        let lower = link.lowercased()
+        let marketing = ["utm_", "optin", "/sponsor", "affiliate", "ref=", "/survey", "/ama", "coupon", "promo", "discount",
+                         "/join", "/subscribe", "/newsletter"]
+        if marketing.contains(where: { lower.contains($0) }) { return false }
         return !host.isEmpty && !skipped.contains { host == $0 || host.hasSuffix("." + $0) || host.hasPrefix($0) }
     }
 

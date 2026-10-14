@@ -4,13 +4,16 @@ import SwiftData
 /// 4.5: what a connected agent (a terminal with `zeus`, or `zeus mcp`) can look up and do for Daniel now —
 /// open research questions, the repo of the day, what was eaten, what waits for Daniel. `zeus agent`, MCP `agent_briefing`.
 enum AgentDesk {
-    /// The items eaten last (newest first), with the state of their research.
-    static func recentItems(context: ModelContext, limit: Int = 20) -> [Research.BriefingItem] {
+    /// The items eaten last (newest first), with the state of their research: the `limit` newest, plus older ones
+    /// (up to `scan` back) that still have open questions — a playlist eaten in one go no longer hides them (4.5).
+    static func recentItems(context: ModelContext, limit: Int = 20, scan: Int = 150) -> [Research.BriefingItem] {
         var descriptor = FetchDescriptor<Video>(sortBy: [SortDescriptor(\.eatenAt, order: .reverse)])
-        descriptor.fetchLimit = limit * 3
+        descriptor.fetchLimit = scan + limit
         let done = ((try? context.fetch(descriptor)) ?? []).filter { $0.status == .done }
         var recent: [Research.BriefingItem] = []
-        for video in done.prefix(limit) {
+        for (index, video) in done.prefix(scan).enumerated() {
+            // Older items only matter when they can have questions: a playbook, tools, repos or links.
+            if index >= limit, video.playbookData == nil, video.githubData == nil, video.entitiesData == nil { continue }
             let playbook = video.playbook
             let brief = Research.brief(video.researchSnapshot, playbook: playbook)
             var item = Research.BriefingItem(id: video.videoID, title: video.displayTitle, open: brief.open.count,
@@ -18,7 +21,7 @@ enum AgentDesk {
                                              eatenAt: video.eatenAt)
             item.firstQuestions = brief.open.prefix(3).map { $0.question }
             item.found = brief.zeusFoundCount
-            recent.append(item)
+            if index < limit || item.open > 0 { recent.append(item) }
         }
         return recent
     }

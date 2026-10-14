@@ -43,6 +43,9 @@ Newest first.
   in the line says so (and no longer suggests a youtu.be link for posts, pages and files).
 - A Telegram (or any) post that is only a video without speech now says so ("a video or a sound without speech… and
   no text"), and a post with a few spoken words and no text keeps those words.
+- The Agents page and `zeus agent` keep the items with open research questions even after a whole playlist is eaten
+  (they used to look only at the 20 newest items). A file Zeus cannot read (an external disk macOS keeps it from)
+  now says so and is written in the log.
 - `zeus status` (the library: items, work left, every error grouped) and `zeus failed` (each failed item, why, the
   raw error, where it came from) — for you and for agents.
 - QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished

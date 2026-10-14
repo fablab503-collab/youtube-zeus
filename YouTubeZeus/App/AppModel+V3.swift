@@ -55,17 +55,23 @@ extension AppModel {
         for url in urls {
             let file = url.standardizedFileURL
             guard MediaFiles.isMedia(file) else {
+                AppLog.write("FILE not audio or video: \(file.path)")
                 skipped.append(file.lastPathComponent)
                 continue
             }
             guard FileManager.default.fileExists(atPath: file.path) else {
-                show(MediaFileError.missing(file.path).localizedDescription, error: true)
+                // 4.5: also what macOS answers when Zeus may not read that disk (Privacy & Security › Files and Folders).
+                AppLog.write("FILE missing or not readable by Zeus: \(file.path)")
+                show(MediaFileError.missing(file.path).localizedDescription
+                     + " If it is on an external disk, allow YouTube Zeus in System Settings › Privacy & Security › Files and Folders.",
+                     error: true)
                 continue
             }
             let id: String
             do {
                 id = try await Task.detached { try MediaFiles.identity(file) }.value
             } catch {
+                AppLog.write("FILE could not read \(file.path): \(error.localizedDescription)")
                 show("Could not read \(file.lastPathComponent): \(error.localizedDescription)", error: true)
                 continue
             }

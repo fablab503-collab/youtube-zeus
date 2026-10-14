@@ -52,9 +52,14 @@ final class ChannelWatcher {
             lastRun = .now
         }
         let channels = (try? context.fetch(FetchDescriptor<Channel>(sortBy: [SortDescriptor(\.title)]))) ?? []
+        var fresh = 0
         for channel in channels {
-            _ = await check(channel)
+            fresh += await check(channel)
         }
+        // 4.5: one line in the log for each check (it was silent: no way to tell a quiet day from a broken feed).
+        let failing = channels.filter { $0.lastError != nil }
+        AppLog.write("CHECK \(channels.count) channels and podcasts: \(fresh) new"
+                     + (failing.isEmpty ? "" : ", \(failing.count) failed: " + failing.prefix(5).map { "\($0.title) (\($0.lastError ?? ""))" }.joined(separator: "; ")))
         engine.retryWaiting()
         engine.resumePending()
         exporter.retryPending(in: context)

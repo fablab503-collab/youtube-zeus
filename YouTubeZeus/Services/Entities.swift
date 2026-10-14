@@ -166,7 +166,8 @@ nonisolated struct EntityExtractor: Sendable {
             let name = Self.canonicalName(item.name.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'`"))))
             let key = EntityRegistry.key(name)
             guard name.count >= 2, name.count <= 60, key.count >= 2, !Self.generic.contains(key), !Self.isPhrase(name),
-                  !(channelKey.contains(key) && key.count >= 4), seen.insert(key).inserted,
+                  !(channelKey.contains(key) && key.count >= 4), !Self.isShowName(key, channelKey: channelKey),
+                  seen.insert(key).inserted,
                   let kind = EntityKind(rawValue: item.kind.lowercased()) else { continue }
             let spellings = [name] + Self.canonical.filter { $0.value == name }.map(\.key).filter { $0.contains(" ") }
             let times = spellings.lazy.map { Self.moments(of: $0, in: video.paragraphs) }.first { !$0.isEmpty } ?? []
@@ -184,7 +185,13 @@ nonisolated struct EntityExtractor: Sendable {
 
     static let generic: Set<String> = ["ai", "agent", "agents", "api", "apis", "llm", "llms", "prompt", "prompts", "chatbot",
                                        "youtube", "video", "internet", "web", "app", "apps", "software", "computer", "cloud",
-                                       "model", "models", "code", "data", "user", "users", "mcp", "workflow", "automation"]
+                                       "model", "models", "code", "data", "user", "users", "mcp", "workflow", "automation",
+                                       // 4.5: fields and ideas a small model files as tools (seen on podcasts: AGI, Deep Learning)
+                                       "agi", "asi", "artificialintelligence", "machinelearning", "deeplearning", "neuralnetwork",
+                                       "neuralnetworks", "largelanguagemodel", "largelanguagemodels", "robotics", "computervision",
+                                       "reinforcementlearning", "theinternet", "blockchain", "crypto", "cryptocurrency",
+                                       "quantumcomputing", "datascience", "programming", "physics", "biology", "chemistry",
+                                       "mathematics", "math", "science", "consciousness", "podcast", "aipodcast"]
 
     /// Frequent speech-recognition spellings and variants of the same name.
     static let canonical: [String: String] = [
@@ -198,6 +205,12 @@ nonisolated struct EntityExtractor: Sendable {
         "cloudopus": "Claude Opus", "claudeopus": "Claude Opus", "cloudcowork": "Claude Cowork", "claudecowork": "Claude Cowork",
         "antigravity": "Antigravity", "googlesheet": "Google Sheets", "googlesheets": "Google Sheets",
     ]
+
+    /// The channel's own show ("Lex Fridman Podcast" on the channel Lex Fridman) is not a name the video talks about.
+    static func isShowName(_ key: String, channelKey: String) -> Bool {
+        guard channelKey.count >= 4, key.hasPrefix(channelKey) else { return false }
+        return ["podcast", "show", "channel", "tv", "official", "clips", "aipodcast"].contains(String(key.dropFirst(channelKey.count)))
+    }
 
     static func canonicalName(_ name: String) -> String {
         canonical[EntityRegistry.key(name)] ?? name
@@ -331,7 +344,8 @@ nonisolated enum EntityNotes {
                 let name = EntityExtractor.canonicalName(entity.name)
                 let key = EntityRegistry.key(name)
                 guard key.count >= 2, !EntityExtractor.generic.contains(key), !EntityExtractor.isPhrase(name),
-                      !(channelKey.contains(key) && key.count >= 4), !EntityExtractor.disowned(entity.note) else { continue }
+                      !(channelKey.contains(key) && key.count >= 4), !EntityExtractor.isShowName(key, channelKey: channelKey),
+                      !EntityExtractor.disowned(entity.note) else { continue }
                 spellings[key, default: [:]][name, default: 0] += 1
                 if name != entity.name { variants[key, default: []].insert(entity.name) }
                 kinds[key, default: [:]][entity.kind, default: 0] += 1

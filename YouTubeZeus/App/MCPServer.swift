@@ -42,7 +42,7 @@ enum MCPServer {
 
     /// 4.5: `zeus mcp --selftest` — the server answers its own protocol and read-only tools, as an app would ask them
     /// (for checking the connection without an MCP client). Exit code 1 when something fails.
-    static func selfTest(settings: AppSettings) async -> Int32 {
+    static func selfTest(settings: AppSettings, item: String? = nil) async -> Int32 {
         var failures = 0
         func report(_ name: String, _ ok: Bool, _ detail: String) {
             print("\(ok ? "✓" : "✗") \(name): " + detail.replacingOccurrences(of: "\n", with: " ").prefix(110))
@@ -62,10 +62,16 @@ enum MCPServer {
         } catch {
             report("tools/list", false, error.localizedDescription)
         }
-        let calls: [(String, [String: Any])] = [
+        var calls: [(String, [String: Any])] = [
             ("agent_briefing", [:]), ("search", ["query": "agent", "limit": 2]), ("list_items", ["limit": 3]),
             ("repo_scout", [:]), ("github_repos", [:]), ("entities", ["limit": 3]),
         ]
+        // With an item: the tools that read one item, as an agent would after a search.
+        if let item {
+            for name in ["item_status", "get_note", "get_transcript", "get_research", "get_playbook", "get_rebuild"] {
+                calls.append((name, ["video": item]))
+            }
+        }
         for (name, arguments) in calls {
             do {
                 let result = try await handle("tools/call", params: ["name": name, "arguments": arguments], settings: settings)
@@ -267,10 +273,7 @@ enum MCPServer {
             let byID = Dictionary(videos.map { ($0.videoID, $0) }, uniquingKeysWith: { first, _ in first })
             var passages: [BrainPassage] = []
             if SearchIndex.exists, let index = try? SearchIndex(readOnly: true) {
-                let found = AskBrain.retrieve(question: question, index: index)
-                var snapshots: [String: VideoSnapshot] = [:]
-                for id in Set(found.map(\.videoID)) { snapshots[id] = byID[id]?.snapshot }
-                passages = AskBrain.withContext(found, videos: snapshots)
+                passages = AskBrain.passages(question: question, index: index) { byID[$0]?.snapshot }
             }
             guard !passages.isEmpty else { return "Nothing in the library talks about that yet." }
             let engine: AskBrain.Engine = settings.askEngine == "codex" && settings.openAIConsent && CodexLocator.path != nil

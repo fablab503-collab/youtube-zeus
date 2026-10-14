@@ -70,6 +70,17 @@ Newest first.
   keeps a small 8k context.
 - Research: a tool installed another way than Homebrew (Claude Code's own installer, npm, bun, cargo, pipx) is no
   longer reported "Not installed on this Mac"; the playbook's "already installed" check also looks in those folders.
+- **Round 2 of tests**: a playlist or a channel pasted on the Eat page stays on the Eat page (one video at a time; the
+  collection is in Playlists) instead of opening the list of all its videos; a collection no longer offers to "eat
+  the missing" videos that are already in the line (it says how many are in the line); fields of study (AGI, Deep
+  Learning, physics…) are no longer listed as tools; `zeus eat` of Spotify music says at once that music has no
+  words; `zeus mcp --selftest <id>` also checks the tools that read one item (note, transcript, research, playbook,
+  rebuild).
+- Round 2, continued: Ask finds the item whose title the question names (it searched only transcripts and summaries)
+  and no longer leaves "(video_id: …, start_seconds: …)" inside the answer; names that appear only in ad reads
+  ("sponsored by…", promo codes) and the channel's own show ("Lex Fridman Podcast") are left out; each channel
+  check writes one line in the log (new videos, feeds that failed) and `zeus status` lists the followed channels and
+  podcasts and any feed that could not be read.
 - `zeus status` (the library: items, work left, every error grouped) and `zeus failed` (each failed item, why, the
   raw error, where it came from) — for you and for agents.
 - QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished

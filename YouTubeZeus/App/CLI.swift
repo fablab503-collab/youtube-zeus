@@ -99,8 +99,9 @@ enum ZeusCLI {
                                 --parts, --consent); watch = do the .swapjob folders The Swap writes; cancel = stop a
                                 makeme job; parts = the parts map of a prepared job (prepare --mode depth_parts
                                 --things "…" makes it right away; generate --engine vace follows it)
-      zeus mcp [--selftest]     run YouTube Zeus as an MCP server (stdio) for Claude, Codex, Cursor, LM Studio…;
+      zeus mcp [--selftest [id]]  run YouTube Zeus as an MCP server (stdio) for Claude, Codex, Cursor, LM Studio…;
                                 --selftest asks it its own protocol and read-only tools and says what works
+                                (with an item id, also the tools that read that item)
       zeus shortcut [--no-open] make the "Eat with Zeus" shortcut for the iPhone/iPad share sheet (opens Shortcuts)
       zeus setup [--install] [--model <tag>] [--json]
                                 check this Mac: yt-dlp, Deno, ffmpeg, whisper.cpp, Ollama and the local AI model that
@@ -153,6 +154,11 @@ enum ZeusCLI {
                     return 0
                 }
                 if YouTubeLink.parse(link) == nil, !PodcastFeed.looksLikePodcast(link), let site = SocialSite.of(link) {
+                    // 4.5: Spotify music has no words: said here instead of "Eating the Spotify episode".
+                    if site == .spotify, let path = URL(string: link)?.path.lowercased(),
+                       ["/track/", "/album/", "/playlist/", "/artist/"].contains(where: { path.contains($0) }) {
+                        return fail(SocialError.spotifyMusic.localizedDescription)
+                    }
                     // Posts and Spotify episodes are eaten by the app (library, note, search index).
                     openInApp(URL(string: BrainLinks.zeusEat(link))!, raw: true)
                     let id = site == .spotify ? nil : SocialLinks.id(for: link)
@@ -279,7 +285,7 @@ enum ZeusCLI {
                 guard !rest.isEmpty else { return fail("zeus ask \"<question>\"") }
                 return try await ask(rest.joined(separator: " "), settings: settings, json: flags.contains("--json"))
             case "mcp":
-                if flags.contains("--selftest") { return await MCPServer.selfTest(settings: settings) }
+                if flags.contains("--selftest") { return await MCPServer.selfTest(settings: settings, item: rest.first) }
                 return await MCPServer.run()
             case "entities":
                 let records = EntityRegistry.load()
@@ -999,10 +1005,7 @@ enum ZeusCLI {
         let byID = Dictionary(videos.map { ($0.videoID, $0) }, uniquingKeysWith: { first, _ in first })
         var passages: [BrainPassage] = []
         if SearchIndex.exists, let index = try? SearchIndex(readOnly: true) {
-            let found = AskBrain.retrieve(question: question, index: index)
-            var snapshots: [String: VideoSnapshot] = [:]
-            for id in Set(found.map(\.videoID)) { snapshots[id] = byID[id]?.snapshot }
-            passages = AskBrain.withContext(found, videos: snapshots)
+            passages = AskBrain.passages(question: question, index: index) { byID[$0]?.snapshot }
         }
         if passages.isEmpty { passages = AskBrain.retrieve(question: question, videos: videos.map(\.snapshot)) }
         guard !passages.isEmpty else { return fail("Nothing in the library talks about that yet.") }

@@ -92,6 +92,41 @@ nonisolated enum AskBrain {
                                        text: $0.section == "screen" ? "On screen: " + $0.text : $0.text) }
     }
 
+    /// 4.5: the items whose title the question names ("How does Lex say to learn and master a new skill?" missed the
+    /// video called "How to learn and master a new skill": titles were not searched). At most two, best first, and
+    /// only when most of the question's words are in the title.
+    static func titled(question: String, index: SearchIndex) -> [String] {
+        var seen = Set<String>()
+        let words = terms(question).filter { seen.insert($0).inserted }
+        guard words.count >= 2 else { return [] }
+        let hits = (try? index.search(SearchIndex.anyWordsQuery(words), limit: 5, perItem: 1, sections: ["title"])) ?? []
+        return hits.filter { hit in
+            let title = Set(terms(hit.title))
+            return words.filter { title.contains($0) }.count * 2 >= words.count
+        }
+        .prefix(2).map(\.videoID)
+    }
+
+    /// The passages for a question: items named by their title first (their summary and best paragraphs, else their
+    /// opening), then the index's best passages with each item's summary and repositories.
+    static func passages(question: String, index: SearchIndex, snapshot: (String) -> VideoSnapshot?) -> [BrainPassage] {
+        let found = retrieve(question: question, index: index)
+        var snapshots: [String: VideoSnapshot] = [:]
+        for id in Set(found.map(\.videoID)) { snapshots[id] = snapshot(id) }
+        var named: [BrainPassage] = []
+        for id in titled(question: question, index: index) where !found.contains(where: { $0.videoID == id }) {
+            guard let video = snapshot(id) else { continue }
+            var own = retrieve(question: question, videos: [video], maxVideos: 1)
+            if !own.contains(where: { !$0.text.hasPrefix("Summary: ") && !$0.text.hasPrefix("GitHub repositories") }) {
+                own += video.paragraphs.prefix(4).map {
+                    BrainPassage(videoID: id, title: video.title, channel: video.channelTitle, start: $0.start, text: $0.text)
+                }
+            }
+            named += own
+        }
+        return named + withContext(found, videos: snapshots)
+    }
+
     /// Adds each item's summary and linked repositories in front of its paragraphs (in time order).
     static func withContext(_ passages: [BrainPassage], videos: [String: VideoSnapshot]) -> [BrainPassage] {
         var order: [String] = []
@@ -186,6 +221,9 @@ nonisolated enum AskBrain {
         let known = Set(trimmed.map(\.videoID))
         let text = answer.answer
             .replacingOccurrences(of: #"(?m)^\s*\(?Sources?:\s*video_id=.*$\n?"#, with: "", options: .regularExpression)
+            // 4.5: "(video_id: d2bYwYxqJCM, start_seconds: 1349)" pasted inside a sentence (the sources say it already).
+            .replacingOccurrences(of: #"\s*[\(\[]\s*(?:video[_ ]id|start[_ ]seconds)\s*[:=][^\)\]]*[\)\]]"#, with: "",
+                                  options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         answer = BrainAnswer(answer: text, sources: answer.sources.filter { known.contains($0.video_id) })

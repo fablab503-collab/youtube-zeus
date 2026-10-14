@@ -17,6 +17,12 @@ struct CollectionView: View {
         if let list = lists.first {
             let byID = Dictionary(videos.filter { $0.status != .trashed }.map { ($0.videoID, $0) }, uniquingKeysWith: { first, _ in first })
             let eaten = list.videoIDs.filter { byID[$0]?.status.hasText == true }.count
+            // 4.5: what waits in the line is not "missing" (eating it again would only restart it).
+            let inLine = list.videoIDs.filter { id in
+                guard let status = byID[id]?.status else { return false }
+                return status == .queued || status == .fetching || status == .transcribing
+            }
+            let missingIDs = list.videoIDs.filter { byID[$0]?.status.hasText != true && !inLine.contains($0) }
             List(selection: $app.selectedVideoID) {
                 Section {
                     VStack(alignment: .leading, spacing: 12) {
@@ -45,15 +51,22 @@ struct CollectionView: View {
                         // 4.5: the main action (eat what is missing, else copy for AI) and one More menu.
                         GlassEffectContainer(spacing: 8) {
                             FlowLayout(spacing: 8) {
-                                if eaten < list.videoIDs.count {
+                                if !missingIDs.isEmpty {
                                     Button {
-                                        let missing = list.videoIDs.filter { byID[$0]?.status.hasText != true }
-                                        app.engine.enqueue(missing.map { (id: $0, title: byID[$0]?.title ?? "", channel: "", channelID: "") }, force: true)
+                                        app.engine.enqueue(missingIDs.map { (id: $0, title: byID[$0]?.title ?? "", channel: "", channelID: "") }, force: true)
                                         app.selection = .now
                                     } label: {
-                                        Label("Eat the missing \(list.videoIDs.count - eaten)", systemImage: "fork.knife")
+                                        Label("Eat the missing \(missingIDs.count)", systemImage: "fork.knife")
                                     }
                                     .buttonStyle(.glassProminent)
+                                }
+                                if !inLine.isEmpty {
+                                    Button {
+                                        app.selection = .now
+                                    } label: {
+                                        Label("\(inLine.count) in the line — see it eaten", systemImage: "clock")
+                                    }
+                                    .buttonStyle(.glass)
                                 }
                                 Menu {
                                     Button("Summaries and key points") { app.copyForAI(list, transcripts: false) }

@@ -44,10 +44,16 @@ enum LibraryReport {
         let playbookErrors = counted(eaten.compactMap(\.playbookError))
         let screenErrors = counted(eaten.compactMap(\.screenError))
 
+        let followed = ((try? context.fetch(FetchDescriptor<Channel>())) ?? [])
+        let podcasts = followed.filter(\.isPodcast).count
+        let failingFeeds = followed.filter { $0.lastError != nil }
         var lines: [String] = ["# YouTube Zeus — the library now", ""]
         lines.append("Items: \(live.count) (" + byKind.sorted { $0.value > $1.value }.map { "\($0.value) \($0.key)" }.joined(separator: ", ") + ")")
         lines.append("By state: " + byStatus.sorted { $0.value > $1.value }.map { "\($0.key) \($0.value)" }.joined(separator: " · "))
         lines.append("Work left: \(noSummary.count) eaten without a summary yet, \(noPolish.count) without polished text yet")
+        lines.append("Followed: \(followed.count - podcasts) channels, \(podcasts) podcasts"
+                     + (failingFeeds.isEmpty ? " (all read fine at the last check)"
+                        : " — \(failingFeeds.count) could not be read: " + failingFeeds.prefix(5).map { "\($0.title) (\($0.lastError ?? ""))" }.joined(separator: "; ")))
         func section(_ title: String, _ groups: [(message: String, count: Int)]) {
             guard !groups.isEmpty else { return }
             lines += ["", "## \(title) (\(groups.reduce(0) { $0 + $1.count }))"]
@@ -66,6 +72,8 @@ enum LibraryReport {
         let json: [String: Any] = [
             "items": live.count, "by_kind": byKind, "by_state": byStatus,
             "without_summary": noSummary.count, "without_polish": noPolish.count,
+            "followed_channels": followed.count - podcasts, "followed_podcasts": podcasts,
+            "feeds_failing": failingFeeds.map { ["title": $0.title, "error": $0.lastError ?? ""] },
             "failed": rows(failedGroups), "summary_errors": rows(summaryErrors), "polish_errors": rows(polishErrors),
             "playbook_errors": rows(playbookErrors), "screen_errors": rows(screenErrors),
         ]

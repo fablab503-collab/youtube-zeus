@@ -403,8 +403,14 @@ final class AppModel {
             let list = upsertList(listID: listID, title: name, kind: kind, url: url, channel: listing.title,
                                   videoIDs: listing.entries.map(\.id))
             engine.enqueue(listing.entries.map { (id: $0.id, title: $0.title, channel: $0.channel, channelID: $0.channelID) })
-            show("Eating \(listing.entries.count) videos of “\(name)”. They are organised as a collection.")
-            selection = .collection(list.listID)
+            // 4.5: pasted on the Eat page, the list stays out of sight (the Eat page shows one video at a time);
+            // from a collection or a channel page, its page shows it.
+            if selection == .now {
+                show("Eating the \(listing.entries.count) videos of “\(name)” one at a time (the collection is in Playlists).")
+            } else {
+                show("Eating \(listing.entries.count) videos of “\(name)”. They are organised as a collection.")
+                selection = .collection(list.listID)
+            }
         } catch {
             show(error.localizedDescription, error: true)
         }
@@ -821,10 +827,7 @@ final class AppModel {
         defer { isAsking = false }
         var passages: [BrainPassage] = []
         if let index = indexer.index {
-            let found = await Task.detached(priority: .userInitiated) { AskBrain.retrieve(question: question, index: index) }.value
-            var snapshots: [String: VideoSnapshot] = [:]
-            for id in Set(found.map(\.videoID)) { snapshots[id] = self.engine.video(id)?.snapshot }
-            passages = AskBrain.withContext(found, videos: snapshots)
+            passages = AskBrain.passages(question: question, index: index) { self.engine.video($0)?.snapshot }
         }
         if passages.isEmpty {
             let done = [EatStatus.done, .summarizing, .polishing].map(\.rawValue)
@@ -989,7 +992,8 @@ final class AppModel {
         defer { isResolvingLink = false }
         do {
             let (channel, latest) = try await watcher.follow(url: url)
-            selection = .channel(channel.channelID)
+            // Pasted on the Eat page: stay there (the offer to eat the latest videos opens on top of it).
+            if selection != .now { selection = .channel(channel.channelID) }
             show("Following \(channel.title). New uploads will be eaten automatically.")
             if !latest.isEmpty {
                 channelOffer = ChannelOffer(channelID: channel.channelID, title: channel.title, latest: latest)

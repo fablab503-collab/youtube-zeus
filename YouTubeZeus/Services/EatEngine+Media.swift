@@ -231,9 +231,11 @@ extension EatEngine {
         do {
             let model = settings.polishModel
             // Off the main thread: NaturalLanguage reads the whole transcript.
-            let found = try await offMain {
+            let extracted = try await offMain {
                 try await EntityExtractor(model: model).extract(snapshot)
             }.filter { !Self.isPlainWords($0.name) }
+            let found = Self.withoutAdReads(extracted, paragraphs: snapshot.paragraphs,
+                                            also: snapshot.title + "\n" + (snapshot.digest?.summary ?? ""))
             guard video.isAlive else { return }
             video.entities = found
             video.entitiesAt = .now
@@ -252,6 +254,26 @@ extension EatEngine {
 
     /// "authentication", "feedback loop": ordinary lowercase words the dictionary knows are not names
     /// ("n8n", "npm" and "ffmpeg" are kept).
+    /// 4.5: a sponsor read in an ad ("This show is sponsored by Cash App… use code LexPodcast") is not something the
+    /// video talks about. A name that appears only in ad reads is left out (the small model kept listing them).
+    nonisolated static func isAdRead(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return ["sponsored by", "brought to you by", "our sponsors", "this show is sponsored", "this episode is sponsored",
+                "promo code", "use code", "use the code", "with the code", "free trial", "percent off", "% off",
+                "download it from the app store", "support this podcast", "check out our sponsor"].contains { lower.contains($0) }
+    }
+
+    nonisolated static func withoutAdReads(_ entities: [EntityMention], paragraphs: [TranscriptParagraph], also: String) -> [EntityMention] {
+        let ads = paragraphs.filter { isAdRead($0.text) }
+        guard !ads.isEmpty else { return entities }
+        let adText = ads.map { $0.text.lowercased() }.joined(separator: "\n")
+        let content = (paragraphs.filter { !isAdRead($0.text) }.map(\.text) + [also]).joined(separator: "\n").lowercased()
+        return entities.filter { entity in
+            let name = entity.name.lowercased()
+            return !adText.contains(name) || content.contains(name)
+        }
+    }
+
     static func isPlainWords(_ name: String) -> Bool {
         guard name == name.lowercased(), !name.contains(where: \.isNumber) else { return false }
         let checker = NSSpellChecker.shared

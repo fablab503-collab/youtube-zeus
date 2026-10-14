@@ -17,6 +17,7 @@ enum AgentDesk {
                                              answered: brief.answeredCount, hasPlaybook: playbook != nil,
                                              eatenAt: video.eatenAt)
             item.firstQuestions = brief.open.prefix(3).map { $0.question }
+            item.found = brief.zeusFoundCount
             recent.append(item)
         }
         return recent
@@ -38,6 +39,7 @@ enum AgentDesk {
         var researchRows: [[String: Any]] = []
         for item in research where item.open > 0 {
             researchRows.append(["id": item.id, "title": item.title, "open": item.open, "answered": item.answered,
+                                 "zeus_found": item.found,
                                  "playbook": item.hasPlaybook, "first_questions": item.firstQuestions,
                                  "read": "zeus research \(item.id)"])
         }

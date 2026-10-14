@@ -20,8 +20,14 @@ struct NowEatingView: View {
     private var waiting: Int { videos.filter { $0.status == .queued }.count }
     /// Premieres, live streams and just-uploaded videos: eaten later, at a channel check.
     private var later: Int { videos.filter { $0.status == .waiting }.count }
-    /// Failed, not counting the ones you stopped yourself.
-    private var failed: Int { videos.filter { $0.status == .failed && $0.statusDetail != "Cancelled" }.count }
+    /// Failed, not counting the ones you stopped yourself; and how many of them are not on YouTube any more.
+    private var failedCounts: (all: Int, gone: Int) {
+        let failed = videos.filter { $0.status == .failed && $0.statusDetail != "Cancelled" }
+        return (failed.count, failed.filter { EatFailure.isGone($0.statusDetail) }.count)
+    }
+
+    /// Eaten, now being finished by the local AI (polished, summarized).
+    private var finishing: [Video] { videos.filter { $0.status == .polishing || $0.status == .summarizing } }
 
     /// Done (or being polished and summarized), newest first.
     private var finished: [Video] {
@@ -37,7 +43,9 @@ struct NowEatingView: View {
         let eating = running
         let current = eating.first
         let waitingCount = waiting
-        let failedCount = failed
+        let failedCount = failedCounts
+        let polishing = finishing
+        let afterCount = app.engine.postQueue.count
         List(selection: $selection) {
             Section {
                 if let current {
@@ -49,6 +57,27 @@ struct NowEatingView: View {
             } header: {
                 Text(current == nil ? "Eat" : "Being eaten")
             }
+            // 4.5: after eating, the local AI polishes and summarizes — shown here so the page never looks idle
+            // while the Mac is still working.
+            if !polishing.isEmpty || afterCount > 0 {
+                Section {
+                    ForEach(polishing) { video in
+                        FinishingRow(video: video).tag(video.videoID)
+                    }
+                    if afterCount > 0 {
+                        Button {
+                            app.selection = .eating
+                        } label: {
+                            Label("\(afterCount) more waiting for polish and summary", systemImage: "clock")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                    }
+                } header: {
+                    Text("Being finished — local AI")
+                }
+            }
             if !done.isEmpty {
                 Section {
                     ForEach(done) { video in
@@ -58,12 +87,15 @@ struct NowEatingView: View {
                     Text("Just eaten")
                 }
             }
-            if failedCount > 0 {
+            if failedCount.all > 0 {
                 Section {
                     Button {
                         app.selection = .eating
                     } label: {
-                        Label("\(failedCount) could not be eaten — see why, retry", systemImage: "exclamationmark.triangle")
+                        Label(failedCount.gone > 0
+                              ? "\(failedCount.all) could not be eaten (\(failedCount.gone) not on YouTube any more) — see why"
+                              : "\(failedCount.all) could not be eaten — see why, retry",
+                              systemImage: "exclamationmark.triangle")
                     }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.orange)
@@ -71,7 +103,7 @@ struct NowEatingView: View {
             }
         }
         .navigationTitle("Eat")
-        .navigationSubtitle(subtitle(running: eating.count, waiting: waitingCount, later: later))
+        .navigationSubtitle(subtitle(running: eating.count, waiting: waitingCount, later: later, finishing: polishing.count + afterCount))
         .toolbar {
             ToolbarItemGroup {
                 Toggle(isOn: $follow) {
@@ -115,9 +147,10 @@ struct NowEatingView: View {
         }
     }
 
-    private func subtitle(running: Int, waiting: Int, later: Int) -> String {
+    private func subtitle(running: Int, waiting: Int, later: Int, finishing: Int = 0) -> String {
         if app.engine.eatingPaused { return "Paused" }
-        let tail = later > 0 ? " · \(later) later" : ""
+        var tail = later > 0 ? " · \(later) later" : ""
+        if finishing > 0 { tail += " · \(finishing) being finished" }
         if running > 0 { return (waiting > 0 ? "\(running) being eaten · \(waiting) waiting" : "\(running) being eaten") + tail }
         return (waiting > 0 ? "\(waiting) waiting" : "Paste a link below") + tail
     }
@@ -166,6 +199,29 @@ private struct NowCard: View {
             }
         }
         .padding(.vertical, 8)
+    }
+}
+
+/// An eaten item the local AI is polishing or summarizing now: small picture, title, step.
+private struct FinishingRow: View {
+    @Environment(AppModel.self) private var app
+    let video: Video
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Thumbnail(url: video.thumbnailURL, width: 72, radius: 6)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(video.displayTitle).font(.callout.weight(.medium)).lineLimit(2)
+                HStack(spacing: 6) {
+                    Image(systemName: video.status.symbol)
+                        .foregroundStyle(video.status.color)
+                        .symbolEffect(.pulse, isActive: true)
+                    Text(app.engine.state(for: video.videoID)?.step ?? video.status.label)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 

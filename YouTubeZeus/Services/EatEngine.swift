@@ -364,8 +364,9 @@ final class EatEngine {
             guard video.isAlive else { return }   // deleted while it was eaten
             let cancelled = Self.isCancellation(error)
             video.status = .failed
-            video.statusDetail = cancelled ? "Cancelled" : error.localizedDescription
-            AppLog.write("FAILED \(id): \(video.statusDetail)")
+            let raw = error.localizedDescription
+            video.statusDetail = cancelled ? "Cancelled" : EatFailure.explain(raw)
+            AppLog.write("FAILED \(id): \(raw)")
         }
         try? context.save()
     }
@@ -692,6 +693,21 @@ final class EatEngine {
 
     var canSummarize: Bool { useAppleIntelligence || codexSummaryAllowed || localSummaryAllowed }
 
+    /// 4.5: which engine will summarize this item, in one sentence (the same choice the summary lane makes).
+    func summaryPlan(for id: String) -> String {
+        guard canSummarize else { return summaryUnavailableMessage }
+        let appleResting = (appleSummaryPausedUntil ?? .distantPast) > .now
+        if useAppleIntelligence, !(localSummaryAllowed && (appleDeclined.contains(id) || appleResting)) {
+            return "Apple Intelligence will summarize it on this Mac."
+        }
+        if codexSummaryAllowed, !useAppleIntelligence { return "Codex will write the summary (you chose it in Settings)." }
+        let waiting = summaryQueue.firstIndex(of: id).map { " — \($0 + 1) in line" } ?? ""
+        if useAppleIntelligence, appleDeclined.contains(id) {
+            return "Apple Intelligence declined this one: the local AI will write the summary on this Mac (free)" + waiting + "."
+        }
+        return "The local AI will write the summary on this Mac (free)" + waiting + "."
+    }
+
     // MARK: Codex usage limit
 
     /// When the ChatGPT plan's Codex limit is reached, Zeus stops using Codex until the time Codex gives,
@@ -856,5 +872,37 @@ enum Notifier {
         content.body = body
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
+    }
+}
+
+/// 4.5: why an item could not be eaten, in words (yt-dlp's errors are for programmers).
+nonisolated enum EatFailure {
+    /// The video is not on YouTube any more (removed, made private, or blocked here): retrying will not help.
+    static func isGone(_ detail: String) -> Bool {
+        let text = detail.lowercased()
+        return text.contains("video unavailable") || text.contains("private video") || text.contains("has been removed")
+            || text.contains("no longer available") || text.contains("account associated with this video has been terminated")
+            || text.hasPrefix("not on youtube any more")
+    }
+
+    /// A clear sentence for the error yt-dlp gave (the original text is kept in the log).
+    static func explain(_ detail: String) -> String {
+        let text = detail.lowercased()
+        if isGone(detail) {
+            return "Not on YouTube any more: the video was removed, made private, or is blocked in your country."
+        }
+        if text.contains("confirm you") && text.contains("not a bot") {
+            return "YouTube asked to confirm you are not a bot. Sign in to YouTube in Zeus (YouTube › Accounts), then retry."
+        }
+        if text.contains("confirm your age") || text.contains("age-restricted") || text.contains("inappropriate for some users") {
+            return "Age-restricted. Sign in to YouTube in Zeus (YouTube › Accounts), then retry."
+        }
+        if text.contains("members-only") || text.contains("join this channel") || text.contains("available to this channel's members") {
+            return "Members-only. Sign in with the YouTube account that is a member (YouTube › Accounts), then retry."
+        }
+        if text.contains("http error 429") || text.contains("too many requests") {
+            return "YouTube is limiting requests from this Mac. Retry in an hour."
+        }
+        return detail
     }
 }

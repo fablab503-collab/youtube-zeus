@@ -463,17 +463,30 @@ struct QueueView: View {
                     ForEach(failed) { video in
                         VStack(alignment: .leading, spacing: 4) {
                             VideoRow(video: video)
-                            Text(video.statusDetail).font(.caption).foregroundStyle(.red).lineLimit(3)
+                            Text(EatFailure.explain(video.statusDetail)).font(.caption).foregroundStyle(.red).lineLimit(3)
+                                .help(video.statusDetail)
                         }
                         .tag(video.videoID)
                         .contextMenu { VideoMenu(video: video) }
                     }
                 } header: {
-                    HStack {
-                        Text("Failed")
+                    // 4.5: videos no longer on YouTube are not retried (it cannot work); they can go to Deleted at once.
+                    let gone = failed.filter { EatFailure.isGone($0.statusDetail) }
+                    let retryable = failed.filter { !EatFailure.isGone($0.statusDetail) }
+                    HStack(spacing: 12) {
+                        Text(gone.isEmpty ? "Failed" : "Failed — \(gone.count) not on YouTube any more")
                         Spacer()
-                        Button("Retry all") { failed.forEach { app.engine.retry($0) } }
+                        if !gone.isEmpty {
+                            Button("Move the \(gone.count) to Deleted") { app.trash(gone) }
+                                .buttonStyle(.borderless)
+                                .help("Videos removed from YouTube or made private: out of the library (you can restore them from Deleted)")
+                        }
+                        if !retryable.isEmpty {
+                            Button(gone.isEmpty ? "Retry all" : "Retry the other \(retryable.count)") {
+                                retryable.forEach { app.engine.retry($0) }
+                            }
                             .buttonStyle(.borderless)
+                        }
                     }
                 }
             }

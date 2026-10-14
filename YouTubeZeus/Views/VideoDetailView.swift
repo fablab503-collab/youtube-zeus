@@ -579,11 +579,7 @@ struct SummaryBody: View {
                 } else {
                     Text(video.digestError ?? "No summary yet.")
                         .foregroundStyle(video.digestError == nil ? Color.secondary : Color.red)
-                    Text(app.engine.canSummarize
-                         ? (app.engine.useAppleIntelligence ? "Apple Intelligence will summarize this video on this Mac."
-                            : (app.engine.codexSummaryAllowed ? "Codex will write the summary (you chose it in Settings)."
-                               : "The local AI will write the summary on this Mac (free)."))
-                         : app.engine.summaryUnavailableMessage)
+                    Text(app.engine.summaryPlan(for: video.videoID))
                         .font(.caption).foregroundStyle(.secondary)
                     Button { app.summarize(video) } label: { Label("Summarize", systemImage: "apple.intelligence") }
                         .buttonStyle(.glassProminent)

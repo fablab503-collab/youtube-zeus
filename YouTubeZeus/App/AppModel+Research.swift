@@ -100,7 +100,15 @@ struct PlaybookResearchCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let brief {
+            if let brief, brief.questions.isEmpty, brief.findings.isEmpty {
+                // Nothing to check yet: no buttons that would do nothing.
+                Label("Research", systemImage: "magnifyingglass.circle.fill").font(.headline)
+                Text(video.playbook == nil
+                     ? "No questions yet. When the playbook is made, Zeus asks what to check before you trust its steps — the tools to install, the links, the risky steps — and agents can answer here."
+                     : "Nothing to check: this playbook names no tool, link or step that needs checking.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let brief {
                 header(brief)
                 let answers = brief.answers
                 if !answers.isEmpty {
@@ -137,7 +145,7 @@ struct PlaybookResearchCard: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Label("Research", systemImage: "magnifyingglass.circle.fill").font(.headline)
-                Text("\(brief.answeredCount) answered · \(brief.open.count) open")
+                Text(brief.countsLine)
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button {

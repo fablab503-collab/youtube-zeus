@@ -47,7 +47,7 @@ struct AgentsView: View {
                 ForEach(open, id: \.id) { item in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(item.title).font(.headline).lineLimit(2)
-                        Text("\(item.open) open · \(item.answered) answered\(item.hasPlaybook ? " · playbook" : "")")
+                        Text(item.countsLine)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         ForEach(item.firstQuestions.prefix(2), id: \.self) { question in

@@ -20,6 +20,14 @@ Newest first.
   fails (sensitive content, model error), the free local AI summarizes it instead; the ones that failed this way
   are queued again (Apple Intelligence rests 6 hours after 3 refusals in a row). **Pause** on the Eat page now also
   holds the local AI's polishing and summaries.
+- **Tried on the Mac, then fixed** (14 Oct afternoon): the Eat page shows what the local AI is finishing
+  (polishing, summarizing) and how many wait, instead of "Nothing is being eaten" while the Mac works; failed items
+  say why in words ("Not on YouTube any more", "YouTube asked to confirm you are not a bot", age-restricted,
+  members-only, too many requests); the line counts the ones no longer on YouTube, retries only the others and can
+  move them to Deleted in one click; the Research card shows "Zeus found facts for N" (also on the Agents page and in
+  `zeus agent`) and, when there is nothing to check yet, one line instead of buttons that do nothing; a video's
+  Summary says which engine will write it (the local AI when Apple Intelligence declined it or rests) and its place
+  in line.
 - QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished
   item and never moves you off a finished one you are reading; the Eat page and the sidebar no longer redraw at every
   progress tick; files, posts and `zeus eat` open on the Eat page; "N later" for premieres and live streams; the

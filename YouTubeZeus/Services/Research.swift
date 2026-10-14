@@ -90,6 +90,17 @@ nonisolated struct ResearchBrief: Sendable {
 
     /// How many questions have an answer.
     var answeredCount: Int { questions.filter { isAnswered($0) }.count }
+
+    /// Open questions for which Zeus already found facts itself (Homebrew, npm, PyPI, GitHub).
+    var zeusFoundCount: Int { self.open.filter { !partials(for: $0).isEmpty }.count }
+
+    /// "0 answered · 4 open · Zeus found facts for 4"
+    var countsLine: String {
+        var line = "\(answeredCount) answered · \(open.count) open"
+        let found = zeusFoundCount
+        if found > 0 { line += " · Zeus found facts for \(found)" }
+        return line
+    }
 }
 
 nonisolated enum Research {
@@ -534,6 +545,16 @@ nonisolated enum Research {
         var eatenAt: Date?
         /// The first open questions (numbered as `zeus research <id>` numbers them).
         var firstQuestions: [String] = []
+        /// Open questions for which Zeus already found facts itself.
+        var found: Int = 0
+
+        /// "4 open · 0 answered · Zeus found facts for 4 · playbook"
+        var countsLine: String {
+            var line = "\(open) open · \(answered) answered"
+            if found > 0 { line += " · Zeus found facts for \(found)" }
+            if hasPlaybook { line += " · playbook" }
+            return line
+        }
     }
 
     /// `zeus agent` / MCP `agent_briefing`: for any agent connected to this Mac, what it can look up and do now.
@@ -554,7 +575,8 @@ nonisolated enum Research {
         } else {
             lines += ["These items have open questions. Read one with \(command("`zeus research <id>`", "the tool `get_research`")), search, then save each answer.", ""]
             for item in researchable.prefix(8) {
-                lines.append("- `\(item.id)` — \(item.title) — \(item.open) open, \(item.answered) answered\(item.hasPlaybook ? " · has a playbook" : "")")
+                let found: String = item.found > 0 ? " · Zeus found facts for \(item.found) (check them, then answer)" : ""
+                lines.append("- `\(item.id)` — \(item.title) — \(item.open) open, \(item.answered) answered\(item.hasPlaybook ? " · has a playbook" : "")" + found)
                 for (index, question) in item.firstQuestions.prefix(3).enumerated() {
                     lines.append("  \(index + 1). \(question)")
                 }

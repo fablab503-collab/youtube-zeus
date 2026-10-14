@@ -63,6 +63,10 @@ enum ZeusCLI {
                                 Claude Code or Codex on it. While it is made, it prints the step the app is on
       zeus agent [--json]       for an agent on this Mac: what it can look up and do now (open research questions,
                                 the repo of the day, what was eaten, what waits for Daniel), with the rules
+      zeus status [--json]      the library now: items by kind and state, work left (summaries, polish), every kind
+                                of error grouped (could not be eaten, summary, polish, playbook, text on screen)
+      zeus failed [--json]      each item that could not be eaten: why in words, the raw error, attempts, and where it
+                                came from (channel watch, playlist)
       zeus research --auto --all      Zeus checks what it can itself for the 20 items eaten last
       zeus research <link|id> [--auto] [--json]
                                 the research inside a playbook: what Zeus knows, the open questions with searches to
@@ -337,6 +341,26 @@ enum ZeusCLI {
                 if case .video(let videoID) = YouTubeLink.parse(link) { id = videoID }
                 openInApp(URL(string: BrainLinks.zeusScreen(video: id))!, raw: true)
                 print("YouTube Zeus is reading the screen of \(id) (slide titles, code, commands). The note gets an \"On screen\" section.")
+                return 0
+            case "status":
+                let (_, context) = try Library.open()
+                let report = LibraryReport.status(context: context)
+                if flags.contains("--json") {
+                    let data = try JSONSerialization.data(withJSONObject: report.json, options: [.prettyPrinted, .sortedKeys])
+                    print(String(decoding: data, as: UTF8.self))
+                } else {
+                    print(report.text)
+                }
+                return 0
+            case "failed", "failures":
+                let (_, context) = try Library.open()
+                let report = LibraryReport.failed(context: context)
+                if flags.contains("--json") {
+                    let data = try JSONSerialization.data(withJSONObject: report.json, options: [.prettyPrinted, .sortedKeys])
+                    print(String(decoding: data, as: UTF8.self))
+                } else {
+                    print(report.text)
+                }
                 return 0
             case "agent", "agents", "briefing":
                 let (_, context) = try Library.open()

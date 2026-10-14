@@ -171,6 +171,7 @@ enum AgentGuide {
         | `zeus github "<link>" [--save] [--json]` | GitHub repositories linked in a video, checked through the API |
         | `zeus repos [--json]` | every repository linked in the library, with the videos that link it |
         | `zeus agent [--json]` | **start here**: what you can look up and do for Daniel now — items with open research questions, the repo of the day, what was eaten, what waits for Daniel — and the rules |
+        | `zeus status [--json]` / `zeus failed [--json]` | the library now (items, work left, errors grouped) / each item that could not be eaten, why, and where it came from |
         | `zeus research --auto --all` | Zeus checks what it can itself (Homebrew, npm, PyPI, GitHub) for the 20 items eaten last; the rest is for you |
         | `zeus research "<link or id>" [--auto] [--json]` | the research inside an item's playbook: what Zeus knows, the open questions (versions, install, prices, repos' health, steps the video does not show, claims, links) each with searches to run, the answers so far |
         | `zeus research "<id>" --question <number or key> --add "<answer>" [--source <url>]… [--by "<you>"] [--json]` | save an answer (1 to 5 sentences, with sources; UNKNOWN when it cannot be verified): the number as `zeus research` prints it, or the key (`tool:ollama`, `repo:owner/name`); it shows in the app's playbook and in the playbook note |

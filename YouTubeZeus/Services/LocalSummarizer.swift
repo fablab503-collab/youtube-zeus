@@ -73,6 +73,7 @@ nonisolated struct LocalSummarizer: Sendable {
         // 4.5: one part that times out (the Mac busy, a very long podcast) no longer loses the whole summary: it is
         // skipped, unless too many parts fail.
         var failedParts = 0
+        var lastError: Error?
         for (index, part) in parts.enumerated() {
             try Task.checkCancellation()
             progress("Summarizing with the local AI — part \(index + 1) of \(parts.count)")
@@ -83,18 +84,20 @@ nonisolated struct LocalSummarizer: Sendable {
             } catch {
                 if Task.isCancelled || error is CancellationError { throw error }
                 failedParts += 1
-                if failedParts > max(1, parts.count / 3) { throw error }
+                lastError = error
+                if failedParts > parts.count / 3 { throw error }
                 continue
             }
             guard let answer = try? Self.decode(PartAnswer.self, text) else { continue }
             notes += answer.notes.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
             chapters += answer.chapters.map { VideoChapter(start: $0.start, title: $0.title) }
         }
+        if notes.isEmpty, let lastError { throw lastError }   // the real cause (a timeout is retried later)
         guard !notes.isEmpty else { throw SummaryError.unavailable("The local AI gave no usable notes.") }
 
         // Reduce: keep the notes evenly spread when a very long video gives too many.
         var kept = notes
-        let budget = 16_000   // 4.5: fits the same 8k context as every other request (no model reload)
+        let budget = 16_000   // 4.5: fits the 12k context every request uses (no model reload)
         if kept.joined(separator: "\n").count > budget {
             let step = Double(kept.count) / Double(max(1, budget / 120))
             kept = stride(from: 0.0, to: Double(kept.count), by: max(1, step)).map { kept[Int($0)] }

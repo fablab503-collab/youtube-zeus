@@ -368,7 +368,7 @@ enum ZeusCLI {
                 return await doctor(link, settings: settings)
             case "status":
                 let (_, context) = try Library.open()
-                let report = LibraryReport.status(context: context)
+                let report = LibraryReport.status(context: context, settings: settings)
                 if flags.contains("--json") {
                     let data = try JSONSerialization.data(withJSONObject: report.json, options: [.prettyPrinted, .sortedKeys])
                     print(String(decoding: data, as: UTF8.self))

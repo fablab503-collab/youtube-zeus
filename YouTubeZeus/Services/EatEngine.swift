@@ -134,7 +134,16 @@ final class EatEngine {
                     existing.trashedFromRaw = nil
                     existing.status = .failed
                 }
-                if !force, existing.status == .done || existing.status.isBusy || existing.status == .queued { added.append(existing); continue }
+                if !force, existing.status == .done || existing.status.isBusy || existing.status == .queued {
+                    // Pasted again while it waits in a long line: it goes first.
+                    if front, existing.status == .queued, jobs[entry.id] == nil {
+                        queue.removeAll { $0 == entry.id }
+                        queue.insert(entry.id, at: min(frontIndex, queue.count))
+                        frontIndex += 1
+                    }
+                    added.append(existing)
+                    continue
+                }
             } else {
                 video = Video(videoID: entry.id, title: entry.title, channelTitle: entry.channel,
                               channelID: entry.channelID, fromChannelWatch: fromWatch)
@@ -160,6 +169,12 @@ final class EatEngine {
 
     func enqueue(videoIDs: [String]) {
         enqueue(videoIDs.map { (id: $0, title: "", channel: "", channelID: "") })
+    }
+
+    /// Several at once, in their order, before the rest of the line.
+    func retry(_ videos: [Video]) {
+        enqueue(videos.map { (id: $0.videoID, title: $0.title, channel: $0.channelTitle, channelID: $0.channelID) },
+                force: true, front: true)
     }
 
     func retry(_ video: Video, withWhisper: Bool = false) {
@@ -902,32 +917,55 @@ enum Notifier {
 
 /// 4.5: why an item could not be eaten, in words (yt-dlp's errors are for programmers).
 nonisolated enum EatFailure {
+    /// The explanation an earlier 4.5 build stored for "Video unavailable" (those videos were mostly online).
+    private static let oldRefusedSentence = "is blocked in your country."
+
+    /// Blocked in your country by its owner (copyright): reading it another way will not help.
+    static func isCountryBlocked(_ detail: String) -> Bool {
+        let text = detail.lowercased()
+        return text.contains("blocked it in your country") || text.contains("not made this video available in your country")
+            || text.hasPrefix("blocked in your country")
+    }
+
+    /// YouTube is limiting this Mac's requests ("This content isn't available, try again later", HTTP 429).
+    static func isRateLimited(_ detail: String) -> Bool {
+        let text = detail.lowercased()
+        return text.contains("content isn't available") || text.contains("rate-limited") || text.contains("rate limited")
+            || text.contains("http error 429") || text.contains("too many requests") || text.hasPrefix("youtube is limiting")
+    }
+
     /// The video is not on YouTube any more (removed, made private, account closed): retrying will not help.
     static func isGone(_ detail: String) -> Bool {
         let text = detail.lowercased()
+        if text.hasPrefix("not on youtube any more") { return !text.hasSuffix(oldRefusedSentence) }
         return text.contains("private video") || text.contains("has been removed") || text.contains("no longer available")
             || text.contains("account associated with this video has been terminated")
-            || text.hasPrefix("not on youtube any more")
     }
 
     /// YouTube said "Video unavailable" to Zeus without a reason, though the video may well play in a browser
     /// (seen on 50 Lex Fridman episodes that are online): worth retrying, other ways of reading are tried.
     static func isRefused(_ detail: String) -> Bool {
         let text = detail.lowercased()
-        return !isGone(detail) && (text.contains("video unavailable") || text.contains("content isn't available")
-            || text.hasPrefix("youtube refused"))
+        if text.hasPrefix("not on youtube any more") { return text.hasSuffix(oldRefusedSentence) }
+        if isGone(detail) || isCountryBlocked(detail) || isRateLimited(detail) { return false }
+        return text.contains("video unavailable") || text.hasPrefix("youtube refused")
     }
 
     /// A clear sentence for the error yt-dlp gave (the original text is kept in the log).
     static func explain(_ detail: String) -> String {
         let text = detail.lowercased()
-        if text.hasPrefix("youtube refused") || text.hasPrefix("not on youtube any more") { return detail }
-        if isGone(detail) {
-            return "Not on YouTube any more: the video was removed, made private, or its channel was closed."
+        if text.hasPrefix("youtube refused") || text.hasPrefix("youtube is limiting") || text.hasPrefix("blocked in your country") {
+            return detail
         }
         if isRefused(detail) {
             return "YouTube refused to show this video to Zeus (it may play fine in a browser). Zeus tried other ways of reading it; retry later."
         }
+        if isGone(detail) {
+            return text.hasPrefix("not on youtube any more") ? detail
+                : "Not on YouTube any more: the video was removed, made private, or its channel was closed."
+        }
+        if isCountryBlocked(detail) { return "Blocked in your country by its owner." }
+        if isRateLimited(detail) { return "YouTube is limiting requests from this Mac. Retry in an hour." }
         if text.contains("confirm you") && text.contains("not a bot") {
             return "YouTube asked to confirm you are not a bot. Sign in to YouTube in Zeus (YouTube › Accounts), then retry."
         }
@@ -936,12 +974,6 @@ nonisolated enum EatFailure {
         }
         if text.contains("members-only") || text.contains("join this channel") || text.contains("available to this channel's members") {
             return "Members-only. Sign in with the YouTube account that is a member (YouTube › Accounts), then retry."
-        }
-        if text.contains("not made this video available in your country") || text.contains("blocked it in your country") {
-            return "Blocked in your country by its owner."
-        }
-        if text.contains("http error 429") || text.contains("too many requests") {
-            return "YouTube is limiting requests from this Mac. Retry in an hour."
         }
         return detail
     }

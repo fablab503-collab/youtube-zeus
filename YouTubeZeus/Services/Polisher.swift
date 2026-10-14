@@ -29,20 +29,36 @@ actor OllamaGate {
 
     /// True in `zeus` and `zeus mcp`: someone (you, an agent) waits for the answer.
     nonisolated(unsafe) static var foreground = false
-    /// Written by a `zeus` command while it asks the local AI; the app lets it go first (4.5: `zeus ask` waited
-    /// behind hours of polishing).
-    nonisolated static var markerURL: URL { AppFolders.support.appendingPathComponent("local-ai-foreground") }
+    /// Written by each `zeus` command while it asks the local AI (one file per process); the app lets it go first
+    /// (4.5: `zeus ask` waited behind hours of polishing).
+    nonisolated static var markerFolder: URL { AppFolders.support.appendingPathComponent("local-ai-foreground", isDirectory: true) }
+    nonisolated static var markerURL: URL {
+        markerFolder.appendingPathComponent("\(ProcessInfo.processInfo.processIdentifier)")
+    }
 
+    nonisolated static func touchMarker() {
+        try? FileManager.default.createDirectory(at: markerFolder, withIntermediateDirectories: true)
+        try? Data().write(to: markerURL)
+    }
+
+    /// A command touched its marker in the last 3 minutes (a crashed command stops counting after that).
     nonisolated static func foregroundWaiting() -> Bool {
-        guard let date = (try? FileManager.default.attributesOfItem(atPath: markerURL.path))?[.modificationDate] as? Date
-        else { return false }
-        return Date.now.timeIntervalSince(date) < 180
+        let files = (try? FileManager.default.contentsOfDirectory(at: markerFolder, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        return files.contains { file in
+            guard let date = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { return false }
+            let age = Date.now.timeIntervalSince(date)
+            return age >= 0 && age < 180
+        }
+    }
+
+    /// In the app, while a command waits: no new request (also for a waiter just handed the turn).
+    private func yieldToCommands() async {
+        guard !Self.foreground else { return }
+        while Self.foregroundWaiting(), !Task.isCancelled { try? await Task.sleep(for: .seconds(1)) }
     }
 
     func acquire(_ priority: Priority) async {
-        if !Self.foreground {
-            while Self.foregroundWaiting() { try? await Task.sleep(for: .seconds(1)) }
-        }
+        await yieldToCommands()
         guard busy else {
             busy = true
             return
@@ -50,6 +66,7 @@ actor OllamaGate {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             if priority == .high { high.append(continuation) } else { low.append(continuation) }
         }
+        await yieldToCommands()
     }
 
     func release() {
@@ -173,7 +190,7 @@ nonisolated struct OllamaClient: Sendable {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         await OllamaGate.shared.acquire(priority)
         let marker = OllamaGate.foreground ? OllamaGate.markerURL : nil
-        if let marker { try? Data().write(to: marker) }
+        if marker != nil { OllamaGate.touchMarker() }
         defer { if let marker { try? FileManager.default.removeItem(at: marker) } }
         do {
             let text = try await stream(request)
@@ -195,7 +212,13 @@ nonisolated struct OllamaClient: Sendable {
             throw PolishError.http("HTTP \(http.statusCode)")
         }
         var content = ""
+        var touched = Date.now
         for try await line in bytes.lines {
+            // A long answer for a command keeps its marker fresh (the app keeps waiting).
+            if OllamaGate.foreground, Date.now.timeIntervalSince(touched) > 30 {
+                OllamaGate.touchMarker()
+                touched = .now
+            }
             guard let json = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { continue }
             if let error = json["error"] as? String { throw PolishError.http(error) }
             if let message = json["message"] as? [String: Any], let piece = message["content"] as? String { content += piece }

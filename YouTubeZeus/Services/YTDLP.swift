@@ -127,10 +127,12 @@ nonisolated struct YTDLP: Sendable {
     }
 
     /// Errors another way of reading may get around (not a cancellation, not a missing tool).
+    /// (Not a rate limit, a bot check or a country block: more requests would only make those last longer.)
     static func mayWorkAnotherWay(_ error: Error) -> Bool {
-        let text = error.localizedDescription.lowercased()
-        return text.contains("video unavailable") || text.contains("content isn't available") || text.contains("not a bot")
-            || text.contains("http error 403") || text.contains("requested format is not available")
+        let detail = error.localizedDescription
+        let text = detail.lowercased()
+        if EatFailure.isRateLimited(detail) || EatFailure.isCountryBlocked(detail) || text.contains("not a bot") { return false }
+        return text.contains("video unavailable") || text.contains("http error 403") || text.contains("requested format is not available")
     }
 
     /// Reads a video's info; when YouTube refuses this way, tries the other ways and returns the one that worked
@@ -143,7 +145,7 @@ nonisolated struct YTDLP: Sendable {
             for attempt in Self.attempts(cookies: cookieArguments).dropFirst() where attempt.arguments != cookieArguments {
                 try Task.checkCancellation()
                 onTry?(attempt.name)
-                let other = YTDLP(executable: executable, cookieArguments: attempt.arguments, comments: 0)
+                let other = YTDLP(executable: executable, cookieArguments: attempt.arguments, comments: comments)
                 if let found = try? await other.info(videoID: videoID) {
                     AppLog.write("YTDLP \(videoID): read \(attempt.name) after “\(error.localizedDescription.prefix(120))”")
                     return (other, found)

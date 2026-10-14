@@ -18,7 +18,7 @@ enum LibraryReport {
         return counts.map { (message: $0.key, count: $0.value) }.sorted { $0.count > $1.count }
     }
 
-    static func status(context: ModelContext) -> (text: String, json: [String: Any]) {
+    static func status(context: ModelContext, settings: AppSettings) -> (text: String, json: [String: Any]) {
         let all = (try? context.fetch(FetchDescriptor<Video>())) ?? []
         let live = all.filter { $0.status != .trashed }
         var byStatus: [String: Int] = [:]
@@ -27,7 +27,16 @@ enum LibraryReport {
         for video in live { byKind[video.kind.rawValue, default: 0] += 1 }
         let eaten = live.filter { $0.status.hasText }
         let noSummary = eaten.filter { !$0.textOnly && $0.digestData == nil && $0.digestError == nil }
-        let noPolish = eaten.filter { !$0.textOnly && $0.polishedData == nil && $0.polishError == nil && $0.kind != .social }
+        // Only what will be polished (the same rules as the app: auto-captions and Whisper, captions when chosen).
+        func willPolish(_ video: Video) -> Bool {
+            guard settings.polishEnabled, !video.textOnly else { return false }
+            switch video.source {
+            case .autoCaptions, .whisper: return true
+            case .captions, .published: return settings.polishCaptionsToo
+            case .post, .none: return false
+            }
+        }
+        let noPolish = eaten.filter { willPolish($0) && $0.polishedData == nil && $0.polishError == nil }
         let failed = live.filter { $0.status == .failed }
         let failedGroups = counted(failed.map(\.statusDetail))
         let summaryErrors = counted(eaten.compactMap(\.digestError))

@@ -485,7 +485,7 @@ struct QueueView: View {
                             }
                             if !retryable.isEmpty {
                                 Button(gone.isEmpty ? "Retry All" : "Retry the Other \(retryable.count)") {
-                                    retryable.forEach { app.engine.retry($0) }
+                                    app.engine.retry(retryable)
                                 }
                             }
                         }

@@ -52,6 +52,12 @@ Newest first.
 - **A command goes first**: while `zeus ask` (or any `zeus` command, or an agent through `zeus mcp`) waits for the
   local AI, the app holds its polishing and summaries, so the answer comes in a minute instead of after the current
   backlog. `zeus mcp --selftest` checks the MCP server's protocol and read-only tools without an MCP client.
+- Review fixes: a rate limit, a bot check or a country block is no longer read 6 other ways (more requests would make
+  it last longer) and each has its own explanation; a video read another way keeps its comments; Retry keeps the
+  items' order; pasting a link already waiting in a long line moves it first; a one-part summary that fails shows
+  the real error (and a timeout is retried); the app never spins while a cancelled request waits for a command;
+  each command has its own marker (two commands no longer cancel each other's turn); `zeus status` counts only what
+  will really be polished.
 - `zeus status` (the library: items, work left, every error grouped) and `zeus failed` (each failed item, why, the
   raw error, where it came from) — for you and for agents.
 - QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished

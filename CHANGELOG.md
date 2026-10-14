@@ -58,6 +58,10 @@ Newest first.
   the real error (and a timeout is retried); the app never spins while a cancelled request waits for a command;
   each command has its own marker (two commands no longer cancel each other's turn); `zeus status` counts only what
   will really be polished.
+- **People, tools and companies, and playbooks, no longer wait for the whole backlog**: they waited until polishing
+  and summaries had nothing left, and with ~370 podcasts in line, names never came (466 items waited) and a playbook
+  you asked for could wait days. Names now go with the summaries (the local AI takes one request at a time anyway);
+  while a playbook is made, polishing and summaries hold. Only Whisper still goes before them (GPU).
 - `zeus status` (the library: items, work left, every error grouped) and `zeus failed` (each failed item, why, the
   raw error, where it came from) — for you and for agents.
 - QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished

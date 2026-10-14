@@ -482,7 +482,10 @@ final class EatEngine {
         guard !polishRunning, !polishQueue.isEmpty else { return }
         polishRunning = true
         Task {
-            while !eatingPaused, let id = Self.take(from: &polishQueue, avoiding: summaryCurrent) {
+            while !eatingPaused {
+                // 4.5: a playbook (asked for, minutes, a vision model) goes first; polishing waits.
+                while playbookCurrent != nil { try? await Task.sleep(for: .seconds(3)) }
+                guard !eatingPaused, let id = Self.take(from: &polishQueue, avoiding: summaryCurrent) else { break }
                 polishCurrent = id
                 if let video = video(id) {
                     forcePolish.remove(id)
@@ -499,7 +502,9 @@ final class EatEngine {
         guard !summaryRunning, !summaryQueue.isEmpty else { return }
         summaryRunning = true
         Task {
-            while !eatingPaused, let id = Self.take(from: &summaryQueue, avoiding: polishCurrent) {
+            while !eatingPaused {
+                while playbookCurrent != nil { try? await Task.sleep(for: .seconds(3)) }
+                guard !eatingPaused, let id = Self.take(from: &summaryQueue, avoiding: polishCurrent) else { break }
                 summaryCurrent = id
                 if let video = video(id), video.digestData == nil { await summarize(video) }
                 if let video = video(id) { finishIfIdle(video, fromPolish: false) }

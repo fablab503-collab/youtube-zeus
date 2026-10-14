@@ -211,9 +211,10 @@ extension EatEngine {
         entityRunning = true
         Task {
             while !entityQueue.isEmpty {
-                // Polishing and summaries first (names are read from the summary), and never while Whisper listens:
-                // two big models on the GPU at once slow both down a lot.
-                while polishRunning || summaryRunning || whisperBusy { try? await Task.sleep(for: .seconds(5)) }
+                // Never while Whisper listens: two big models on the GPU at once slow both down a lot. (4.5: no longer
+                // after the whole polishing and summary backlog — with hundreds of podcasts waiting, names never came.
+                // The local AI takes one request at a time anyway, names with the summaries, before polishing.)
+                while whisperBusy || eatingPaused { try? await Task.sleep(for: .seconds(5)) }
                 let next = entityQueue.removeFirst()
                 entityCurrent = next
                 if let item = video(next) { await findNames(item) }

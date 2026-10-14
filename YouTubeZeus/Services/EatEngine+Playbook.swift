@@ -11,7 +11,7 @@ extension EatEngine {
         if force { playbookForced.insert(id) }
         if !playbookQueue.contains(id), playbookCurrent != id {
             playbookQueue.append(id)
-            playbookProgress(id, "Waiting for the local AI (listening, polishing and summaries go first)", nil)
+            playbookProgress(id, "Waiting for the local AI (another playbook or Whisper first)", nil)
         }
         guard !playbookRunning else { return }
         playbookRunning = true
@@ -20,8 +20,9 @@ extension EatEngine {
             let activity = ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: "YouTube Zeus is making a playbook")
             defer { ProcessInfo.processInfo.endActivity(activity) }
             while !playbookQueue.isEmpty {
-                // Two big models on the GPU at once slow both down a lot.
-                while polishRunning || summaryRunning || whisperBusy {
+                // Two big models on the GPU at once slow both down a lot: not while Whisper listens. (4.5: no longer
+                // after the whole polishing and summary backlog; those lanes hold while a playbook is made.)
+                while whisperBusy {
                     try? await Task.sleep(for: .seconds(5))
                     if Task.isCancelled { break }
                 }

@@ -161,9 +161,16 @@ nonisolated enum Research {
             throw ResearchError.unreadable(url.path)
         }
         var all = findings(videoID)
+        let fromZeus = finding.by.hasPrefix("Zeus")
+        let fromDaniel = finding.by.lowercased() == "daniel" && !finding.partial
         all.removeAll { old in
             let sameQuestion = (old.key != nil && old.key?.lowercased() == finding.key?.lowercased()) || same(old.question, finding.question)
-            return sameQuestion && old.by.lowercased() == finding.by.lowercased()
+            guard sameQuestion else { return false }
+            if old.by.lowercased() == finding.by.lowercased() { return true }
+            // Zeus's own facts replace each other (Homebrew, then npm…); Daniel's answer replaces the others' answers.
+            if fromZeus, old.by.hasPrefix("Zeus") { return true }
+            if fromDaniel, !old.partial { return true }
+            return false
         }
         all.append(finding)
         let data = try encoder.encode(Stored(video: videoID, title: title, findings: all))

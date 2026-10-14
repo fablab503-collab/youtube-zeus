@@ -459,6 +459,18 @@ final class Video {
         return value
     }
 
+    /// 4.5: what the research needs (no transcript, chapters, comments or text on screen): cheap to build for many items.
+    var researchSnapshot: VideoSnapshot {
+        var value = VideoSnapshot(videoID: videoID, title: displayTitle, channelTitle: channelTitle, channelID: channelID,
+                                  publishedAt: publishedAt, duration: duration, language: language, source: source,
+                                  eatenAt: eatenAt ?? .now, description: videoDescription, tags: [], viewCount: viewCount,
+                                  likeCount: likeCount, chapters: [], digest: digest, paragraphs: [],
+                                  comments: [], polishedBy: nil, repos: repos,
+                                  kind: kind, mediaURL: mediaURLString, pageURL: pageURLString, screen: [], entities: entities)
+        value.hasPlaybook = playbookData != nil
+        return value
+    }
+
     var wordCount: Int { transcriptText.split(whereSeparator: \.isWhitespace).count }
 }
 

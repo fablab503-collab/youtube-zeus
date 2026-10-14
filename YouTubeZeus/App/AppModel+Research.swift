@@ -4,7 +4,7 @@ import SwiftUI
 /// Research inside the playbook (4.5): the open questions of a video for agents that can search, and their answers.
 extension AppModel {
     func researchBrief(_ video: Video) -> ResearchBrief {
-        Research.brief(video.snapshot, playbook: video.playbook)
+        Research.brief(video.researchSnapshot, playbook: video.playbook)
     }
 
     /// Copies the brief for an agent (rules, how to save, what is known, open questions, answers so far).
@@ -47,7 +47,7 @@ extension AppModel {
         researchChecking.insert("*")
         var work: [(VideoSnapshot, Playbook?)] = []
         for item in agentRows() where item.open > 0 {
-            if let video = engine.video(item.id) { work.append((video.snapshot, video.playbook)) }
+            if let video = engine.video(item.id) { work.append((video.researchSnapshot, video.playbook)) }
         }
         let jobs = work
         Task {
@@ -71,7 +71,7 @@ extension AppModel {
         let id = video.videoID
         guard !researchChecking.contains(id) else { return }
         researchChecking.insert(id)
-        let snapshot = video.snapshot
+        let snapshot = video.researchSnapshot
         let playbook = video.playbook
         Task {
             let found = (try? await offMain { await AutoResearch.run(snapshot, playbook: playbook) }) ?? 0
@@ -125,7 +125,7 @@ struct PlaybookResearchCard: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: 22))
-        .task(id: "\(video.videoID)-\(app.researchVersion)-\(video.playbook?.madeAt.timeIntervalSince1970 ?? 0)") {
+        .task(id: "\(video.videoID)-\(app.researchVersion)-\(video.playbookAt?.timeIntervalSince1970 ?? 0)-\(video.githubCheckedAt?.timeIntervalSince1970 ?? 0)-\(video.digestData?.count ?? 0)-\(video.entitiesAt?.timeIntervalSince1970 ?? 0)") {
             brief = app.researchBrief(video)
         }
         .sheet(item: $answering) { question in
@@ -143,7 +143,7 @@ struct PlaybookResearchCard: View {
                 Button {
                     app.autoResearch(video)
                 } label: {
-                    if app.researchChecking.contains(video.videoID) {
+                    if (app.researchChecking.contains(video.videoID) || app.researchChecking.contains("*")) {
                         ProgressView().controlSize(.small)
                     } else {
                         Label("Let Zeus Check", systemImage: "checkmark.seal")
@@ -151,7 +151,7 @@ struct PlaybookResearchCard: View {
                 }
                 .buttonStyle(.glass)
                 .controlSize(.small)
-                .disabled(app.researchChecking.contains(video.videoID))
+                .disabled((app.researchChecking.contains(video.videoID) || app.researchChecking.contains("*")))
                 .help("Zeus checks what it can itself, for free: Homebrew, npm and PyPI versions and install commands, GitHub activity, releases, advisories and open issues")
                 Button {
                     app.copyResearch(video)

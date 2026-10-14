@@ -86,7 +86,7 @@ extension AppModel {
         try? context.save()
         if !added.isEmpty {
             engine.enqueue(added.map { (id: $0, title: "", channel: "", channelID: "") }, force: true)
-            if selection != .library { selection = .library }
+            showItemsPage()
             selectedVideoID = added.first
             show(added.count == 1 ? "Eating your file on this Mac." : "Eating \(added.count) files on this Mac.")
         }

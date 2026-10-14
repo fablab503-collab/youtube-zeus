@@ -16,6 +16,11 @@ Newest first.
   another finished item; several items eaten at once show as "and N more"; items you stopped are not counted as
   failed; "Reading the link…" while a playlist or channel is read. Paste several links at once: each is eaten in turn.
   The bar has one **+** (find a video on YouTube, eat your own files); the YouTube-browser card says **Eat**.
+- QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished
+  item and never moves you off a finished one you are reading; the Eat page and the sidebar no longer redraw at every
+  progress tick; files, posts and `zeus eat` open on the Eat page; "N later" for premieres and live streams; the
+  Research card refreshes when the GitHub check, the summary and the names arrive; Daniel's answer replaces agents'
+  answers to the same question and Zeus's own facts replace each other; a followed channel no longer shows twice.
 - Clicking a moment (summary, key points, chapters, search) opens it where you are — the Eat page, a channel, a
   playlist, Favorites — instead of jumping to Videos. The menu bar shows the item being eaten and how many wait.
 - **Fewer buttons on a video**: the header has one main button (Do everything while something is missing), Copy

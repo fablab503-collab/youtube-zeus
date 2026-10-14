@@ -11,13 +11,15 @@ struct NowEatingView: View {
     @AppStorage("nowFollow") private var follow = true
     @State private var selection: String?
 
-    /// Being eaten: reading captions, downloading, listening (the one with live progress first).
+    /// Being eaten: reading captions, downloading, listening. (Progress is read by NowCard only, so the page itself is
+    /// not redrawn at every progress tick.)
     private var running: [Video] {
-        let eating = videos.filter { $0.status == .fetching || $0.status == .transcribing }
-        return eating.filter { app.engine.state(for: $0.videoID) != nil } + eating.filter { app.engine.state(for: $0.videoID) == nil }
+        videos.filter { $0.status == .fetching || $0.status == .transcribing }
     }
 
     private var waiting: Int { videos.filter { $0.status == .queued }.count }
+    /// Premieres, live streams and just-uploaded videos: eaten later, at a channel check.
+    private var later: Int { videos.filter { $0.status == .waiting }.count }
     /// Failed, not counting the ones you stopped yourself.
     private var failed: Int { videos.filter { $0.status == .failed && $0.statusDetail != "Cancelled" }.count }
 
@@ -29,10 +31,13 @@ struct NowEatingView: View {
     }
 
     var body: some View {
-        let latest = finished.first?.videoID
+        let done = finished
+        let latest = done.first?.videoID
+        let latestAt = done.first?.eatenAt
         let eating = running
         let current = eating.first
         let waitingCount = waiting
+        let failedCount = failed
         List(selection: $selection) {
             Section {
                 if let current {
@@ -44,21 +49,21 @@ struct NowEatingView: View {
             } header: {
                 Text(current == nil ? "Eat" : "Being eaten")
             }
-            if !finished.isEmpty {
+            if !done.isEmpty {
                 Section {
-                    ForEach(finished) { video in
+                    ForEach(done) { video in
                         VideoRow(video: video).tag(video.videoID).contextMenu { VideoMenu(video: video) }
                     }
                 } header: {
                     Text("Just eaten")
                 }
             }
-            if failed > 0 {
+            if failedCount > 0 {
                 Section {
                     Button {
                         app.selection = .eating
                     } label: {
-                        Label("\(failed) could not be eaten — see why, retry", systemImage: "exclamationmark.triangle")
+                        Label("\(failedCount) could not be eaten — see why, retry", systemImage: "exclamationmark.triangle")
                     }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.orange)
@@ -66,7 +71,7 @@ struct NowEatingView: View {
             }
         }
         .navigationTitle("Eat")
-        .navigationSubtitle(subtitle(running: eating.count, waiting: waitingCount))
+        .navigationSubtitle(subtitle(running: eating.count, waiting: waitingCount, later: later))
         .toolbar {
             ToolbarItemGroup {
                 Toggle(isOn: $follow) {
@@ -89,16 +94,20 @@ struct NowEatingView: View {
             }
         }
         .onChange(of: selection) { _, id in
-            if let id { app.selectedVideoID = id }
+            if let id, id != app.selectedVideoID { app.selectedVideoID = id }
         }
-        .onChange(of: latest) { old, new in
-            // One more item is done: show its output — unless another finished item is open (you are reading it).
-            guard follow, let new, new != old else { return }
-            if let shown = app.selectedVideoID, shown != new, shown != old,
+        // Opened elsewhere (a pasted link, the menu bar, a link): the list follows.
+        .onChange(of: app.selectedVideoID) { _, id in
+            if selection != id { selection = id }
+        }
+        .onChange(of: latestAt) { old, new in
+            // A newer item is done: show its output — unless a finished item is open (you are reading it).
+            guard follow, let new, new > (old ?? .distantPast), let id = latest else { return }
+            if let shown = app.selectedVideoID, shown != id,
                videos.first(where: { $0.videoID == shown })?.status.hasText == true { return }
-            selection = new
+            selection = id
             app.initialTab = DetailTab.everything.rawValue
-            app.selectedVideoID = new
+            app.selectedVideoID = id
         }
         .onAppear {
             if app.selectedVideoID == nil { app.selectedVideoID = current?.videoID ?? latest }
@@ -106,10 +115,11 @@ struct NowEatingView: View {
         }
     }
 
-    private func subtitle(running: Int, waiting: Int) -> String {
+    private func subtitle(running: Int, waiting: Int, later: Int) -> String {
         if app.engine.eatingPaused { return "Paused" }
-        if running > 0 { return waiting > 0 ? "\(running) being eaten · \(waiting) waiting" : "\(running) being eaten" }
-        return waiting > 0 ? "\(waiting) waiting" : "Paste a link below"
+        let tail = later > 0 ? " · \(later) later" : ""
+        if running > 0 { return (waiting > 0 ? "\(running) being eaten · \(waiting) waiting" : "\(running) being eaten") + tail }
+        return (waiting > 0 ? "\(waiting) waiting" : "Paste a link below") + tail
     }
 }
 

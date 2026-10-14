@@ -368,7 +368,7 @@ final class AppModel {
             if let video = videos.first, video.status == .done {
                 show("Already eaten — opening it.")
             }
-            if selection == .skills { selection = .library }
+            showItemsPage()
             selectedVideoID = id
         case .playlist(let listID):
             let kind: VideoListKind = listID == "WL" ? .watchLater : (listID == "LL" ? .liked : .playlist)
@@ -565,6 +565,7 @@ final class AppModel {
             selection = .trash
         case .rebuild(let id, let readerName, let save):
             guard let video = engine.video(id), video.status.hasText else { show("No eaten video \(id) in the library.", error: true); return }
+            showItemsPage()
             selectedVideoID = id
             initialTab = DetailTab.rebuild.rawValue
             let reader = readerName.flatMap { name in RebuildBrief.Reader.allCases.first { $0.rawValue.lowercased().hasPrefix(name.lowercased()) } } ?? .claude
@@ -584,6 +585,7 @@ final class AppModel {
             selection = .now
         case .everything(let id):
             guard let video = engine.video(id) else { show("No video \(id) in the library.", error: true); return }
+            showItemsPage()
             selectedVideoID = id
             initialTab = DetailTab.everything.rawValue
             doEverything(video)

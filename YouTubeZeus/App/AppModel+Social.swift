@@ -13,15 +13,21 @@ extension AppModel {
             return
         }
         // Any other page: a podcast feed without a telltale address is still followed as a podcast.
-        if site == .web, let url = SocialLinks.url(link), (try? await PodcastFeed.fetch(url)) != nil {
-            await followPodcast(link)
-            return
+        if site == .web, let url = SocialLinks.url(link) {
+            isResolvingLink = true
+            let feed = try? await PodcastFeed.fetch(url)
+            isResolvingLink = false
+            if feed != nil {
+                await followPodcast(link)
+                return
+            }
         }
         guard let id = engine.addPost(link) else {
             show("That \(site.name) link could not be read.", error: true)
             return
         }
-        if selection == .skills || selection == .trash { selection = .library }
+        if selection == .trash { selection = .library }
+        showItemsPage()
         selectedVideoID = id
         let signedIn = account.socialSignedIn.contains(site)
         let what = site == .web ? "the page" : "the \(site.itemName)"

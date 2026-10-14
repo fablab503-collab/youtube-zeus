@@ -373,10 +373,10 @@ enum ZeusCLI {
                     var checked = 0
                     for item in AgentDesk.recentItems(context: context) where item.open > 0 {
                         guard let video = Library.video(item.id, in: context) else { continue }
-                        let snapshot = video.snapshot
-                        let found = await AutoResearch.run(snapshot, playbook: video.playbook)
-                        if found > 0, let playbook = video.playbook {
-                            Research.refreshPlaybookNote(snapshot, playbook: playbook, folder: settings.playbookNotesFolder)
+                        let playbook = video.playbook
+                        let found = await AutoResearch.run(video.researchSnapshot, playbook: playbook)
+                        if found > 0, let playbook {
+                            Research.refreshPlaybookNote(video.snapshot, playbook: playbook, folder: settings.playbookNotesFolder)
                         }
                         if found > 0 { print("\(item.id) — \(item.title): \(found) checked") }
                         checked += found

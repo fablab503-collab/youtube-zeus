@@ -11,9 +11,10 @@ enum AgentDesk {
         let done = ((try? context.fetch(descriptor)) ?? []).filter { $0.status == .done }
         var recent: [Research.BriefingItem] = []
         for video in done.prefix(limit) {
-            let brief = Research.brief(video.snapshot, playbook: video.playbook)
+            let playbook = video.playbook
+            let brief = Research.brief(video.researchSnapshot, playbook: playbook)
             var item = Research.BriefingItem(id: video.videoID, title: video.displayTitle, open: brief.open.count,
-                                             answered: brief.answeredCount, hasPlaybook: video.playbook != nil,
+                                             answered: brief.answeredCount, hasPlaybook: playbook != nil,
                                              eatenAt: video.eatenAt)
             item.firstQuestions = brief.open.prefix(3).map { $0.question }
             recent.append(item)

@@ -146,8 +146,10 @@ struct SidebarView: View {
     /// The YouTube channels of the videos in the library that are not followed, most videos first.
     private var otherChannels: [(name: String, count: Int)] {
         let followed = Set(channels.map { $0.title.lowercased() })
-        let groups = Dictionary(grouping: libraryVideos.filter { $0.kind == .youtube && !followed.contains($0.channelTitle.lowercased()) },
-                                by: \.channelTitle)
+        let followedIDs = Set(channels.map(\.channelID))
+        let groups = Dictionary(grouping: libraryVideos.filter {
+            $0.kind == .youtube && !followed.contains($0.channelTitle.lowercased()) && !followedIDs.contains($0.channelID)
+        }, by: \.channelTitle)
         return groups.map { (name: $0.key, count: $0.value.count) }
             .sorted { $0.count == $1.count ? $0.name.localizedStandardCompare($1.name) == .orderedAscending : $0.count > $1.count }
     }
@@ -173,17 +175,8 @@ struct SidebarView: View {
         @Bindable var app = app
         List(selection: $app.selection) {
             Section {
-                Label {
-                    HStack {
-                        Text("Eat")
-                        Spacer()
-                        // The line itself stays out of sight: only a sign that something is being eaten.
-                        if app.engine.activeCount > 0 { ProgressView().controlSize(.mini) }
-                    }
-                } icon: {
-                    Image(systemName: "bolt.fill").symbolEffect(.pulse, isActive: app.engine.activeCount > 0)
-                }
-                .tag(SidebarItem.now)
+                EatRowLabel()
+                    .tag(SidebarItem.now)
                 .help("Paste a link: the item being eaten now, then everything it gave")
             }
 
@@ -320,6 +313,25 @@ struct SidebarView: View {
         .listStyle(.sidebar)
         .onChange(of: app.selection) { _, newValue in
             if newValue == .skills, app.selectedSkillID == nil { app.selectedSkillID = drafts.first?.id }
+        }
+    }
+}
+
+/// The Eat row (4.5): its own view, so only it redraws while something is being eaten (not the whole sidebar).
+private struct EatRowLabel: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let busy = app.engine.activeCount > 0
+        Label {
+            HStack {
+                Text("Eat")
+                Spacer()
+                // The line itself stays out of sight: only a sign that something is being eaten.
+                if busy { ProgressView().controlSize(.mini) }
+            }
+        } icon: {
+            Image(systemName: "bolt.fill").symbolEffect(.pulse, isActive: busy)
         }
     }
 }

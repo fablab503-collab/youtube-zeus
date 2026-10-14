@@ -16,6 +16,9 @@ Newest first.
   another finished item; several items eaten at once show as "and N more"; items you stopped are not counted as
   failed; "Reading the link…" while a playlist or channel is read. Paste several links at once: each is eaten in turn.
   The bar has one **+** (find a video on YouTube, eat your own files); the YouTube-browser card says **Eat**.
+- **Summaries no longer stop when Apple Intelligence declines**: in Auto, when Apple Intelligence refuses a video or
+  fails (sensitive content, model error), the free local AI summarizes it instead; the ones that failed this way
+  are queued again.
 - QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished
   item and never moves you off a finished one you are reading; the Eat page and the sidebar no longer redraw at every
   progress tick; files, posts and `zeus eat` open on the Eat page; "N later" for premieres and live streams; the

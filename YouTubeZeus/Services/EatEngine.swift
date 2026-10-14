@@ -215,13 +215,18 @@ final class EatEngine {
         // Summaries that failed only because the Codex usage limit was reached are tried again.
         let failed = FetchDescriptor<Video>(predicate: #Predicate { $0.digestError != nil })
         var cleared = 0
-        for video in (try? context.fetch(failed)) ?? [] where Self.isUsageLimit(SummaryError.model(video.digestError ?? "")) {
+        for video in (try? context.fetch(failed)) ?? [] {
+            let message = video.digestError ?? ""
+            // 4.5: also the ones Apple Intelligence declined or failed, now that the local AI takes over (in "auto").
+            let appleFailed = localSummaryAllowed && settings.summaryEngine == "auto"
+                && (message.contains("Apple Intelligence") || message.contains("FoundationModels") || message.contains("SensitiveContentAnalysis"))
+            guard Self.isUsageLimit(SummaryError.model(message)) || appleFailed else { continue }
             video.digestError = nil
             cleared += 1
         }
         if cleared > 0 {
             try? context.save()
-            AppLog.write("SUMMARY \(cleared) summaries stopped by the Codex usage limit are queued again")
+            AppLog.write("SUMMARY \(cleared) summaries that failed (Codex limit, Apple Intelligence) are queued again")
         }
         let doneRaw = EatStatus.done.rawValue
         let descriptor = FetchDescriptor<Video>(predicate: #Predicate { $0.statusRaw == doneRaw },
@@ -736,17 +741,24 @@ final class EatEngine {
         do {
             var result: VideoDigest?
             if useAppleIntelligence {
-                result = try await summarizer.summarize(
-                    title: video.displayTitle,
-                    channel: video.channelTitle,
-                    paragraphs: video.displayParagraphs,
-                    videoLanguage: video.language,
-                    youtubeChapters: video.chapters,
-                    outputLanguage: settings.summaryLanguage,
-                    knownTopics: knownTopics()) { step in
-                        self.jobs[id] = JobState(step: step)
-                        video.statusDetail = step
-                    }
+                do {
+                    result = try await summarizer.summarize(
+                        title: video.displayTitle,
+                        channel: video.channelTitle,
+                        paragraphs: video.displayParagraphs,
+                        videoLanguage: video.language,
+                        youtubeChapters: video.chapters,
+                        outputLanguage: settings.summaryLanguage,
+                        knownTopics: knownTopics()) { step in
+                            self.jobs[id] = JobState(step: step)
+                            video.statusDetail = step
+                        }
+                } catch let error where localSummaryAllowed && !Self.isCancellation(error) {
+                    // 4.5: Apple Intelligence declined or failed (refusal, sensitive content, model error): the free local AI
+                    // summarizes instead, in "auto" (with "Apple Intelligence only", the error stays).
+                    guard video.isAlive else { return }
+                    AppLog.write("SUMMARY \(id): Apple Intelligence failed (\(error.localizedDescription.prefix(120))), the local AI summarizes instead")
+                }
             } else if codexSummaryAllowed, let codex = CodexLocator.path {
                 jobs[id] = JobState(step: "Summarizing with Codex")
                 video.statusDetail = "Summarizing with Codex"

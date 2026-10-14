@@ -27,7 +27,9 @@ Newest first.
   move them to Deleted in one click; the Research card shows "Zeus found facts for N" (also on the Agents page and in
   `zeus agent`) and, when there is nothing to check yet, one line instead of buttons that do nothing; a video's
   Summary says which engine will write it (the local AI when Apple Intelligence declined it or rests) and its place
-  in line.
+  in line. What was just eaten is polished and summarized first (newest first), before an old backlog. A long
+  podcast's local summary no longer fails when one part times out (that part is skipped; the final step retries
+  with half the notes).
 - QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished
   item and never moves you off a finished one you are reading; the Eat page and the sidebar no longer redraw at every
   progress tick; files, posts and `zeus eat` open on the Eat page; "N later" for premieres and live streams; the

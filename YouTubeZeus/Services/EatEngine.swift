@@ -424,8 +424,10 @@ final class EatEngine {
         let forced = forcePolish.contains(id)
         let wantsPolish = forced || (!video.textOnly && shouldPolish(video) && video.polishedData == nil && video.polishError == nil)
         let wantsSummary = !video.textOnly && settings.autoSummarize && canSummarize && video.digestData == nil
-        if wantsPolish, !polishQueue.contains(id), polishCurrent != id { polishQueue.append(id) }
-        if wantsSummary, !summaryQueue.contains(id), summaryCurrent != id { summaryQueue.append(id) }
+        // 4.5: newest first — what was just eaten is finished before an old backlog (a whole channel, last night's
+        // podcasts), so its output is ready while you are looking at it.
+        if wantsPolish, !polishQueue.contains(id), polishCurrent != id { polishQueue.insert(id, at: 0) }
+        if wantsSummary, !summaryQueue.contains(id), summaryCurrent != id { summaryQueue.insert(id, at: 0) }
         if !wantsPolish, !wantsSummary { finish(video) }
         runPolishLane()
         runSummaryLane()

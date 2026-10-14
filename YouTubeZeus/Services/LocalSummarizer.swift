@@ -70,11 +70,22 @@ nonisolated struct LocalSummarizer: Sendable {
         """
         var notes: [String] = []
         var chapters: [VideoChapter] = []
+        // 4.5: one part that times out (the Mac busy, a very long podcast) no longer loses the whole summary: it is
+        // skipped, unless too many parts fail.
+        var failedParts = 0
         for (index, part) in parts.enumerated() {
             try Task.checkCancellation()
             progress("Summarizing with the local AI — part \(index + 1) of \(parts.count)")
             let user = "Video: \"\(title)\" by \(channel). Part \(index + 1) of \(parts.count).\n\n\(part)"
-            let text = try await client.chat(model: model, system: mapSystem, user: user, format: Self.partSchema)
+            let text: String
+            do {
+                text = try await client.chat(model: model, system: mapSystem, user: user, format: Self.partSchema)
+            } catch {
+                if Task.isCancelled || error is CancellationError { throw error }
+                failedParts += 1
+                if failedParts > max(1, parts.count / 3) { throw error }
+                continue
+            }
             guard let answer = try? Self.decode(PartAnswer.self, text) else { continue }
             notes += answer.notes.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
             chapters += answer.chapters.map { VideoChapter(start: $0.start, title: $0.title) }
@@ -96,7 +107,16 @@ nonisolated struct LocalSummarizer: Sendable {
         one full sentence each; "topics" = 3 to 6 short topic tags.
         """ + Summarizer.topicHint(knownTopics)
         let user = "Video: \"\(title)\" by \(channel).\n\nNotes:\n" + kept.map { "- \($0)" }.joined(separator: "\n")
-        let text = try await client.chat(model: model, system: reduceSystem, user: user, format: Self.finalSchema, context: 12_288)
+        let text: String
+        do {
+            text = try await client.chat(model: model, system: reduceSystem, user: user, format: Self.finalSchema, context: 12_288)
+        } catch {
+            // Too slow with every note: once more with half of them (every other one, still in order).
+            if Task.isCancelled || error is CancellationError || kept.count < 8 { throw error }
+            let half = stride(from: 0, to: kept.count, by: 2).map { kept[$0] }
+            let shorter = "Video: \"\(title)\" by \(channel).\n\nNotes:\n" + half.map { "- \($0)" }.joined(separator: "\n")
+            text = try await client.chat(model: model, system: reduceSystem, user: shorter, format: Self.finalSchema, context: 8192)
+        }
         let answer = try Self.decode(FinalAnswer.self, text)
 
         // Chapters: YouTube's own when they exist, else the local ones (sorted, deduplicated, inside the video).

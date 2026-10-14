@@ -459,7 +459,32 @@ struct QueueView: View {
                 }
             }
             if !failed.isEmpty {
+                // 4.5: videos no longer on YouTube are not retried (it cannot work); they can go to Deleted at once.
+                let gone = failed.filter { EatFailure.isGone($0.statusDetail) }
+                let retryable = failed.filter { !EatFailure.isGone($0.statusDetail) }
                 Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if !gone.isEmpty {
+                            Text("\(gone.count) \(gone.count == 1 ? "is" : "are") not on YouTube any more (removed, private or blocked here): retrying cannot work.")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        HStack(spacing: 8) {
+                            if !gone.isEmpty {
+                                Button("Move \(gone.count == 1 ? "It" : "Them") to Deleted") { app.trash(gone) }
+                                    .help("Out of the library; you can restore them from YouTube › Deleted")
+                            }
+                            if !retryable.isEmpty {
+                                Button(gone.isEmpty ? "Retry All" : "Retry the Other \(retryable.count)") {
+                                    retryable.forEach { app.engine.retry($0) }
+                                }
+                            }
+                        }
+                        .buttonStyle(.glass)
+                        .controlSize(.small)
+                    }
+                    .padding(.vertical, 4)
+                    .selectionDisabled()
                     ForEach(failed) { video in
                         VStack(alignment: .leading, spacing: 4) {
                             VideoRow(video: video)
@@ -470,24 +495,7 @@ struct QueueView: View {
                         .contextMenu { VideoMenu(video: video) }
                     }
                 } header: {
-                    // 4.5: videos no longer on YouTube are not retried (it cannot work); they can go to Deleted at once.
-                    let gone = failed.filter { EatFailure.isGone($0.statusDetail) }
-                    let retryable = failed.filter { !EatFailure.isGone($0.statusDetail) }
-                    HStack(spacing: 12) {
-                        Text(gone.isEmpty ? "Failed" : "Failed — \(gone.count) not on YouTube any more")
-                        Spacer()
-                        if !gone.isEmpty {
-                            Button("Move the \(gone.count) to Deleted") { app.trash(gone) }
-                                .buttonStyle(.borderless)
-                                .help("Videos removed from YouTube or made private: out of the library (you can restore them from Deleted)")
-                        }
-                        if !retryable.isEmpty {
-                            Button(gone.isEmpty ? "Retry all" : "Retry the other \(retryable.count)") {
-                                retryable.forEach { app.engine.retry($0) }
-                            }
-                            .buttonStyle(.borderless)
-                        }
-                    }
+                    Text("Failed (\(failed.count))")
                 }
             }
             if !recent.isEmpty {

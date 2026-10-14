@@ -31,8 +31,12 @@ final class EatEngine {
     private var pausedRunning: Set<String> = []
     var whisperBusy = false
     private var summarizing: Set<String> = []
-    /// 4.5: items Apple Intelligence already declined: the local AI summarizes them directly (no minutes lost on a refusal).
-    @ObservationIgnored var appleDeclined: Set<String> = []
+    /// 4.5: items Apple Intelligence already declined: the local AI summarizes them directly (no minutes lost on a
+    /// refusal), also after a restart.
+    var appleDeclined: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: "appleDeclinedIDs") ?? []) }
+        set { UserDefaults.standard.set(Array(newValue), forKey: "appleDeclinedIDs") }
+    }
     @ObservationIgnored private var appleFailuresInARow = 0
     /// After 3 refusals in a row, Apple Intelligence rests for 6 hours and the local AI summarizes (Auto only).
     var appleSummaryPausedUntil: Date? {

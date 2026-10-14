@@ -126,6 +126,21 @@ nonisolated struct YTDLP: Sendable {
         return list
     }
 
+    /// 4.5: other sites' clients to try when the default one refuses (Vimeo's web client now wants a sign-in).
+    static func siteAttempts(_ url: String) -> [[String]] {
+        let host = URL(string: url)?.host?.lowercased() ?? ""
+        if host == "vimeo.com" || host.hasSuffix(".vimeo.com") {
+            return [[], ["--extractor-args", "vimeo:client=android"], ["--extractor-args", "vimeo:client=ios"],
+                    ["--extractor-args", "vimeo:client=web"]]
+        }
+        return [[]]
+    }
+
+    /// The same yt-dlp with a site's client arguments added.
+    func with(_ extra: [String]) -> YTDLP {
+        extra.isEmpty ? self : YTDLP(executable: executable, cookieArguments: cookieArguments + extra, comments: comments)
+    }
+
     /// Errors another way of reading may get around (not a cancellation, not a missing tool).
     /// (Not a rate limit, a bot check or a country block: more requests would only make those last longer.)
     static func mayWorkAnotherWay(_ error: Error) -> Bool {

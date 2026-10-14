@@ -33,9 +33,22 @@ extension EatEngine {
         var postText = ""
         var hasSound = false
         var audioLink: URL?
-        let ytdlp = settings.makeSocialYTDLP()
+        var ytdlp = settings.makeSocialYTDLP()
         var readByYTDLP = false
-        if let ytdlp, let json = try? await ytdlp.pageInfo(url: page) {
+        // 4.5: when a site's default client refuses (Vimeo wants a sign-in for its web client), its other clients.
+        var info: [String: Any]?
+        if let base = ytdlp {
+            for extra in YTDLP.siteAttempts(page) {
+                let reader = base.with(extra)
+                if let json = try? await reader.pageInfo(url: page) {
+                    info = json
+                    ytdlp = reader
+                    if !extra.isEmpty { AppLog.write("POST \(id): read with \(extra.joined(separator: " "))") }
+                    break
+                }
+            }
+        }
+        if let json = info {
             readByYTDLP = true
             postText = (json["description"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let title = (json["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

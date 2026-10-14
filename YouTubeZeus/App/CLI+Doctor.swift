@@ -53,22 +53,29 @@ extension ZeusCLI {
             return 1
         }
         print("Sign-in used for posts: " + (settings.socialCookieArguments.isEmpty ? "none" : "yes (Zeus's web window or your browser)"))
-        do {
-            let json = try await ytdlp.pageInfo(url: link)
-            let formats = json["formats"] as? [[String: Any]] ?? []
-            print("✓ read by yt-dlp (\(json["extractor_key"] as? String ?? "?")): “\(json["title"] as? String ?? "?")” — "
-                  + "\(Int(json["duration"] as? Double ?? 0)) s, \(formats.count) formats, ext \(json["ext"] as? String ?? "?")")
-            for format in formats.suffix(8) {
-                print("    \(format["format_id"] as? String ?? "?") · \(format["protocol"] as? String ?? "?") · audio \(format["acodec"] as? String ?? "?") · video \(format["vcodec"] as? String ?? "?")")
+        var reader = ytdlp
+        var found: [String: Any]?
+        for extra in YTDLP.siteAttempts(link) {
+            do {
+                found = try await ytdlp.with(extra).pageInfo(url: link)
+                reader = ytdlp.with(extra)
+                if !extra.isEmpty { print("✓ read with \(extra.joined(separator: " "))") }
+                break
+            } catch {
+                print("✗ " + (extra.isEmpty ? "default client" : extra.joined(separator: " ")) + ": \(error.localizedDescription.prefix(160))")
             }
-        } catch {
-            print("✗ yt-dlp could not read it: \(error.localizedDescription)")
-            return 1
+        }
+        guard let json = found else { return 1 }
+        let formats = json["formats"] as? [[String: Any]] ?? []
+        print("✓ read by yt-dlp (\(json["extractor_key"] as? String ?? "?")): “\(json["title"] as? String ?? "?")” — "
+              + "\(Int(json["duration"] as? Double ?? 0)) s, \(formats.count) formats, ext \(json["ext"] as? String ?? "?")")
+        for format in formats.suffix(8) {
+            print("    \(format["format_id"] as? String ?? "?") · \(format["protocol"] as? String ?? "?") · audio \(format["acodec"] as? String ?? "?") · video \(format["vcodec"] as? String ?? "?")")
         }
         let work = FileManager.default.temporaryDirectory.appendingPathComponent("zeus-doctor-" + UUID().uuidString.prefix(6), isDirectory: true)
         defer { try? FileManager.default.removeItem(at: work) }
         do {
-            let audio = try await ytdlp.downloadAudio(url: link, workDir: work) { _ in }
+            let audio = try await reader.downloadAudio(url: link, workDir: work) { _ in }
             let size = (try? FileManager.default.attributesOfItem(atPath: audio.path)[.size] as? Int) ?? 0
             print("✓ sound taken: \(audio.lastPathComponent), \(size / 1024) KB")
             if let ffmpeg = ToolLocator.find("ffmpeg", override: settings.ffmpegPath),

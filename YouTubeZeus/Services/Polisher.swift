@@ -27,7 +27,22 @@ actor OllamaGate {
     private var high: [CheckedContinuation<Void, Never>] = []
     private var low: [CheckedContinuation<Void, Never>] = []
 
+    /// True in `zeus` and `zeus mcp`: someone (you, an agent) waits for the answer.
+    nonisolated(unsafe) static var foreground = false
+    /// Written by a `zeus` command while it asks the local AI; the app lets it go first (4.5: `zeus ask` waited
+    /// behind hours of polishing).
+    nonisolated static var markerURL: URL { AppFolders.support.appendingPathComponent("local-ai-foreground") }
+
+    nonisolated static func foregroundWaiting() -> Bool {
+        guard let date = (try? FileManager.default.attributesOfItem(atPath: markerURL.path))?[.modificationDate] as? Date
+        else { return false }
+        return Date.now.timeIntervalSince(date) < 180
+    }
+
     func acquire(_ priority: Priority) async {
+        if !Self.foreground {
+            while Self.foregroundWaiting() { try? await Task.sleep(for: .seconds(1)) }
+        }
         guard busy else {
             busy = true
             return
@@ -157,6 +172,9 @@ nonisolated struct OllamaClient: Sendable {
         request.timeoutInterval = 600   // the longest silence between two pieces of the answer
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         await OllamaGate.shared.acquire(priority)
+        let marker = OllamaGate.foreground ? OllamaGate.markerURL : nil
+        if let marker { try? Data().write(to: marker) }
+        defer { if let marker { try? FileManager.default.removeItem(at: marker) } }
         do {
             let text = try await stream(request)
             await OllamaGate.shared.release()

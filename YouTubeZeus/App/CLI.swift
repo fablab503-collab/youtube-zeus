@@ -8,6 +8,7 @@ enum Launcher {
     static func main() {
         let arguments = Array(CommandLine.arguments.dropFirst())
         if arguments.first == "--cli" {
+            OllamaGate.foreground = true   // a person or an agent waits: the app lets its local AI requests go first
             Task { @MainActor in
                 let code = await ZeusCLI.run(Array(arguments.dropFirst()))
                 exit(code)
@@ -98,7 +99,8 @@ enum ZeusCLI {
                                 --parts, --consent); watch = do the .swapjob folders The Swap writes; cancel = stop a
                                 makeme job; parts = the parts map of a prepared job (prepare --mode depth_parts
                                 --things "…" makes it right away; generate --engine vace follows it)
-      zeus mcp                  run YouTube Zeus as an MCP server (stdio) for Claude, Codex, Cursor, LM Studio…
+      zeus mcp [--selftest]     run YouTube Zeus as an MCP server (stdio) for Claude, Codex, Cursor, LM Studio…;
+                                --selftest asks it its own protocol and read-only tools and says what works
       zeus shortcut [--no-open] make the "Eat with Zeus" shortcut for the iPhone/iPad share sheet (opens Shortcuts)
       zeus setup [--install] [--model <tag>] [--json]
                                 check this Mac: yt-dlp, Deno, ffmpeg, whisper.cpp, Ollama and the local AI model that
@@ -277,6 +279,7 @@ enum ZeusCLI {
                 guard !rest.isEmpty else { return fail("zeus ask \"<question>\"") }
                 return try await ask(rest.joined(separator: " "), settings: settings, json: flags.contains("--json"))
             case "mcp":
+                if flags.contains("--selftest") { return await MCPServer.selfTest(settings: settings) }
                 return await MCPServer.run()
             case "entities":
                 let records = EntityRegistry.load()

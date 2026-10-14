@@ -49,6 +49,9 @@ Newest first.
 - **One context size for the local AI**: polishing, summaries, names, playbooks, Ask and digests all ask Ollama with
   the same 12k context. Different sizes made Ollama reload the model at each switch, and under a steady load a
   request with another size (`zeus ask`, the names of an item) waited until it timed out.
+- **A command goes first**: while `zeus ask` (or any `zeus` command, or an agent through `zeus mcp`) waits for the
+  local AI, the app holds its polishing and summaries, so the answer comes in a minute instead of after the current
+  backlog. `zeus mcp --selftest` checks the MCP server's protocol and read-only tools without an MCP client.
 - `zeus status` (the library: items, work left, every error grouped) and `zeus failed` (each failed item, why, the
   raw error, where it came from) — for you and for agents.
 - QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished

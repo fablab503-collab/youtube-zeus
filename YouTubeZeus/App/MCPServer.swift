@@ -40,6 +40,46 @@ enum MCPServer {
         return 0
     }
 
+    /// 4.5: `zeus mcp --selftest` — the server answers its own protocol and read-only tools, as an app would ask them
+    /// (for checking the connection without an MCP client). Exit code 1 when something fails.
+    static func selfTest(settings: AppSettings) async -> Int32 {
+        var failures = 0
+        func report(_ name: String, _ ok: Bool, _ detail: String) {
+            print("\(ok ? "✓" : "✗") \(name): " + detail.replacingOccurrences(of: "\n", with: " ").prefix(110))
+            if !ok { failures += 1 }
+        }
+        do {
+            let result = try await handle("initialize", params: ["protocolVersion": "2025-06-18"], settings: settings)
+            report("initialize", result["serverInfo"] != nil, "protocol \(result["protocolVersion"] as? String ?? "?")")
+        } catch {
+            report("initialize", false, error.localizedDescription)
+        }
+        do {
+            let result = try await handle("tools/list", params: [:], settings: settings)
+            let list = result["tools"] as? [[String: Any]] ?? []
+            let complete = list.allSatisfy { $0["name"] is String && $0["inputSchema"] is [String: Any] }
+            report("tools/list", !list.isEmpty && complete, "\(list.count) tools")
+        } catch {
+            report("tools/list", false, error.localizedDescription)
+        }
+        let calls: [(String, [String: Any])] = [
+            ("agent_briefing", [:]), ("search", ["query": "agent", "limit": 2]), ("list_items", ["limit": 3]),
+            ("repo_scout", [:]), ("github_repos", [:]), ("entities", ["limit": 3]),
+        ]
+        for (name, arguments) in calls {
+            do {
+                let result = try await handle("tools/call", params: ["name": name, "arguments": arguments], settings: settings)
+                let isError = result["isError"] as? Bool ?? true
+                let text = ((result["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
+                report(name, !isError && !text.isEmpty, text)
+            } catch {
+                report(name, false, error.localizedDescription)
+            }
+        }
+        print(failures == 0 ? "MCP server OK." : "\(failures) check(s) failed.")
+        return failures == 0 ? 0 : 1
+    }
+
     struct RPCError: Error {
         let code: Int
         let message: String

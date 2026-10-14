@@ -18,7 +18,8 @@ Newest first.
   The bar has one **+** (find a video on YouTube, eat your own files); the YouTube-browser card says **Eat**.
 - **Summaries no longer stop when Apple Intelligence declines**: in Auto, when Apple Intelligence refuses a video or
   fails (sensitive content, model error), the free local AI summarizes it instead; the ones that failed this way
-  are queued again.
+  are queued again (Apple Intelligence rests 6 hours after 3 refusals in a row). **Pause** on the Eat page now also
+  holds the local AI's polishing and summaries.
 - QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished
   item and never moves you off a finished one you are reading; the Eat page and the sidebar no longer redraw at every
   progress tick; files, posts and `zeus eat` open on the Eat page; "N later" for premieres and live streams; the

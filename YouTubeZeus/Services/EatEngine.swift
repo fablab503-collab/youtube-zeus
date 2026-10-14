@@ -173,6 +173,9 @@ final class EatEngine {
         for id in queue { video(id)?.statusDetail = "" }
         AppLog.write("EAT resumed")
         pump()
+        // 4.5: Pause also holds the local AI's polishing and summaries; they continue now.
+        runPolishLane()
+        runSummaryLane()
     }
 
     /// A video leaves the library: it is taken out of every lane (what is running stops at its next step).
@@ -434,7 +437,7 @@ final class EatEngine {
         guard !polishRunning, !polishQueue.isEmpty else { return }
         polishRunning = true
         Task {
-            while let id = Self.take(from: &polishQueue, avoiding: summaryCurrent) {
+            while !eatingPaused, let id = Self.take(from: &polishQueue, avoiding: summaryCurrent) {
                 polishCurrent = id
                 if let video = video(id) {
                     forcePolish.remove(id)
@@ -451,7 +454,7 @@ final class EatEngine {
         guard !summaryRunning, !summaryQueue.isEmpty else { return }
         summaryRunning = true
         Task {
-            while let id = Self.take(from: &summaryQueue, avoiding: polishCurrent) {
+            while !eatingPaused, let id = Self.take(from: &summaryQueue, avoiding: polishCurrent) {
                 summaryCurrent = id
                 if let video = video(id), video.digestData == nil { await summarize(video) }
                 if let video = video(id) { finishIfIdle(video, fromPolish: false) }

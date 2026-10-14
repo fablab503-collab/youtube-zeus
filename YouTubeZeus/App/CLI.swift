@@ -63,6 +63,7 @@ enum ZeusCLI {
                                 Claude Code or Codex on it. While it is made, it prints the step the app is on
       zeus agent [--json]       for an agent on this Mac: what it can look up and do now (open research questions,
                                 the repo of the day, what was eaten, what waits for Daniel), with the rules
+      zeus research --auto --all      Zeus checks what it can itself for the 20 items eaten last
       zeus research <link|id> [--auto] [--json]
                                 the research inside a playbook: what Zeus knows, the open questions with searches to
                                 run, the answers found so far; --auto first checks what Zeus can itself (Homebrew, npm,
@@ -366,8 +367,25 @@ enum ZeusCLI {
                     }
                     position += 1
                 }
+                if flags.contains("--all") {
+                    // Zeus checks what it can itself for the items eaten last (zeus research --auto --all).
+                    let (_, context) = try Library.open()
+                    var checked = 0
+                    for item in AgentDesk.recentItems(context: context) where item.open > 0 {
+                        guard let video = Library.video(item.id, in: context) else { continue }
+                        let snapshot = video.snapshot
+                        let found = await AutoResearch.run(snapshot, playbook: video.playbook)
+                        if found > 0, let playbook = video.playbook {
+                            Research.refreshPlaybookNote(snapshot, playbook: playbook, folder: settings.playbookNotesFolder)
+                        }
+                        if found > 0 { print("\(item.id) — \(item.title): \(found) checked") }
+                        checked += found
+                    }
+                    print("Zeus checked \(checked) question\(checked == 1 ? "" : "s") itself (Homebrew, npm, PyPI, GitHub). The rest is for an agent: zeus agent")
+                    return 0
+                }
                 guard let link = words.first else {
-                    return fail("zeus research <link|id> [--json] | zeus research <link|id> --question \"…\" --add \"…\" [--source <url>] [--by <agent>]")
+                    return fail("zeus research <link|id> [--auto] [--json] | zeus research --auto --all | zeus research <link|id> --question <number> --add \"…\" [--source <url>] [--by <agent>]")
                 }
                 let (_, context) = try Library.open()
                 guard let video = Library.video(link, in: context), video.status.hasText else {

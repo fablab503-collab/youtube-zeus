@@ -13,6 +13,7 @@ struct ContentView: View {
             Group {
                 switch app.selection {
                 case .now, nil: NowEatingView()
+                case .agents: AgentsView()
                 case .kind(let raw): LibraryView(scope: .kind(MediaKind(rawValue: raw) ?? .social)).id(raw)
                 case .eating: QueueView()
                 case .skills: SkillsListView()
@@ -282,6 +283,9 @@ struct SidebarView: View {
                     .tag(SidebarItem.github)
                 Label("Ask your brain", systemImage: "brain.head.profile")
                     .tag(SidebarItem.ask)
+                Label("Agents", systemImage: "person.2.badge.gearshape.fill")
+                    .tag(SidebarItem.agents)
+                    .help("What AI agents connected to Zeus can research and do for you")
                 Label("People & tools", systemImage: "person.2.fill")
                     .tag(SidebarItem.entities)
                 Label("Weekly digests", systemImage: "calendar")

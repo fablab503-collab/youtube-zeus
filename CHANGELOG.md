@@ -39,6 +39,9 @@ Newest first.
   command, what is installed here and whether it needs an upgrade), npm and PyPI (latest version, install), GitHub
   (stars, last push, latest release, licence, advisories, the most discussed open issues). Shown as "Zeus found"
   under the question, which stays open for an agent or you to confirm.
+- **Sidebar › Tools › Agents**: the items eaten last with open research questions (select one: its Playbook &
+  research opens), **Copy the Briefing** (what `zeus agent` gives, to paste into Claude Code or Codex) and **Let Zeus
+  Check** them all. `zeus research --auto --all`; link `youtubezeus://agents`.
 - Research questions have stable keys (`tool:ollama`, `repo:owner/name`), so answers survive a new playbook or a new
   summary; agents answer by number or key; price questions come from the services and accounts the playbook needs;
   the order is: what the video does not show, what needs your OK, tools, services, repositories, links (no social

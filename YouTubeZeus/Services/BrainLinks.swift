@@ -158,6 +158,8 @@ nonisolated enum BrainLinks {
             return value("video").map { .research($0) }
         case "now", "eat-now", "eating-now":
             return .now
+        case "agents", "agent":
+            return .view("agents")
         case "everything", "all":
             return value("video").map { .everything($0) }
         case "translate":

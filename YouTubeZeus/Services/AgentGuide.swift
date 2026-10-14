@@ -171,7 +171,8 @@ enum AgentGuide {
         | `zeus github "<link>" [--save] [--json]` | GitHub repositories linked in a video, checked through the API |
         | `zeus repos [--json]` | every repository linked in the library, with the videos that link it |
         | `zeus agent [--json]` | **start here**: what you can look up and do for Daniel now — items with open research questions, the repo of the day, what was eaten, what waits for Daniel — and the rules |
-        | `zeus research "<link or id>" [--json]` | the research inside an item's playbook: what Zeus knows, the open questions (versions, install, prices, repos' health, steps the video does not show, claims, links) each with searches to run, the answers so far |
+        | `zeus research --auto --all` | Zeus checks what it can itself (Homebrew, npm, PyPI, GitHub) for the 20 items eaten last; the rest is for you |
+        | `zeus research "<link or id>" [--auto] [--json]` | the research inside an item's playbook: what Zeus knows, the open questions (versions, install, prices, repos' health, steps the video does not show, claims, links) each with searches to run, the answers so far |
         | `zeus research "<id>" --question <number or key> --add "<answer>" [--source <url>]… [--by "<you>"] [--json]` | save an answer (1 to 5 sentences, with sources; UNKNOWN when it cannot be verified): the number as `zeus research` prints it, or the key (`tool:ollama`, `repo:owner/name`); it shows in the app's playbook and in the playbook note |
         | `zeus scout [--json]` | the repo of the day and Repo Scout's newest report (GitHub's top repos with health, trust and the jury's verdicts) |
         | `zeus playlists "<channel>" [--import]` | a channel's playlists; `--import` makes each one a collection in the app |
@@ -210,6 +211,7 @@ enum AgentGuide {
         | `youtubezeus://scout` (optional `?scan=daily|weekly|monthly`, `&jury=0`, or `?repo=owner/name`) | Sidebar › GitHub › Today: the repo of the day (Repo Scout's pick, else Trendshift's #1) and Repo Scout's newest report (top repos of the day with health, trust and the AI jury's verdict); `scan` runs Repo Scout, `repo` asks its jury about one repo. Also `zeus scout [--json]` and the MCP tool `repo_scout` |
         | `youtubezeus://research?video=<id>` | the item's playbook with its Research card (open questions with searches, answers found by agents) |
         | `youtubezeus://now` | the Eat page: the item being eaten now, then its output |
+        | `youtubezeus://agents` | Sidebar › Tools › Agents: the items with open research questions, Copy the Briefing, Let Zeus Check |
         | `youtubezeus://pause`, `youtubezeus://resume` | pause eating (what is running waits at the front of the line) or start again |
         | `youtubezeus://setup` | the setup page: installs Homebrew, the tools and the local AI model for this Mac |
         | `youtubezeus://open?collection=<playlist or list id>` | a collection |

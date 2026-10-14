@@ -28,6 +28,8 @@ enum SidebarItem: Hashable {
     case now
     /// 4.5: one kind of item (MediaKind raw value): podcast episodes, posts and pages, your files.
     case kind(String)
+    /// 4.5: what agents connected to Zeus can look up and do (open research, the briefing).
+    case agents
 }
 
 /// "Show this item at that moment": the detail view opens the transcript there and highlights the paragraph.
@@ -674,6 +676,7 @@ final class AppModel {
             case "skills": selection = .skills
             case "eating", "queue": selection = .eating
             case "now", "eat": selection = .now
+            case "agents", "agent", "research": selection = .agents
             case "posts", "pages", "social": selection = .kind(MediaKind.social.rawValue)
             case "podcasts", "episodes": selection = .kind(MediaKind.podcast.rawValue)
             case "files": selection = .kind(MediaKind.file.rawValue)

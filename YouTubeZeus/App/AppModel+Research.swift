@@ -28,6 +28,44 @@ extension AppModel {
         }
     }
 
+    /// 4.5: the Agents page — the items eaten last with the state of their research.
+    func agentRows() -> [Research.BriefingItem] {
+        AgentDesk.recentItems(context: context)
+    }
+
+    /// The briefing any agent starts with (`zeus agent`), copied to paste into Claude Code, Codex…
+    func copyAgentBriefing() {
+        let text = AgentDesk.briefing(context: context, settings: settings).text
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        show("Briefing copied: paste it into Claude Code, Codex or any agent with a terminal on this Mac.")
+    }
+
+    /// Zeus checks what it can itself for every recent item with open questions.
+    func autoResearchRecent() {
+        guard !researchChecking.contains("*") else { return }
+        researchChecking.insert("*")
+        var work: [(VideoSnapshot, Playbook?)] = []
+        for item in agentRows() where item.open > 0 {
+            if let video = engine.video(item.id) { work.append((video.snapshot, video.playbook)) }
+        }
+        let jobs = work
+        Task {
+            let found = (try? await offMain {
+                var total = 0
+                for (snapshot, playbook) in jobs { total += await AutoResearch.run(snapshot, playbook: playbook) }
+                return total
+            }) ?? 0
+            researchChecking.remove("*")
+            researchVersion += 1
+            for (snapshot, playbook) in jobs where playbook != nil {
+                if let video = engine.video(snapshot.videoID), video.isAlive { _ = exporter.exportPlaybook(video) }
+            }
+            show(found == 0 ? "Nothing more Zeus can check by itself: the open questions need an agent."
+                            : "Zeus checked \(found) question\(found == 1 ? "" : "s") itself (Homebrew, npm, PyPI, GitHub).")
+        }
+    }
+
     /// What Zeus can check itself (Homebrew, npm, PyPI, GitHub), on demand.
     func autoResearch(_ video: Video) {
         let id = video.videoID

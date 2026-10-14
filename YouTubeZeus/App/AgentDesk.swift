@@ -4,12 +4,13 @@ import SwiftData
 /// 4.5: what a connected agent (a terminal with `zeus`, or `zeus mcp`) can look up and do for Daniel now —
 /// open research questions, the repo of the day, what was eaten, what waits for Daniel. `zeus agent`, MCP `agent_briefing`.
 enum AgentDesk {
-    static func briefing(context: ModelContext, settings: AppSettings, forMCP: Bool = false) -> (text: String, json: [String: Any]) {
-        let all = (try? context.fetch(FetchDescriptor<Video>())) ?? []
-        let done = all.filter { $0.status == .done }
-            .sorted { ($0.eatenAt ?? .distantPast) > ($1.eatenAt ?? .distantPast) }
+    /// The items eaten last (newest first), with the state of their research.
+    static func recentItems(context: ModelContext, limit: Int = 20) -> [Research.BriefingItem] {
+        var descriptor = FetchDescriptor<Video>(sortBy: [SortDescriptor(\.eatenAt, order: .reverse)])
+        descriptor.fetchLimit = limit * 3
+        let done = ((try? context.fetch(descriptor)) ?? []).filter { $0.status == .done }
         var recent: [Research.BriefingItem] = []
-        for video in done.prefix(20) {
+        for video in done.prefix(limit) {
             let brief = Research.brief(video.snapshot, playbook: video.playbook)
             var item = Research.BriefingItem(id: video.videoID, title: video.displayTitle, open: brief.open.count,
                                              answered: brief.answeredCount, hasPlaybook: video.playbook != nil,
@@ -17,6 +18,12 @@ enum AgentDesk {
             item.firstQuestions = brief.open.prefix(3).map { $0.question }
             recent.append(item)
         }
+        return recent
+    }
+
+    static func briefing(context: ModelContext, settings: AppSettings, forMCP: Bool = false) -> (text: String, json: [String: Any]) {
+        let all = (try? context.fetch(FetchDescriptor<Video>())) ?? []
+        let recent = recentItems(context: context)
         // For research, the items with a playbook first: their answers make the steps safer.
         let research = recent.filter(\.hasPlaybook) + recent.filter { !$0.hasPlaybook }
         let drafts = (try? context.fetchCount(FetchDescriptor<SkillDraft>(predicate: #Predicate { $0.statusRaw == "draft" }))) ?? 0

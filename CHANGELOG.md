@@ -68,6 +68,8 @@ Newest first.
 - **A playbook has the local AI to itself**: while it is made, the summaries, names and polishing wait (before, a
   summary's parts took turns with the vision model, and the GPU swapped models between frames); the vision model
   keeps a small 8k context.
+- Research: a tool installed another way than Homebrew (Claude Code's own installer, npm, bun, cargo, pipx) is no
+  longer reported "Not installed on this Mac"; the playbook's "already installed" check also looks in those folders.
 - `zeus status` (the library: items, work left, every error grouped) and `zeus failed` (each failed item, why, the
   raw error, where it came from) — for you and for agents.
 - QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished

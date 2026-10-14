@@ -92,9 +92,14 @@ nonisolated struct PlaybookTool: Codable, Hashable, Sendable {
 
     /// Whether this Mac has it (the program on the PATH, or the app in an Applications folder).
     var isInstalled: Bool {
-        if let program, ToolLocator.find(program, override: "") != nil { return true }
-        guard let app else { return false }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
+        if let program {
+            if ToolLocator.find(program, override: "") != nil { return true }
+            // 4.5: also the folders of installers that do not use Homebrew (Claude Code's own, npm, bun, cargo, pipx).
+            let userBins = [".local/bin", ".npm-global/bin", ".bun/bin", ".cargo/bin", ".deno/bin", "go/bin", ".claude/local"]
+            if userBins.contains(where: { FileManager.default.isExecutableFile(atPath: "\(home)/\($0)/\(program)") }) { return true }
+        }
+        guard let app else { return false }
         return ["/Applications", "\(home)/Applications", "/System/Applications"].contains {
             FileManager.default.fileExists(atPath: "\($0)/\(app).app")
         }

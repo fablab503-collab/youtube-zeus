@@ -26,32 +26,44 @@ nonisolated enum AutoResearch {
         return saved
     }
 
+    /// What Homebrew, npm, PyPI or a repository linked in the video say about a tool.
+    private static func toolFact(_ question: ResearchQuestion, tool: PlaybookTool?, video: VideoSnapshot) async -> Fact? {
+        let subject = question.subject.lowercased()
+        if let install = tool?.install, let found = package(from: install) {
+            switch found.manager {
+            case .brew, .cask:
+                if let fact = await homebrew(found.name, cask: found.manager == .cask) { return fact }
+            case .npm:
+                if let fact = await npm(found.name) { return fact }
+            case .pip:
+                if let fact = await pypi(found.name) { return fact }
+            }
+        }
+        // No install command: Homebrew by the tool's name (a formula, then an app).
+        let name = brewName(question.subject)
+        if !name.isEmpty {
+            if let fact = await homebrew(name, cask: false) { return fact }
+            if let fact = await homebrew(name, cask: true) { return fact }
+        }
+        // A repository with the tool's name, linked in the video.
+        if let repo = video.repos.first(where: { $0.exists && $0.name.lowercased() == subject }) {
+            return github(repo)
+        }
+        return nil
+    }
+
     static func check(_ question: ResearchQuestion, video: VideoSnapshot, playbook: Playbook?) async -> Fact? {
         switch question.topic {
         case "tool":
             let subject = question.subject.lowercased()
             let tool = playbook?.tools.first { $0.name.lowercased() == subject }
-            if let install = tool?.install, let found = package(from: install) {
-                switch found.manager {
-                case .brew, .cask:
-                    if let fact = await homebrew(found.name, cask: found.manager == .cask) { return fact }
-                case .npm:
-                    if let fact = await npm(found.name) { return fact }
-                case .pip:
-                    if let fact = await pypi(found.name) { return fact }
-                }
+            guard var fact = await toolFact(question, tool: tool, video: video) else { return nil }
+            // Homebrew only knows what it installed itself: a tool installed another way is on this Mac too.
+            if tool?.isInstalled == true, fact.text.contains(" Not installed on this Mac.") {
+                fact.text = fact.text.replacingOccurrences(of: " Not installed on this Mac.",
+                                                           with: " Already on this Mac (installed another way than Homebrew).")
             }
-            // No install command: Homebrew by the tool's name (a formula, then an app).
-            let name = brewName(question.subject)
-            if !name.isEmpty {
-                if let fact = await homebrew(name, cask: false) { return fact }
-                if let fact = await homebrew(name, cask: true) { return fact }
-            }
-            // A repository with the tool's name, linked in the video.
-            if let repo = video.repos.first(where: { $0.exists && $0.name.lowercased() == subject }) {
-                return github(repo)
-            }
-            return nil
+            return fact
         case "repo":
             guard let repo = video.repos.first(where: { $0.exists && $0.fullName.lowercased() == question.subject.lowercased() }) else {
                 return nil

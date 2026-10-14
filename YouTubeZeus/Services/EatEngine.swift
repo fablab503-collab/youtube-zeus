@@ -193,6 +193,7 @@ final class EatEngine {
     func pauseEating() {
         guard !eatingPaused else { return }
         eatingPaused = true
+        UserDefaults.standard.set(true, forKey: "eatingPaused")   // 4.5: stays paused after a restart
         for (id, task) in tasks {
             pausedRunning.insert(id)
             task.cancel()
@@ -205,6 +206,7 @@ final class EatEngine {
     func resumeEating() {
         guard eatingPaused else { return }
         eatingPaused = false
+        UserDefaults.standard.set(false, forKey: "eatingPaused")
         for id in queue { video(id)?.statusDetail = "" }
         AppLog.write("EAT resumed")
         pump()
@@ -236,6 +238,8 @@ final class EatEngine {
 
     /// After a restart, jobs that were running are queued again.
     func resumeInterrupted() {
+        // 4.5: paused before the restart → still paused (nothing eats, polishes or summarizes until Resume).
+        if UserDefaults.standard.bool(forKey: "eatingPaused") { eatingPaused = true }
         let busy = [EatStatus.queued, .fetching, .transcribing].map(\.rawValue)
         let descriptor = FetchDescriptor<Video>(predicate: #Predicate { busy.contains($0.statusRaw) },
                                                 sortBy: [SortDescriptor(\.addedAt)])

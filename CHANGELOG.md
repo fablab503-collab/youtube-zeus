@@ -81,6 +81,8 @@ Newest first.
   ("sponsored by…", promo codes) and the channel's own show ("Lex Fridman Podcast") are left out; each channel
   check writes one line in the log (new videos, feeds that failed) and `zeus status` lists the followed channels and
   podcasts and any feed that could not be read.
+- **Pause stays paused** after a restart or an update: nothing eats, polishes, summarizes or finds names until you
+  press Resume (or open `youtubezeus://resume`).
 - `zeus status` (the library: items, work left, every error grouped) and `zeus failed` (each failed item, why, the
   raw error, where it came from) — for you and for agents.
 - QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished

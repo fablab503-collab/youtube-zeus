@@ -30,6 +30,16 @@ Newest first.
   in line. What was just eaten is polished and summarized first (newest first), before an old backlog. A long
   podcast's local summary no longer fails when one part times out (that part is skipped; the final step retries
   with half the notes).
+- **Why videos failed, found and fixed** (14 Oct, evening): the 50 Lex Fridman episodes that said "Video unavailable"
+  play fine on YouTube — YouTube refused that one way of reading them. Zeus now tries other ways by itself (without
+  the sign-in, as Safari, as the mobile site, as the TV app…) and says "YouTube refused" instead of "removed"; only
+  really removed or private videos are offered to Deleted. `zeus doctor <link>` shows each way and which one works.
+- **28 summaries that timed out**: the polishing lane and the summary lane asked the local AI at the same time, and
+  the request that waited timed out after 10 minutes. The local AI now answers one request at a time (summaries,
+  names, playbooks and questions first, polishing when nothing else waits), answers are streamed, every request uses
+  the same 8k context (no model reload between lanes), and the summaries that timed out are tried once more.
+- `zeus status` (the library: items, work left, every error grouped) and `zeus failed` (each failed item, why, the
+  raw error, where it came from) — for you and for agents.
 - QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished
   item and never moves you off a finished one you are reading; the Eat page and the sidebar no longer redraw at every
   progress tick; files, posts and `zeus eat` open on the Eat page; "N later" for premieres and live streams; the

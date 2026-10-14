@@ -87,13 +87,70 @@ nonisolated struct YTDLP: Sendable {
     func info(videoID: String) async throws -> VideoInfo {
         var arguments = ["-J", "--skip-download", "--no-warnings", "--no-playlist"] + cookieArguments
         if comments > 0 {
-            arguments += ["--get-comments", "--extractor-args", "youtube:max_comments=\(comments),\(comments),0,0;comment_sort=top"]
+            let commentArgs = "max_comments=\(comments),\(comments),0,0;comment_sort=top"
+            // One --extractor-args for YouTube: merged with a client chosen by a fallback (see `attempts`).
+            if let index = arguments.firstIndex(of: "--extractor-args"), index + 1 < arguments.count,
+               arguments[index + 1].hasPrefix("youtube:") {
+                arguments[index + 1] += ";" + commentArgs
+                arguments.insert("--get-comments", at: index)
+            } else {
+                arguments += ["--get-comments", "--extractor-args", "youtube:" + commentArgs]
+            }
         }
         let output = try await ProcessRunner.check(executable, arguments + ["--", Self.watchURL(videoID)])
         guard let json = try? JSONSerialization.jsonObject(with: output.stdout) as? [String: Any] else {
             throw YTDLPError.badOutput("video info")
         }
         return Self.parseInfo(json, fallbackID: videoID)
+    }
+
+    /// 4.5: the ways yt-dlp can read a YouTube video, in the order Zeus tries them. YouTube sometimes answers
+    /// "Video unavailable" to one way (a sign-in, a client) for a video that plays fine in a browser; another way works.
+    nonisolated struct Attempt: Sendable {
+        let name: String
+        let arguments: [String]
+    }
+
+    static func attempts(cookies: [String]) -> [Attempt] {
+        func client(_ name: String) -> [String] { ["--extractor-args", "youtube:player_client=\(name)"] }
+        var list: [Attempt] = []
+        if !cookies.isEmpty { list.append(Attempt(name: "with your YouTube sign-in", arguments: cookies)) }
+        list.append(Attempt(name: "without a sign-in", arguments: []))
+        list.append(Attempt(name: "as Safari", arguments: client("web_safari")))
+        list.append(Attempt(name: "as YouTube's mobile site", arguments: client("mweb")))
+        list.append(Attempt(name: "as YouTube's TV app", arguments: client("tv")))
+        list.append(Attempt(name: "as YouTube's Android VR app", arguments: client("android_vr")))
+        if !cookies.isEmpty {
+            list.append(Attempt(name: "with your sign-in, as Safari", arguments: cookies + client("web_safari")))
+        }
+        return list
+    }
+
+    /// Errors another way of reading may get around (not a cancellation, not a missing tool).
+    static func mayWorkAnotherWay(_ error: Error) -> Bool {
+        let text = error.localizedDescription.lowercased()
+        return text.contains("video unavailable") || text.contains("content isn't available") || text.contains("not a bot")
+            || text.contains("http error 403") || text.contains("requested format is not available")
+    }
+
+    /// Reads a video's info; when YouTube refuses this way, tries the other ways and returns the one that worked
+    /// (to download the captions or the sound the same way).
+    func infoTryingOtherWays(videoID: String, onTry: (@Sendable (String) -> Void)? = nil) async throws -> (YTDLP, VideoInfo) {
+        do {
+            return (self, try await info(videoID: videoID))
+        } catch {
+            guard Self.mayWorkAnotherWay(error) else { throw error }
+            for attempt in Self.attempts(cookies: cookieArguments).dropFirst() where attempt.arguments != cookieArguments {
+                try Task.checkCancellation()
+                onTry?(attempt.name)
+                let other = YTDLP(executable: executable, cookieArguments: attempt.arguments, comments: 0)
+                if let found = try? await other.info(videoID: videoID) {
+                    AppLog.write("YTDLP \(videoID): read \(attempt.name) after “\(error.localizedDescription.prefix(120))”")
+                    return (other, found)
+                }
+            }
+            throw error
+        }
     }
 
     static func parseInfo(_ json: [String: Any], fallbackID: String) -> VideoInfo {

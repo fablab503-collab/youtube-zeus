@@ -462,8 +462,14 @@ struct QueueView: View {
                 // 4.5: videos no longer on YouTube are not retried (it cannot work); they can go to Deleted at once.
                 let gone = failed.filter { EatFailure.isGone($0.statusDetail) }
                 let retryable = failed.filter { !EatFailure.isGone($0.statusDetail) }
+                let refused = failed.filter { EatFailure.isRefused($0.statusDetail) }.count
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
+                        if refused > 0 {
+                            Text("\(refused) \(refused == 1 ? "was" : "were") refused by YouTube though \(refused == 1 ? "it is" : "they are") probably online: Retry reads \(refused == 1 ? "it" : "them") other ways (without the sign-in, as Safari, as the mobile site…).")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         if !gone.isEmpty {
                             Text("\(gone.count) \(gone.count == 1 ? "is" : "are") not on YouTube any more (removed, private or blocked here): retrying cannot work.")
                                 .font(.caption).foregroundStyle(.secondary)

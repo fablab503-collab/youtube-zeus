@@ -94,7 +94,7 @@ nonisolated struct LocalSummarizer: Sendable {
 
         // Reduce: keep the notes evenly spread when a very long video gives too many.
         var kept = notes
-        let budget = 18_000
+        let budget = 16_000   // 4.5: fits the same 8k context as every other request (no model reload)
         if kept.joined(separator: "\n").count > budget {
             let step = Double(kept.count) / Double(max(1, budget / 120))
             kept = stride(from: 0.0, to: Double(kept.count), by: max(1, step)).map { kept[Int($0)] }
@@ -109,7 +109,7 @@ nonisolated struct LocalSummarizer: Sendable {
         let user = "Video: \"\(title)\" by \(channel).\n\nNotes:\n" + kept.map { "- \($0)" }.joined(separator: "\n")
         let text: String
         do {
-            text = try await client.chat(model: model, system: reduceSystem, user: user, format: Self.finalSchema, context: 12_288)
+            text = try await client.chat(model: model, system: reduceSystem, user: user, format: Self.finalSchema, context: 8192)
         } catch {
             // Too slow with every note: once more with half of them (every other one, still in order).
             if Task.isCancelled || error is CancellationError || kept.count < 8 { throw error }

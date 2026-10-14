@@ -63,6 +63,8 @@ enum ZeusCLI {
                                 Claude Code or Codex on it. While it is made, it prints the step the app is on
       zeus agent [--json]       for an agent on this Mac: what it can look up and do now (open research questions,
                                 the repo of the day, what was eaten, what waits for Daniel), with the rules
+      zeus doctor <link|id>     why a YouTube video cannot be eaten: yt-dlp's version, the sign-in, and the video
+                                read in several ways (with and without the sign-in, other YouTube clients); reads only
       zeus status [--json]      the library now: items by kind and state, work left (summaries, polish), every kind
                                 of error grouped (could not be eaten, summary, polish, playbook, text on screen)
       zeus failed [--json]      each item that could not be eaten: why in words, the raw error, attempts, and where it
@@ -342,6 +344,9 @@ enum ZeusCLI {
                 openInApp(URL(string: BrainLinks.zeusScreen(video: id))!, raw: true)
                 print("YouTube Zeus is reading the screen of \(id) (slide titles, code, commands). The note gets an \"On screen\" section.")
                 return 0
+            case "doctor":
+                guard let link = rest.first else { return fail("zeus doctor <YouTube link or id>") }
+                return await doctor(link, settings: settings)
             case "status":
                 let (_, context) = try Library.open()
                 let report = LibraryReport.status(context: context)
@@ -624,9 +629,11 @@ enum ZeusCLI {
     }
 
     static func eatVideo(_ id: String, flags: Set<String>, settings: AppSettings) async throws -> VideoSnapshot {
-        guard let ytdlp = settings.makeYTDLP(withComments: settings.commentsCount > 0) else { throw EatError.missing("yt-dlp") }
+        guard let firstReader = settings.makeYTDLP(withComments: settings.commentsCount > 0) else { throw EatError.missing("yt-dlp") }
         log("Reading video info…")
-        let info = try await ytdlp.info(videoID: id)
+        let (ytdlp, info) = try await firstReader.infoTryingOtherWays(videoID: id) { way in
+            FileHandle.standardError.write(Data("zeus: YouTube refused, trying \(way)…\n".utf8))
+        }
         let work = AppFolders.work.appendingPathComponent("cli-" + id + "-" + UUID().uuidString.prefix(6), isDirectory: true)
         defer { try? FileManager.default.removeItem(at: work) }
         var result: TranscriptResult?
@@ -833,9 +840,9 @@ enum ZeusCLI {
     }
 
     static func github(_ id: String, flags: Set<String>, settings: AppSettings) async throws -> Int32 {
-        guard let ytdlp = settings.makeYTDLP(withComments: settings.commentsCount > 0) else { throw EatError.missing("yt-dlp") }
+        guard let firstReader = settings.makeYTDLP(withComments: settings.commentsCount > 0) else { throw EatError.missing("yt-dlp") }
         log("Reading the description…")
-        let info = try await ytdlp.info(videoID: id)
+        let info = try await firstReader.infoTryingOtherWays(videoID: id).1
         var transcript = ""
         if let note = findNote(videoID: id, settings: settings), let text = try? String(contentsOf: note, encoding: .utf8) {
             transcript = text.components(separatedBy: "## Transcript").dropFirst().first ?? ""

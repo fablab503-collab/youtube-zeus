@@ -37,6 +37,11 @@ final class EatEngine {
         get { Set(UserDefaults.standard.stringArray(forKey: "appleDeclinedIDs") ?? []) }
         set { UserDefaults.standard.set(Array(newValue), forKey: "appleDeclinedIDs") }
     }
+    /// Summaries already tried again after a timeout (once each).
+    var summaryRetried: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: "summaryRetriedIDs") ?? []) }
+        set { UserDefaults.standard.set(Array(newValue), forKey: "summaryRetriedIDs") }
+    }
     @ObservationIgnored private var appleFailuresInARow = 0
     /// After 3 refusals in a row, Apple Intelligence rests for 6 hours and the local AI summarizes (Auto only).
     var appleSummaryPausedUntil: Date? {
@@ -235,7 +240,11 @@ final class EatEngine {
             // 4.5: also the ones Apple Intelligence declined or failed, now that the local AI takes over (in "auto").
             let appleFailed = localSummaryAllowed && settings.summaryEngine == "auto"
                 && (message.contains("Apple Intelligence") || message.contains("FoundationModels") || message.contains("SensitiveContentAnalysis"))
-            guard Self.isUsageLimit(SummaryError.model(message)) || appleFailed else { continue }
+            // 4.5: summaries that timed out while the two lanes waited for the local AI, tried once more (the
+            // local AI now answers one request at a time).
+            let timedOut = message.lowercased().contains("timed out") && !summaryRetried.contains(video.videoID)
+            if timedOut { summaryRetried.insert(video.videoID) }
+            guard Self.isUsageLimit(SummaryError.model(message)) || appleFailed || timedOut else { continue }
             if appleFailed { appleDeclined.insert(video.videoID) }
             video.digestError = nil
             cleared += 1
@@ -307,7 +316,7 @@ final class EatEngine {
             await runMedia(video)
             return
         }
-        guard let ytdlp = settings.makeYTDLP(withComments: settings.commentsCount > 0) else {
+        guard let firstReader = settings.makeYTDLP(withComments: settings.commentsCount > 0) else {
             video.status = .failed
             video.statusDetail = EatError.missing("yt-dlp").localizedDescription
             return
@@ -319,7 +328,10 @@ final class EatEngine {
         do {
             video.status = .fetching
             update(id, "Reading video info")
-            let info = try await ytdlp.info(videoID: id)
+            // 4.5: when YouTube says "Video unavailable" to one way of reading, the other ways are tried.
+            let (ytdlp, info) = try await firstReader.infoTryingOtherWays(videoID: id) { way in
+                Task { @MainActor in self.update(id, "Reading video info — trying \(way)") }
+            }
             apply(info, to: video)
             try? context.save()
 
@@ -879,19 +891,31 @@ enum Notifier {
 
 /// 4.5: why an item could not be eaten, in words (yt-dlp's errors are for programmers).
 nonisolated enum EatFailure {
-    /// The video is not on YouTube any more (removed, made private, or blocked here): retrying will not help.
+    /// The video is not on YouTube any more (removed, made private, account closed): retrying will not help.
     static func isGone(_ detail: String) -> Bool {
         let text = detail.lowercased()
-        return text.contains("video unavailable") || text.contains("private video") || text.contains("has been removed")
-            || text.contains("no longer available") || text.contains("account associated with this video has been terminated")
+        return text.contains("private video") || text.contains("has been removed") || text.contains("no longer available")
+            || text.contains("account associated with this video has been terminated")
             || text.hasPrefix("not on youtube any more")
+    }
+
+    /// YouTube said "Video unavailable" to Zeus without a reason, though the video may well play in a browser
+    /// (seen on 50 Lex Fridman episodes that are online): worth retrying, other ways of reading are tried.
+    static func isRefused(_ detail: String) -> Bool {
+        let text = detail.lowercased()
+        return !isGone(detail) && (text.contains("video unavailable") || text.contains("content isn't available")
+            || text.hasPrefix("youtube refused"))
     }
 
     /// A clear sentence for the error yt-dlp gave (the original text is kept in the log).
     static func explain(_ detail: String) -> String {
         let text = detail.lowercased()
+        if text.hasPrefix("youtube refused") || text.hasPrefix("not on youtube any more") { return detail }
         if isGone(detail) {
-            return "Not on YouTube any more: the video was removed, made private, or is blocked in your country."
+            return "Not on YouTube any more: the video was removed, made private, or its channel was closed."
+        }
+        if isRefused(detail) {
+            return "YouTube refused to show this video to Zeus (it may play fine in a browser). Zeus tried other ways of reading it; retry later."
         }
         if text.contains("confirm you") && text.contains("not a bot") {
             return "YouTube asked to confirm you are not a bot. Sign in to YouTube in Zeus (YouTube › Accounts), then retry."
@@ -901,6 +925,9 @@ nonisolated enum EatFailure {
         }
         if text.contains("members-only") || text.contains("join this channel") || text.contains("available to this channel's members") {
             return "Members-only. Sign in with the YouTube account that is a member (YouTube › Accounts), then retry."
+        }
+        if text.contains("not made this video available in your country") || text.contains("blocked it in your country") {
+            return "Blocked in your country by its owner."
         }
         if text.contains("http error 429") || text.contains("too many requests") {
             return "YouTube is limiting requests from this Mac. Retry in an hour."

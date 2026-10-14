@@ -151,6 +151,8 @@ nonisolated struct EntityExtractor: Sendable {
         Only real proper names, spelled the usual way: fix speech-recognition mistakes ("cloud code" → "Claude Code",
         "chat GBT" → "ChatGPT"). Never a phrase, an instruction, a feature or setting of a product, or a generic word
         (AI, agent, API, prompt, skills, MCP server). If you are not sure it is a real name, leave it out.
+        Leave out sponsors and products named only in an ad read ("brought to you by…", "use code…", "check out our
+        sponsors"), app stores and podcast apps named only to say where to listen.
         "about": what it is, in at most 12 words, general knowledge. "context": how this video uses or mentions it, in at
         most 15 words.
         """

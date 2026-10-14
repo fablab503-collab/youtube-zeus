@@ -62,6 +62,9 @@ Newest first.
   and summaries had nothing left, and with ~370 podcasts in line, names never came (466 items waited) and a playbook
   you asked for could wait days. Names now go with the summaries (the local AI takes one request at a time anyway);
   while a playbook is made, polishing and summaries hold. Only Whisper still goes before them (GPU).
+- The Eat page shows the item you pasted when two are eaten at once (a channel check can start another); people,
+  tools and companies leave out sponsors read in ads ("brought to you by…", promo codes) and the apps named only to
+  say where to listen (found again once for every item); the agent guide lists `zeus doctor` and `zeus mcp --selftest`.
 - `zeus status` (the library: items, work left, every error grouped) and `zeus failed` (each failed item, why, the
   raw error, where it came from) — for you and for agents.
 - QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished

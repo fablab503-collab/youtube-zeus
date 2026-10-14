@@ -11,12 +11,12 @@ extension AppModel {
         engine.onNames = { [weak self] _ in self?.scheduleEntityNotes() }
         scheduleEntityNotes(delay: 2)
         // Names found with an older, looser prompt are found again once.
-        if UserDefaults.standard.integer(forKey: "entityPromptVersion") < 3 {
+        if UserDefaults.standard.integer(forKey: "entityPromptVersion") < 4 {   // 4 (4.5): without sponsors
             for video in (try? context.fetch(FetchDescriptor<Video>())) ?? [] where video.entitiesAt != nil {
                 video.entitiesAt = nil
             }
             try? context.save()
-            UserDefaults.standard.set(3, forKey: "entityPromptVersion")
+            UserDefaults.standard.set(4, forKey: "entityPromptVersion")
         }
         if settings.entitiesEnabled {
             let doneRaw = EatStatus.done.rawValue

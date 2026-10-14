@@ -164,7 +164,8 @@ enum AgentGuide {
         | `zeus entities [name] [--people\\|--tools\\|--companies] [--json]` | people, tools and companies named in the library |
         | `zeus entity "<name>"` | every item that names it, with the moments |
         | `zeus digest [--week 2026-W39\\|--last] [--save] [--no-ai]` | the weekly digest (best ideas, open questions, repositories) |
-        | `zeus mcp` | run the MCP server (see below) |
+        | `zeus mcp [--selftest]` | run the MCP server (see below); `--selftest` checks its protocol and read-only tools |
+        | `zeus doctor "<YouTube link or id>"` | why a video cannot be eaten: yt-dlp's version, the sign-in, and the video read in several ways (with and without the sign-in, other YouTube clients) — reads only |
         | `zeus setup [--install] [--model <tag>] [--json]` | check this Mac (yt-dlp, Deno, ffmpeg, whisper.cpp, Ollama, the local AI model that suits it); `--install` installs what is missing with Homebrew and downloads the model |
         | `zeus ask "<question>"` | answer from everything eaten, with video + timestamp sources (local AI, free) |
         | `zeus list "<playlist or channel>"` | list videos (id, title) |

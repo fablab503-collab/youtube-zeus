@@ -41,7 +41,8 @@ struct NowEatingView: View {
         let latest = done.first?.videoID
         let latestAt = done.first?.eatenAt
         let eating = running
-        let current = eating.first
+        // The one you pasted or opened, when several are eaten at once (a channel check can start another).
+        let current = eating.first { $0.videoID == app.selectedVideoID } ?? eating.first
         let waitingCount = waiting
         let failedCount = failedCounts
         let polishing = finishing

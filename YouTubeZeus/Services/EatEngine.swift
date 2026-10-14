@@ -31,6 +31,14 @@ final class EatEngine {
     private var pausedRunning: Set<String> = []
     var whisperBusy = false
     private var summarizing: Set<String> = []
+    /// 4.5: items Apple Intelligence already declined: the local AI summarizes them directly (no minutes lost on a refusal).
+    @ObservationIgnored var appleDeclined: Set<String> = []
+    @ObservationIgnored private var appleFailuresInARow = 0
+    /// After 3 refusals in a row, Apple Intelligence rests for 6 hours and the local AI summarizes (Auto only).
+    var appleSummaryPausedUntil: Date? {
+        get { UserDefaults.standard.object(forKey: "appleSummaryPausedUntil") as? Date }
+        set { UserDefaults.standard.set(newValue, forKey: "appleSummaryPausedUntil") }
+    }
     private var forceWhisper: Set<String> = []
     /// After eating, two lanes run side by side: the local AI polishes, Codex/Apple Intelligence summarizes.
     private(set) var polishQueue: [String] = []
@@ -221,6 +229,7 @@ final class EatEngine {
             let appleFailed = localSummaryAllowed && settings.summaryEngine == "auto"
                 && (message.contains("Apple Intelligence") || message.contains("FoundationModels") || message.contains("SensitiveContentAnalysis"))
             guard Self.isUsageLimit(SummaryError.model(message)) || appleFailed else { continue }
+            if appleFailed { appleDeclined.insert(video.videoID) }
             video.digestError = nil
             cleared += 1
         }
@@ -740,7 +749,8 @@ final class EatEngine {
         jobs[id] = jobs[id] ?? JobState(step: "Summarizing")
         do {
             var result: VideoDigest?
-            if useAppleIntelligence {
+            let appleResting = (appleSummaryPausedUntil ?? .distantPast) > .now
+            if useAppleIntelligence, !(localSummaryAllowed && (appleDeclined.contains(id) || appleResting)) {
                 do {
                     result = try await summarizer.summarize(
                         title: video.displayTitle,
@@ -753,10 +763,18 @@ final class EatEngine {
                             self.jobs[id] = JobState(step: step)
                             video.statusDetail = step
                         }
+                    appleFailuresInARow = 0
                 } catch let error where localSummaryAllowed && !Self.isCancellation(error) {
                     // 4.5: Apple Intelligence declined or failed (refusal, sensitive content, model error): the free local AI
                     // summarizes instead, in "auto" (with "Apple Intelligence only", the error stays).
                     guard video.isAlive else { return }
+                    appleDeclined.insert(id)
+                    appleFailuresInARow += 1
+                    if appleFailuresInARow >= 3 {
+                        appleSummaryPausedUntil = Date.now.addingTimeInterval(6 * 3600)
+                        appleFailuresInARow = 0
+                        AppLog.write("SUMMARY Apple Intelligence failed 3 times in a row: the local AI summarizes for the next 6 hours")
+                    }
                     AppLog.write("SUMMARY \(id): Apple Intelligence failed (\(error.localizedDescription.prefix(120))), the local AI summarizes instead")
                 }
             } else if codexSummaryAllowed, let codex = CodexLocator.path {

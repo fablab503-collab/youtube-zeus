@@ -172,7 +172,23 @@ enum ZeusCLI {
                 let id: String
                 if case .video(let videoID) = YouTubeLink.parse(link) { id = videoID } else { id = link }
                 guard let note = findNote(videoID: id, settings: settings) else {
-                    return fail("Not eaten yet. Run: zeus eat \"https://youtu.be/\(id)\" --save")
+                    // 4.5: an item still in the line says so (posts, pages and files have no youtu.be link).
+                    if let opened = try? Library.open(), let video = Library.video(id, in: opened.1) {
+                        switch video.status {
+                        case .queued, .fetching, .transcribing:
+                            return fail("Still in the line (\(video.status.label.lowercased())): Zeus eats one item at a time. Try again later; `zeus status` shows the line.")
+                        case .failed:
+                            return fail("Could not be eaten: \(EatFailure.explain(video.statusDetail)) (`zeus failed` lists every one.)")
+                        case .waiting:
+                            return fail("Waiting: \(video.statusDetail)")
+                        default:
+                            break
+                        }
+                    }
+                    if id.range(of: #"^[A-Za-z0-9_-]{11}$"#, options: .regularExpression) != nil {
+                        return fail("Not eaten yet. Run: zeus eat \"https://youtu.be/\(id)\" --save")
+                    }
+                    return fail("Not eaten yet: \(id).")
                 }
                 print(try String(contentsOf: note, encoding: .utf8))
                 return 0

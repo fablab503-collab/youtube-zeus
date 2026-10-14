@@ -116,11 +116,13 @@ final class EatEngine {
         return try? context.fetch(descriptor).first
     }
 
-    /// Adds videos (creating them when new) and starts eating.
+    /// Adds videos (creating them when new) and starts eating. `front` (4.5): what you paste or ask for yourself goes
+    /// before a long line (a playlist, a channel), so the Eat page shows it at once.
     @discardableResult
     func enqueue(_ entries: [(id: String, title: String, channel: String, channelID: String)], fromWatch: Bool = false,
-                 force: Bool = false) -> [Video] {
+                 force: Bool = false, front: Bool = false) -> [Video] {
         var added: [Video] = []
+        var frontIndex = 0
         for entry in entries {
             let video: Video
             if let existing = self.video(entry.id) {
@@ -140,7 +142,15 @@ final class EatEngine {
             }
             video.status = .queued
             video.statusDetail = ""
-            if !queue.contains(entry.id), jobs[entry.id] == nil { queue.append(entry.id) }
+            if jobs[entry.id] == nil {
+                if front {
+                    queue.removeAll { $0 == entry.id }
+                    queue.insert(entry.id, at: min(frontIndex, queue.count))
+                    frontIndex += 1
+                } else if !queue.contains(entry.id) {
+                    queue.append(entry.id)
+                }
+            }
             added.append(video)
         }
         try? context.save()
@@ -154,13 +164,14 @@ final class EatEngine {
 
     func retry(_ video: Video, withWhisper: Bool = false) {
         if withWhisper { forceWhisper.insert(video.videoID) }
-        enqueue([(id: video.videoID, title: video.title, channel: video.channelTitle, channelID: video.channelID)], force: true)
+        enqueue([(id: video.videoID, title: video.title, channel: video.channelTitle, channelID: video.channelID)], force: true,
+                front: true)
     }
 
     /// Eats a video by listening to it with Whisper even when captions exist (better punctuation than auto-captions).
     func eatWithWhisper(_ id: String) {
         forceWhisper.insert(id)
-        enqueue([(id: id, title: "", channel: "", channelID: "")], force: true)
+        enqueue([(id: id, title: "", channel: "", channelID: "")], force: true, front: true)
     }
 
     /// Pauses eating: what is running stops and waits at the front of the line, nothing new starts.

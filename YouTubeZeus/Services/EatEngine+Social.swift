@@ -9,7 +9,7 @@ extension EatEngine {
         guard let id = SocialLinks.id(for: link), let page = SocialLinks.canonical(link) else { return nil }
         if let existing = video(id) {
             if existing.status != .done, !existing.status.isBusy, existing.status != .queued {
-                enqueue([(id: id, title: "", channel: "", channelID: "")], force: true)
+                enqueue([(id: id, title: "", channel: "", channelID: "")], force: true, front: true)
             }
             return id
         }
@@ -20,7 +20,7 @@ extension EatEngine {
         item.pageURLString = page.absoluteString
         context.insert(item)
         try? context.save()
-        enqueue([(id: id, title: "", channel: "", channelID: "")], force: true)
+        enqueue([(id: id, title: "", channel: "", channelID: "")], force: true, front: true)
         return id
     }
 
@@ -115,10 +115,11 @@ extension EatEngine {
             }
         }
         // What was said, when there is enough of it; else the words of the post.
-        if let spoken, spoken.segments.map(\.text).joined(separator: " ").split(separator: " ").count >= 8 {
+        let spokenWords = spoken?.segments.map(\.text).joined(separator: " ").split(separator: " ").count ?? 0
+        if let spoken, spokenWords >= 8 || (postText.isEmpty && spokenWords > 0) {
             return spoken
         }
-        guard !postText.isEmpty else { throw SocialError.nothing(site.name) }
+        guard !postText.isEmpty else { throw hasSound ? SocialError.noSpeech(site.name) : SocialError.nothing(site.name) }
         let segments = postText.components(separatedBy: "\n\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }.map { TranscriptSegment(start: 0, end: 0, text: $0) }
         return TranscriptResult(segments: segments, source: .post, language: "")

@@ -364,7 +364,7 @@ final class AppModel {
         }
         switch link {
         case .video(let id):
-            let videos = engine.enqueue([(id: id, title: "", channel: "", channelID: "")])
+            let videos = engine.enqueue([(id: id, title: "", channel: "", channelID: "")], front: true)
             if let video = videos.first, video.status == .done {
                 show("Already eaten — opening it.")
             }

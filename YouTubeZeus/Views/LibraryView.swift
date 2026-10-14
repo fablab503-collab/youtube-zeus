@@ -466,7 +466,10 @@ struct QueueView: View {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
                         if refused > 0 {
-                            Text("\(refused) \(refused == 1 ? "was" : "were") refused by YouTube though \(refused == 1 ? "it is" : "they are") probably online: Retry reads \(refused == 1 ? "it" : "them") other ways (without the sign-in, as Safari, as the mobile site…).")
+                            let refusedText: String = refused == 1
+                                ? "1 was refused by YouTube though it is probably online: Retry reads it other ways (without the sign-in, as Safari, as the mobile site…)."
+                                : "\(refused) were refused by YouTube though they are probably online: Retry reads them other ways (without the sign-in, as Safari, as the mobile site…)."
+                            Text(refusedText)
                                 .font(.caption).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }

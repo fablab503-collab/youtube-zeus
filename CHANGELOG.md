@@ -38,6 +38,11 @@ Newest first.
   the request that waited timed out after 10 minutes. The local AI now answers one request at a time (summaries,
   names, playbooks and questions first, polishing when nothing else waits), answers are streamed, every request uses
   the same 8k context (no model reload between lanes), and the summaries that timed out are tried once more.
+- **What you paste goes first**: a link, a post, a page or a file you eat yourself (or retry) goes before a long line
+  (a playlist, a channel), so the Eat page shows it at once instead of after 50 podcasts. `zeus get` on an item still
+  in the line says so (and no longer suggests a youtu.be link for posts, pages and files).
+- A Telegram (or any) post that is only a video without speech now says so ("a video or a sound without speech… and
+  no text"), and a post with a few spoken words and no text keeps those words.
 - `zeus status` (the library: items, work left, every error grouped) and `zeus failed` (each failed item, why, the
   raw error, where it came from) — for you and for agents.
 - QA pass: the Eat list follows what is open (a pasted link, the menu bar, a link); Follow opens only a newer finished

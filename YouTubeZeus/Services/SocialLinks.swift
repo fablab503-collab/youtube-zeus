@@ -324,6 +324,8 @@ nonisolated enum SocialError: LocalizedError {
     case spotifyOnly(String)
     case unreadable(String)
     case nothing(String)
+    /// 4.5: a video or audio post without words (music, a clip) and without text.
+    case noSpeech(String)
 
     var errorDescription: String? {
         switch self {
@@ -331,6 +333,7 @@ nonisolated enum SocialError: LocalizedError {
         case .spotifyOnly(let show): "“\(show)” has no public feed: it is only on Spotify, which never gives the audio."
         case .unreadable(let site): "\(site) did not show this post. If it is private or needs an account, sign in to \(site) in Settings › Accounts."
         case .nothing(let site): "This \(site) post has no text and no sound to take."
+        case .noSpeech(let site): "This \(site) post is a video or a sound without speech (music, a clip) and has no text: nothing to write down."
         }
     }
 }
